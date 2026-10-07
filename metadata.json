@@ -1,0 +1,8 @@
+{
+  "name": "SIMAN-BMN Minahasa Utara",
+  "description": "Sistem Informasi Manajemen Aset BMN \u0026 Persediaan - BPS Kabupaten Minahasa Utara",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
