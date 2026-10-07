@@ -25,7 +25,7 @@ export const MobileBottomNav: React.FC = () => {
   const pendingRequestsCount = requests.filter(r => r.status === 'Diajukan' || r.status === 'Diverifikasi').length;
   const lowStockCount = inventoryItems.filter(i => i.status === 'Menipis' || i.status === 'Habis').length;
 
-  const isBmnActive = ['assets', 'office-3d', 'movements', 'maintenance', 'disposal'].includes(activeView);
+  const isBmnActive = ['assets', 'rooms', 'office-3d', 'movements', 'maintenance', 'disposal'].includes(activeView);
   const isInvActive = ['inventory', 'warehouse-3d', 'stock-opname'].includes(activeView);
   const isReqActive = activeView === 'requests';
   const isHomeActive = activeView === 'dashboard' || activeView === 'executive';

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { AssetMovement, MovementStatus } from '../types';
+import { BastMovementPrintModal } from '../components/bmn/BastMovementPrintModal';
 import {
   ArrowRightLeft,
   Plus,
@@ -12,7 +13,8 @@ import {
   X,
   Building,
   User,
-  Calendar
+  Calendar,
+  Printer
 } from 'lucide-react';
 
 export const AssetMovementsView: React.FC = () => {
@@ -20,6 +22,7 @@ export const AssetMovementsView: React.FC = () => {
 
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
+  const [selectedMovementForPrint, setSelectedMovementForPrint] = useState<AssetMovement | null>(null);
 
   // Form states
   const [selectedAssetId, setSelectedAssetId] = useState(assets[0]?.id || '');
@@ -171,48 +174,52 @@ export const AssetMovementsView: React.FC = () => {
 
                   {/* Workflow Action Steps */}
                   <td className="py-3 px-3 text-center whitespace-nowrap">
-                    {mov.status === 'Pengajuan' && (
-                      <button
-                        onClick={() => updateMovementStatus(mov.id, 'Verifikasi')}
-                        className="px-2.5 py-1 rounded-lg bg-cyan-600/20 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-600 hover:text-white text-[11px] font-semibold transition-colors"
-                      >
-                        Verifikasi
-                      </button>
-                    )}
+                    <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                      {mov.status === 'Pengajuan' && (
+                        <button
+                          onClick={() => updateMovementStatus(mov.id, 'Verifikasi')}
+                          className="px-2.5 py-1 rounded-lg bg-cyan-600/20 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-600 hover:text-white text-[11px] font-semibold transition-colors"
+                        >
+                          Verifikasi
+                        </button>
+                      )}
 
-                    {mov.status === 'Verifikasi' && (
-                      <button
-                        onClick={() => updateMovementStatus(mov.id, 'Persetujuan')}
-                        className="px-2.5 py-1 rounded-lg bg-amber-600/20 text-amber-300 border border-amber-500/30 hover:bg-amber-600 hover:text-white text-[11px] font-semibold transition-colors"
-                      >
-                        Setujui Mutasi
-                      </button>
-                    )}
+                      {mov.status === 'Verifikasi' && (
+                        <button
+                          onClick={() => updateMovementStatus(mov.id, 'Persetujuan')}
+                          className="px-2.5 py-1 rounded-lg bg-amber-600/20 text-amber-300 border border-amber-500/30 hover:bg-amber-600 hover:text-white text-[11px] font-semibold transition-colors"
+                        >
+                          Setujui Mutasi
+                        </button>
+                      )}
 
-                    {mov.status === 'Persetujuan' && (
-                      <button
-                        onClick={() => updateMovementStatus(mov.id, 'Pemindahan')}
-                        className="px-2.5 py-1 rounded-lg bg-purple-600/20 text-purple-300 border border-purple-500/30 hover:bg-purple-600 hover:text-white text-[11px] font-semibold transition-colors"
-                      >
-                        Proses Pindah
-                      </button>
-                    )}
+                      {mov.status === 'Persetujuan' && (
+                        <button
+                          onClick={() => updateMovementStatus(mov.id, 'Pemindahan')}
+                          className="px-2.5 py-1 rounded-lg bg-purple-600/20 text-purple-300 border border-purple-500/30 hover:bg-purple-600 hover:text-white text-[11px] font-semibold transition-colors"
+                        >
+                          Proses Pindah
+                        </button>
+                      )}
 
-                    {mov.status === 'Pemindahan' && (
-                      <button
-                        onClick={() => updateMovementStatus(mov.id, 'Selesai')}
-                        className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold transition-colors shadow-sm"
-                      >
-                        Selesai & Update Lokasi
-                      </button>
-                    )}
+                      {mov.status === 'Pemindahan' && (
+                        <button
+                          onClick={() => updateMovementStatus(mov.id, 'Selesai')}
+                          className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold transition-colors shadow-sm"
+                        >
+                          Selesai & Update Lokasi
+                        </button>
+                      )}
 
-                    {mov.status === 'Selesai' && (
-                      <span className="text-emerald-400 text-[11px] font-medium flex items-center justify-center gap-1">
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>Lokasi Terbarui</span>
-                      </span>
-                    )}
+                      <button
+                        onClick={() => setSelectedMovementForPrint(mov)}
+                        className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:text-white text-[11px] font-medium transition-colors flex items-center gap-1 shadow-sm"
+                        title="Cetak Berita Acara Serah Terima (BAST)"
+                      >
+                        <Printer className="w-3 h-3 text-cyan-400" />
+                        <span>Cetak BAST</span>
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -315,6 +322,14 @@ export const AssetMovementsView: React.FC = () => {
             </form>
           </div>
         </div>
+      )}
+      {/* Print BAST Modal */}
+      {selectedMovementForPrint && (
+        <BastMovementPrintModal
+          isOpen={!!selectedMovementForPrint}
+          movement={selectedMovementForPrint}
+          onClose={() => setSelectedMovementForPrint(null)}
+        />
       )}
     </div>
   );

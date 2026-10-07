@@ -42,6 +42,7 @@ export type ActiveView =
   | 'login'
   | 'dashboard'
   | 'assets'
+  | 'rooms'
   | 'inventory'
   | 'office-3d'
   | 'warehouse-3d'
@@ -72,6 +73,13 @@ interface AppContextType {
   
   // Data State
   rooms: OfficeRoom[];
+  addRoom: (room: Omit<OfficeRoom, 'id'>) => OfficeRoom;
+  updateRoom: (id: string, updates: Partial<OfficeRoom>) => void;
+  deleteRoom: (id: string) => { success: boolean; message: string };
+  isRoomModalOpen: boolean;
+  setIsRoomModalOpen: (open: boolean) => void;
+  editingRoom: OfficeRoom | null;
+  setEditingRoom: (room: OfficeRoom | null) => void;
   warehouseRacks: WarehouseRack[];
   assets: BmnAsset[];
   inventoryItems: InventoryItem[];
@@ -186,8 +194,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [performance3D, setPerformance3D] = useState<'normal' | 'performance' | 'low'>('normal');
 
   // Rooms & Racks
-  const [rooms] = useState<OfficeRoom[]>(OFFICE_ROOMS);
+  const [rooms, setRooms] = useState<OfficeRoom[]>(() => {
+    const saved = localStorage.getItem('siman_rooms');
+    if (saved) {
+      try {
+        const parsed: OfficeRoom[] = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      } catch {
+        // fallback
+      }
+    }
+    return OFFICE_ROOMS;
+  });
   const [warehouseRacks] = useState<WarehouseRack[]>(WAREHOUSE_RACKS);
+  const [isRoomModalOpen, setIsRoomModalOpen] = useState(false);
+  const [editingRoom, setEditingRoom] = useState<OfficeRoom | null>(null);
 
   // Entities with Lazy Initializers
   const [assets, setAssets] = useState<BmnAsset[]>(() => {
@@ -418,6 +441,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [roles]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem('siman_rooms', JSON.stringify(rooms));
+    } catch {
+      // quota safeguard
+    }
+  }, [rooms]);
+
   // Auth Helpers
   const loginAs = (role: User['role']) => {
     const target = users.find(u => u.role === role) || INITIAL_USERS.find(u => u.role === role) || users[0];
@@ -589,6 +620,79 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       link
     };
     setNotifications(prev => [newNotif, ...prev]);
+  };
+
+  // Room Management CRUD
+  const ALLOWED_ROOM_ROLES = ['Administrator', 'Pengelola BMN', 'Pimpinan'];
+
+  const addRoom = (roomData: Omit<OfficeRoom, 'id'>) => {
+    if (currentUser && !ALLOWED_ROOM_ROLES.includes(currentUser.role)) {
+      logAudit('Percobaan Akses Ditolak', 'AUTH', `Pengguna ${currentUser.name} (${currentUser.role}) mencoba menambah ruangan tanpa izin.`);
+      pushNotification('PERINGATAN', 'Akses Ditolak', 'Hanya Pimpinan, Administrator, dan Pengelola BMN yang berhak membuat ruangan baru.', 'dashboard');
+      throw new Error('Akses ditolak: Role Anda tidak memiliki izin untuk membuat ruangan.');
+    }
+
+    const newId = `rm-${Date.now()}`;
+    const newRoom: OfficeRoom = {
+      ...roomData,
+      id: newId
+    };
+    setRooms(prev => [...prev, newRoom]);
+    logAudit('Tambah Ruangan Baru', 'ASET_BMN', `Menambahkan unit ruangan baru: ${newRoom.name} (${newRoom.code}) di ${newRoom.building} Lt. ${newRoom.floor} - PIC: ${newRoom.picName}`);
+    pushNotification('TRANSAKSI', '🏢 Ruangan Baru Ditambahkan', `Ruangan ${newRoom.name} (${newRoom.code}) berhasil didaftarkan ke master ruangan.`, 'rooms');
+    return newRoom;
+  };
+
+  const updateRoom = (id: string, updates: Partial<OfficeRoom>) => {
+    if (currentUser && !ALLOWED_ROOM_ROLES.includes(currentUser.role)) {
+      logAudit('Percobaan Akses Ditolak', 'AUTH', `Pengguna ${currentUser.name} (${currentUser.role}) mencoba memperbarui data ruangan tanpa izin.`);
+      pushNotification('PERINGATAN', 'Akses Ditolak', 'Hanya Pimpinan, Administrator, dan Pengelola BMN yang berhak mengubah data ruangan.', 'dashboard');
+      return;
+    }
+
+    setRooms(prev => prev.map(r => (r.id === id ? { ...r, ...updates } : r)));
+    // If room name, building, or PIC changed, also sync in assets table
+    if (updates.name || updates.building || updates.picName) {
+      setAssets(prev =>
+        prev.map(a => {
+          if (a.ruanganId === id) {
+            return {
+              ...a,
+              ruanganNama: updates.name || a.ruanganNama,
+              gedung: updates.building || a.gedung,
+              penanggungJawab: updates.picName || a.penanggungJawab
+            };
+          }
+          return a;
+        })
+      );
+    }
+    logAudit('Pembaruan Data Ruangan', 'ASET_BMN', `Pembaruan data ruangan ID: ${id}`);
+    pushNotification('TRANSAKSI', '🏢 Data Ruangan Diperbarui', `Informasi ruangan berhasil disimpan dan disinkronkan.`, 'rooms');
+  };
+
+  const deleteRoom = (id: string) => {
+    if (currentUser && !ALLOWED_ROOM_ROLES.includes(currentUser.role)) {
+      logAudit('Percobaan Akses Ditolak', 'AUTH', `Pengguna ${currentUser.name} (${currentUser.role}) mencoba menghapus ruangan tanpa izin.`);
+      pushNotification('PERINGATAN', 'Akses Ditolak', 'Hanya Pimpinan, Administrator, dan Pengelola BMN yang berhak menghapus ruangan.', 'dashboard');
+      return { success: false, message: 'Akses ditolak: Hanya Pimpinan, Administrator, dan Pengelola BMN yang berhak menghapus ruangan.' };
+    }
+
+    const target = rooms.find(r => r.id === id);
+    if (!target) {
+      return { success: false, message: 'Ruangan tidak ditemukan dalam sistem.' };
+    }
+    const assignedAssetsCount = assets.filter(a => a.ruanganId === id).length;
+    if (assignedAssetsCount > 0) {
+      return {
+        success: false,
+        message: `Tidak dapat menghapus ruangan "${target.name}". Masih terdapat ${assignedAssetsCount} unit aset BMN terdaftar di ruangan ini. Silakan mutasikan atau pindahkan aset terlebih dahulu.`
+      };
+    }
+    setRooms(prev => prev.filter(r => r.id !== id));
+    logAudit('Penghapusan Ruangan', 'ASET_BMN', `Ruangan ${target.name} (${target.code}) dihapus dari master sistem.`);
+    pushNotification('TRANSAKSI', '🗑️ Ruangan Dihapus', `Ruangan ${target.name} (${target.code}) berhasil dihapus.`, 'rooms');
+    return { success: true, message: `Ruangan "${target.name}" berhasil dihapus.` };
   };
 
   // Asset CRUD
@@ -1098,6 +1202,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         performance3D,
         setPerformance3D,
         rooms,
+        addRoom,
+        updateRoom,
+        deleteRoom,
+        isRoomModalOpen,
+        setIsRoomModalOpen,
+        editingRoom,
+        setEditingRoom,
         warehouseRacks,
         assets,
         inventoryItems,

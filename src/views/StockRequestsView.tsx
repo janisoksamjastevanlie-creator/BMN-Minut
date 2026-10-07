@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { InventoryRequest, RequestStatus } from '../types';
 import { StockRequestModal } from '../components/inventory/StockRequestModal';
+import { triggerPrint } from '../utils/printHelper';
 import {
   ClipboardList,
   Plus,
@@ -688,8 +689,8 @@ export const StockRequestsView: React.FC = () => {
 
       {/* Detail & Print SBBK Modal */}
       {selectedDetail && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-150">
-          <div className="w-full max-w-xl bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl flex flex-col overflow-hidden max-h-[92vh]">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-150 printable-modal-overlay">
+          <div className="w-full max-w-xl bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl flex flex-col overflow-hidden max-h-[92vh] printable-modal-card">
             <div className="p-4 border-b border-slate-800 flex items-center justify-between no-print">
               <div className="flex items-center gap-2">
                 <FileText className="w-5 h-5 text-indigo-400" />
@@ -779,7 +780,7 @@ export const StockRequestsView: React.FC = () => {
               </table>
 
               {/* Tanda Tangan Resmi */}
-              <div className="pt-6 grid grid-cols-3 gap-2 text-center text-[10px]">
+              <div className="pt-6 grid grid-cols-3 gap-2 text-center text-[10px] print-signature-block">
                 <div>
                   <div className="text-slate-400">Yang Memohon,</div>
                   <div className="h-14"></div>
@@ -821,7 +822,7 @@ export const StockRequestsView: React.FC = () => {
 
               <button
                 type="button"
-                onClick={() => window.print()}
+                onClick={() => triggerPrint({ title: `SBBK_${selectedDetail.nomorPermintaan}_BPS_Minut` })}
                 className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-lg shadow-indigo-600/30"
               >
                 <Printer className="w-4 h-4" />

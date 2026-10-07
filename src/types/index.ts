@@ -59,6 +59,9 @@ export interface OfficeRoom {
   position3D: [number, number, number];
   size3D: [number, number, number];
   description: string;
+  roomType?: 'Ruang Kerja' | 'Ruang Rapat' | 'Ruang Server' | 'Gudang' | 'Layanan Publik' | 'Arsip & Dokumen' | 'Lainnya';
+  capacity?: number;
+  areaSqm?: number;
 }
 
 export interface BmnAsset {

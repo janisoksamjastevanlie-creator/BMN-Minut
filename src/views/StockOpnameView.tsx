@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { StockOpname, StockOpnameItem } from '../types';
+import { BasoPrintModal } from '../components/inventory/BasoPrintModal';
 import {
   History,
   Plus,
@@ -20,6 +21,7 @@ export const StockOpnameView: React.FC = () => {
 
   const [selectedOpname, setSelectedOpname] = useState<StockOpname>(opnames[0] || null);
   const [isNewOpnameModalOpen, setIsNewOpnameModalOpen] = useState(false);
+  const [isPrintBasoOpen, setIsPrintBasoOpen] = useState(false);
 
   // Form states for creating a new opname session
   const [periode, setPeriode] = useState('Triwulan III 2026');
@@ -67,7 +69,7 @@ export const StockOpnameView: React.FC = () => {
   };
 
   const handlePrintBeritaAcara = () => {
-    window.print();
+    setIsPrintBasoOpen(true);
   };
 
   return (
@@ -320,6 +322,13 @@ export const StockOpnameView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Official BASO Printable Modal */}
+      <BasoPrintModal
+        isOpen={isPrintBasoOpen}
+        onClose={() => setIsPrintBasoOpen(false)}
+        opname={selectedOpname}
+      />
     </div>
   );
 };

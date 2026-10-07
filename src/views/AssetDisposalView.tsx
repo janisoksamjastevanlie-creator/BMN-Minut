@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { AssetDisposal, DisposalStatus } from '../types';
+import { DisposalPrintModal } from '../components/bmn/DisposalPrintModal';
 import {
   Trash2,
   Plus,
@@ -9,13 +10,15 @@ import {
   FileText,
   AlertTriangle,
   X,
-  Check
+  Check,
+  Printer
 } from 'lucide-react';
 
 export const AssetDisposalView: React.FC = () => {
   const { disposals, assets, addAssetDisposal, updateDisposalStatus, currentUser } = useApp();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedDisposalForPrint, setSelectedDisposalForPrint] = useState<AssetDisposal | null>(null);
   const [selectedAssetId, setSelectedAssetId] = useState(assets.find(a => a.kondisi === 'Rusak Berat')?.id || assets[0]?.id || '');
   const [alasan, setAlasan] = useState('Kerusakan berat tidak ekonomis untuk diperbaiki dan teknologi usang');
   const [dokumen, setDokumen] = useState('Surat Usulan Penghapusan BMN Kemenkeu');
@@ -121,44 +124,49 @@ export const AssetDisposalView: React.FC = () => {
                     </span>
                   </td>
                   <td className="py-3 px-3 text-center whitespace-nowrap">
-                    {dsp.status === 'Draft' && (
+                    <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                      {dsp.status === 'Draft' && (
+                        <button
+                          onClick={() => updateDisposalStatus(dsp.id, 'Pengajuan')}
+                          className="px-2 py-1 bg-blue-600/20 text-blue-300 hover:bg-blue-600 hover:text-white rounded text-[10px] font-bold"
+                        >
+                          Ajukan
+                        </button>
+                      )}
+                      {dsp.status === 'Pengajuan' && (
+                        <button
+                          onClick={() => updateDisposalStatus(dsp.id, 'Verifikasi')}
+                          className="px-2 py-1 bg-cyan-600/20 text-cyan-300 hover:bg-cyan-600 hover:text-white rounded text-[10px] font-bold"
+                        >
+                          Verifikasi Tim
+                        </button>
+                      )}
+                      {dsp.status === 'Verifikasi' && (
+                        <button
+                          onClick={() => updateDisposalStatus(dsp.id, 'Persetujuan')}
+                          className="px-2 py-1 bg-amber-600/20 text-amber-300 hover:bg-amber-600 hover:text-white rounded text-[10px] font-bold"
+                        >
+                          Persetujuan Pimpinan
+                        </button>
+                      )}
+                      {dsp.status === 'Persetujuan' && (
+                        <button
+                          onClick={() => updateDisposalStatus(dsp.id, 'Selesai')}
+                          className="px-2 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded text-[10px] font-bold"
+                        >
+                          Terbitkan SK Penghapusan
+                        </button>
+                      )}
+
                       <button
-                        onClick={() => updateDisposalStatus(dsp.id, 'Pengajuan')}
-                        className="px-2 py-1 bg-blue-600/20 text-blue-300 hover:bg-blue-600 hover:text-white rounded text-[10px] font-bold"
+                        onClick={() => setSelectedDisposalForPrint(dsp)}
+                        className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:text-white text-[10px] font-medium transition-colors flex items-center gap-1 shadow-sm"
+                        title="Cetak Surat Usulan & Berita Acara Penghapusan"
                       >
-                        Ajukan
+                        <Printer className="w-3 h-3 text-rose-400" />
+                        <span>Cetak Berkas</span>
                       </button>
-                    )}
-                    {dsp.status === 'Pengajuan' && (
-                      <button
-                        onClick={() => updateDisposalStatus(dsp.id, 'Verifikasi')}
-                        className="px-2 py-1 bg-cyan-600/20 text-cyan-300 hover:bg-cyan-600 hover:text-white rounded text-[10px] font-bold"
-                      >
-                        Verifikasi Tim
-                      </button>
-                    )}
-                    {dsp.status === 'Verifikasi' && (
-                      <button
-                        onClick={() => updateDisposalStatus(dsp.id, 'Persetujuan')}
-                        className="px-2 py-1 bg-amber-600/20 text-amber-300 hover:bg-amber-600 hover:text-white rounded text-[10px] font-bold"
-                      >
-                        Persetujuan Pimpinan
-                      </button>
-                    )}
-                    {dsp.status === 'Persetujuan' && (
-                      <button
-                        onClick={() => updateDisposalStatus(dsp.id, 'Selesai')}
-                        className="px-2 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded text-[10px] font-bold"
-                      >
-                        Terbitkan SK Penghapusan
-                      </button>
-                    )}
-                    {dsp.status === 'Selesai' && (
-                      <span className="text-rose-400 text-[10px] font-bold flex items-center justify-center gap-1">
-                        <CheckCircle2 className="w-3 h-3" />
-                        <span>Dihapuskan</span>
-                      </span>
-                    )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -245,6 +253,14 @@ export const AssetDisposalView: React.FC = () => {
             </form>
           </div>
         </div>
+      )}
+      {/* Print Disposal Modal */}
+      {selectedDisposalForPrint && (
+        <DisposalPrintModal
+          isOpen={!!selectedDisposalForPrint}
+          disposal={selectedDisposalForPrint}
+          onClose={() => setSelectedDisposalForPrint(null)}
+        />
       )}
     </div>
   );

@@ -43,24 +43,147 @@
 
 /* Print styling for official BPS documents */
 @media print {
-  body {
-    background: white !important;
-    color: black !important;
+  @page {
+    size: A4 portrait;
+    margin: 10mm 12mm 12mm 12mm;
   }
-  .no-print {
+
+  /* Reset global backgrounds and text */
+  html, body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-family: 'Times New Roman', 'Plus Jakarta Sans', Arial, sans-serif !important;
+    font-size: 10pt !important;
+    line-height: 1.35 !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Hide app chrome, sidebars, navigations, action buttons and modals background */
+  header,
+  nav,
+  aside,
+  button,
+  .no-print,
+  [aria-label="Mobile Navigation Bar"],
+  .floating-action-fab {
     display: none !important;
   }
-  .print-only {
-    display: block !important;
+
+  /* When a modal is printing, completely hide any background view content */
+  body.printing-active main > *:not(.printable-modal-overlay),
+  body.printing-active main > div > *:not(.printable-modal-overlay),
+  body:has(.printable-modal-overlay) main > *:not(.printable-modal-overlay),
+  body:has(.printable-modal-overlay) .page-view-content {
+    display: none !important;
   }
-  .print-page {
-    background: white !important;
-    color: black !important;
+
+  /* Remove scrollbars and overflow restrictions on printable containers */
+  #root, main, div, section, article {
+    overflow: visible !important;
+    max-height: none !important;
+    height: auto !important;
+  }
+
+  /* Modal overlay reset for printing */
+  .printable-modal-overlay {
+    position: static !important;
+    inset: auto !important;
+    background: #ffffff !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    z-index: auto !important;
+  }
+
+  .printable-modal-card {
+    position: static !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    border: none !important;
+    box-shadow: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
+    max-height: none !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* General print container styling */
+  .print-page, .printable-sheet {
+    background: #ffffff !important;
+    color: #000000 !important;
     box-shadow: none !important;
     border: none !important;
     padding: 0 !important;
     margin: 0 !important;
     width: 100% !important;
+  }
+
+  /* Crisp table styles for print */
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    color: #000000 !important;
+    font-size: 9pt !important;
+    page-break-inside: auto;
+  }
+
+  tr {
+    page-break-inside: avoid !important;
+    page-break-after: auto;
+  }
+
+  thead {
+    display: table-header-group !important;
+  }
+
+  th {
+    background-color: #f1f5f9 !important;
+    color: #000000 !important;
+    font-weight: 700 !important;
+    border: 1px solid #1e293b !important;
+    padding: 5px 6px !important;
+  }
+
+  td {
+    border: 1px solid #475569 !important;
+    color: #000000 !important;
+    padding: 4px 6px !important;
+  }
+
+  /* Official signature blocks */
+  .print-signature-block {
+    page-break-inside: avoid !important;
+    margin-top: 20px !important;
+  }
+
+  /* Ensure text colors are printed dark */
+  .text-white, .text-slate-100, .text-slate-200, .text-slate-300, .text-slate-400, .text-slate-500 {
+    color: #000000 !important;
+  }
+  .bg-slate-900, .bg-slate-950, .bg-slate-800, .bg-slate-700 {
+    background-color: #ffffff !important;
+  }
+
+  /* Label sticker specific printing */
+  .bmn-label-sticker {
+    page-break-inside: avoid !important;
+    border: 1.5px solid #000000 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
   }
 }
 

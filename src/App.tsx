@@ -25,6 +25,7 @@ import { LoginView } from './views/LoginView';
 import { DashboardView } from './views/DashboardView';
 import { ExecutiveDashboardView } from './views/ExecutiveDashboardView';
 import { AssetsView } from './views/AssetsView';
+import { RoomsView } from './views/RoomsView';
 import { AssetMapping3DView } from './views/AssetMapping3DView';
 import { AssetMovementsView } from './views/AssetMovementsView';
 import { AssetMaintenanceView } from './views/AssetMaintenanceView';
@@ -62,15 +63,19 @@ const MainLayout: React.FC = () => {
   return (
     <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100">
       {/* Top Header */}
-      <Navbar />
+      <div className="no-print">
+        <Navbar />
+      </div>
 
       {/* Body Area */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden print:overflow-visible print:block">
         {/* Collapsible Sidebar */}
-        <Sidebar />
+        <div className="no-print">
+          <Sidebar />
+        </div>
 
         {/* Main View Port */}
-        <main className="flex-1 overflow-y-auto p-3 sm:p-6 lg:p-8 pb-28 md:pb-8 max-w-7xl mx-auto w-full">
+        <main className="flex-1 overflow-y-auto p-3 sm:p-6 lg:p-8 pb-28 md:pb-8 max-w-7xl mx-auto w-full print:p-0 print:m-0 print:max-w-none print:overflow-visible">
           {!canAccessView(activeView, hasPermission, currentUser) ? (
             <AccessDeniedView />
           ) : (
@@ -87,6 +92,7 @@ const MainLayout: React.FC = () => {
 
               {activeView === 'executive' && <ExecutiveDashboardView />}
               {activeView === 'assets' && <AssetsView />}
+              {activeView === 'rooms' && <RoomsView />}
               {activeView === 'office-3d' && <AssetMapping3DView />}
               {activeView === 'movements' && <AssetMovementsView />}
               {activeView === 'maintenance' && <AssetMaintenanceView />}
@@ -118,16 +124,20 @@ const MainLayout: React.FC = () => {
       </div>
 
       {/* Floating Action Buttons & Quick Menus */}
-      <QuickActionFab
-        onOpenStockIn={() => setIsStockInModalOpen(true)}
-        onOpenStockOut={() => setIsStockOutModalOpen(true)}
-        onOpenRequest={() => setIsRequestModalOpen(true)}
-        onOpenStockOpname={() => setActiveView('stock-opname')}
-        onOpenAddAsset={() => setIsAddAssetModalOpen(true)}
-      />
+      <div className="no-print floating-action-fab">
+        <QuickActionFab
+          onOpenStockIn={() => setIsStockInModalOpen(true)}
+          onOpenStockOut={() => setIsStockOutModalOpen(true)}
+          onOpenRequest={() => setIsRequestModalOpen(true)}
+          onOpenStockOpname={() => setActiveView('stock-opname')}
+          onOpenAddAsset={() => setIsAddAssetModalOpen(true)}
+        />
+      </div>
 
       {/* Mobile Bottom Navigation Bar (Phone & Tablet) */}
-      <MobileBottomNav />
+      <div className="no-print">
+        <MobileBottomNav />
+      </div>
 
       {/* Global Interactive Modals */}
       <GlobalSearchModal />

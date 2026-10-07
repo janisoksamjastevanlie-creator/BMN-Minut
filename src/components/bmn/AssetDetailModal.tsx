@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { BmnAsset } from '../../types';
 import { getAssetPhotoUrl } from '../../utils/assetImages';
+import { AssetLabelPrintModal } from './AssetLabelPrintModal';
 import {
   X,
   Printer,
@@ -31,6 +32,7 @@ export const AssetDetailModal: React.FC<{
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [isPhotoUpdated, setIsPhotoUpdated] = useState(false);
+  const [isLabelModalOpen, setIsLabelModalOpen] = useState(false);
 
   if (!asset) return null;
 
@@ -55,7 +57,7 @@ export const AssetDetailModal: React.FC<{
   const assetMaintenances = maintenances.filter(m => m.assetId === asset.id || m.nup === asset.nup);
 
   const handlePrintLabel = () => {
-    window.print();
+    setIsLabelModalOpen(true);
   };
 
   return (
@@ -320,6 +322,15 @@ export const AssetDetailModal: React.FC<{
           </button>
         </div>
       </div>
+
+      {/* Official BMN Barcode & QR Label Sticker Print Modal */}
+      {isLabelModalOpen && (
+        <AssetLabelPrintModal
+          isOpen={isLabelModalOpen}
+          asset={asset}
+          onClose={() => setIsLabelModalOpen(false)}
+        />
+      )}
     </div>
   );
 };

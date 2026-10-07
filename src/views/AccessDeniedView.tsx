@@ -47,6 +47,11 @@ export const AccessDeniedView: React.FC = () => {
             <p className="text-xs text-slate-400 mt-0.5">
               Anda tidak memiliki wewenang untuk membuka modul <span className="font-bold text-white">"{viewConfig.label}"</span>.
             </p>
+            {activeView === 'rooms' && (
+              <div className="mt-2 text-xs text-amber-300 bg-amber-500/10 border border-amber-500/20 px-3 py-1.5 rounded-xl font-medium">
+                Sesuai kebijakan penatausahaan aset BPS, modul Manajemen Ruangan & DBR hanya dapat diakses oleh <span className="font-bold text-white">Pimpinan</span>, <span className="font-bold text-white">Administrator</span>, dan <span className="font-bold text-white">Pengelola BMN</span>.
+              </div>
+            )}
           </div>
         </div>
 

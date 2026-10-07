@@ -37,7 +37,7 @@ export const LandingPageView: React.FC = () => {
             </div>
 
             <div>
-              <span className="font-extrabold text-white text-base">SIMAN-BMN</span>
+              <span className="font-extrabold text-white text-base">BMN BPS MINUT</span>
               <span className="text-[10px] font-bold text-blue-400 ml-2 uppercase tracking-widest hidden sm:inline">
                 BPS Minahasa Utara
               </span>
@@ -118,7 +118,7 @@ export const LandingPageView: React.FC = () => {
       <section className="py-16 bg-slate-900/60 border-t border-slate-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
           <div className="text-center space-y-2">
-            <h2 className="text-2xl font-black text-white">7 Komponen Inti SIMAN-BMN</h2>
+            <h2 className="text-2xl font-black text-white">7 Komponen Inti BMN BPS MINUT</h2>
             <p className="text-xs text-slate-400">Arsitektur terintegrasi standar Badan Pusat Statistik</p>
           </div>
 
@@ -209,7 +209,7 @@ export const LandingPageView: React.FC = () => {
           BADAN PUSAT STATISTIK KABUPATEN MINAHASA UTARA
         </div>
         <div>
-          SIMAN-BMN — Sistem Informasi Manajemen Aset BMN & Persediaan
+          BMN BPS MINUT — Sistem Informasi Manajemen Aset BMN & Persediaan
         </div>
         <div className="text-slate-400 text-[11px]">
           © 2026 BPS Kabupaten Minahasa Utara. Seluruh hak cipta dilindungi undang-undang.

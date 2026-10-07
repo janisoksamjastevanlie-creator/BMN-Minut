@@ -14,6 +14,7 @@ import {
   Settings,
   ChevronDown,
   Building,
+  Building2,
   Warehouse,
   ClipboardList,
   LineChart,
@@ -28,6 +29,7 @@ export const Sidebar: React.FC = () => {
     setActiveView,
     currentUser,
     hasPermission,
+    rooms,
     inventoryItems,
     requests,
     movements,
@@ -96,6 +98,7 @@ export const Sidebar: React.FC = () => {
   // Section visibility checks
   const canSeeBmn =
     canAccessView('assets', hasPermission, currentUser) ||
+    canAccessView('rooms', hasPermission, currentUser) ||
     canAccessView('office-3d', hasPermission, currentUser) ||
     canAccessView('movements', hasPermission, currentUser) ||
     canAccessView('maintenance', hasPermission, currentUser) ||
@@ -141,6 +144,13 @@ export const Sidebar: React.FC = () => {
           {bmnExpanded && (
             <div className="mt-1.5 space-y-0.5 pl-1.5">
               <NavItem view="assets" icon={Boxes} label="Semua Aset BMN" />
+              <NavItem
+                view="rooms"
+                icon={Building2}
+                label="Manajemen Ruangan"
+                badge={rooms.length}
+                badgeColor="bg-blue-500/20 text-blue-300"
+              />
               <NavItem view="office-3d" icon={Building} label="3D Asset Mapping" />
               <NavItem
                 view="movements"
@@ -230,7 +240,7 @@ export const Sidebar: React.FC = () => {
         <span className="font-semibold text-slate-300">BPS Minahasa Utara</span>
         <span className="text-[10px] font-mono text-blue-400 font-bold">{currentUser?.role || 'Guest'}</span>
       </div>
-      <div className="text-[10px] text-slate-400 mt-0.5">Kode Satker: 7106 • SIMAN v2.6</div>
+      <div className="text-[10px] text-slate-400 mt-0.5">Kode Satker: 7106 • BMN BPS MINUT v2.6</div>
     </div>
   );
 
@@ -268,7 +278,7 @@ export const Sidebar: React.FC = () => {
                   </div>
                 </div>
                 <div>
-                  <div className="font-extrabold text-white text-sm tracking-wide">SIMAN-BMN</div>
+                  <div className="font-extrabold text-white text-sm tracking-wide">BMN BPS MINUT</div>
                   <div className="text-[10px] text-blue-300 font-semibold leading-none">BPS Minahasa Utara</div>
                 </div>
               </div>

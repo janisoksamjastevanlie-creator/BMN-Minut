@@ -30,7 +30,7 @@ export const SettingsView: React.FC = () => {
 
   const handleExportBackup = () => {
     const backupData = {
-      appName: 'SIMAN-BMN Minahasa Utara',
+      appName: 'BMN BPS MINUT',
       satker: 'BPS Kabupaten Minahasa Utara (7106)',
       exportedAt: new Date().toISOString(),
       assets,
@@ -41,7 +41,7 @@ export const SettingsView: React.FC = () => {
     const jsonString = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(backupData, null, 2));
     const downloadAnchor = document.createElement('a');
     downloadAnchor.setAttribute('href', jsonString);
-    downloadAnchor.setAttribute('download', `BACKUP_SIMAN_BMN_BPS7106_${new Date().toISOString().split('T')[0]}.json`);
+    downloadAnchor.setAttribute('download', `BACKUP_BMN_BPS_MINUT_7106_${new Date().toISOString().split('T')[0]}.json`);
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
@@ -56,7 +56,7 @@ export const SettingsView: React.FC = () => {
       try {
         const parsed = JSON.parse(event.target?.result as string);
         if (!parsed.assets && !parsed.inventoryItems && !parsed.documents) {
-          throw new Error('File tidak memiliki struktur data SIMAN yang valid.');
+          throw new Error('File tidak memiliki struktur data cadangan BMN yang valid.');
         }
 
         importSystemBackup({
@@ -85,7 +85,7 @@ export const SettingsView: React.FC = () => {
     <div className="space-y-6 max-w-4xl">
       {/* Header */}
       <div>
-        <h1 className="text-xl font-extrabold text-white">Pengaturan Sistem SIMAN-BMN</h1>
+        <h1 className="text-xl font-extrabold text-white">Pengaturan Sistem BMN BPS MINUT</h1>
         <p className="text-xs text-slate-400 mt-1">
           Konfigurasi Satker BPS Minahasa Utara, performa 3D twin, dan manajemen database
         </p>

@@ -51,6 +51,14 @@ export const VIEW_ACCESS_CONFIGS: Record<ActiveView, ViewAccessConfig> = {
     matchMode: 'any',
     description: 'Master inventarisasi Barang Milik Negara (BMN) dan pencatatan NUP.'
   },
+  rooms: {
+    view: 'rooms',
+    label: 'Manajemen Ruangan & DBR',
+    category: 'BMN & Aset',
+    requiredPermissions: ['manageAssets'],
+    matchMode: 'any',
+    description: 'Pengelolaan master ruangan kerja BPS, penanggung jawab (PIC), dan lembar Daftar Barang Ruangan (DBR) resmi (Khusus Pimpinan, Administrator, dan Pengelola BMN).'
+  },
   'office-3d': {
     view: 'office-3d',
     label: '3D Asset Mapping',
@@ -175,6 +183,12 @@ export const canAccessView = (
 
   // Administrator has absolute access to every view
   if (currentUser.role === 'Administrator') return true;
+
+  // Kebijakan Khusus: Manajemen ruangan hanya diakses Pimpinan, Administrator dan Pengelola BMN
+  if (view === 'rooms') {
+    const allowedRoomRoles: string[] = ['Administrator', 'Pengelola BMN', 'Pimpinan'];
+    return allowedRoomRoles.includes(currentUser.role);
+  }
 
   const config = VIEW_ACCESS_CONFIGS[view];
   if (!config || config.requiredPermissions.length === 0) return true;

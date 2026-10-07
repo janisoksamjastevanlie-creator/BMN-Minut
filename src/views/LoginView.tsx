@@ -42,7 +42,7 @@ export const LoginView: React.FC = () => {
 
           <div>
             <h1 className="text-2xl font-black tracking-wider text-white bg-gradient-to-r from-white via-blue-100 to-cyan-300 bg-clip-text text-transparent">
-              SIMAN-BMN
+              BMN BPS MINUT
             </h1>
             <p className="text-xs font-semibold text-blue-300 tracking-wide mt-1">
               Sistem Informasi Manajemen Aset BMN & Persediaan

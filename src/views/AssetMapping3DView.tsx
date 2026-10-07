@@ -3,17 +3,22 @@ import { useApp } from '../context/AppContext';
 import { OfficeTwin3D } from '../components/3d/OfficeTwin3D';
 import { OfficeRoom, BmnAsset } from '../types';
 import { AssetDetailModal } from '../components/bmn/AssetDetailModal';
-import { Building2, Boxes, ShieldAlert, CheckCircle, Search, Eye, ArrowRight } from 'lucide-react';
+import { canAccessView } from '../utils/rbac';
+import { Building2, Boxes, ShieldAlert, CheckCircle, Search, Eye, ArrowRight, Plus } from 'lucide-react';
 
 export const AssetMapping3DView: React.FC = () => {
-  const { rooms, assets, setActiveView } = useApp();
-  const [activeRoom, setActiveRoom] = useState<OfficeRoom>(rooms[0]);
+  const { rooms, assets, setActiveView, setIsRoomModalOpen, setEditingRoom, currentUser, hasPermission } = useApp();
+  const [selectedRoomId, setSelectedRoomId] = useState<string>(rooms[0]?.id || '');
   const [selectedAsset, setSelectedAsset] = useState<BmnAsset | null>(null);
 
-  const roomAssets = assets.filter(a => a.ruanganId === activeRoom.id);
+  const canManageRooms = canAccessView('rooms', hasPermission, currentUser);
+  const activeRoom = rooms.find(r => r.id === selectedRoomId) || rooms[0];
+  const roomAssets = activeRoom ? assets.filter(a => a.ruanganId === activeRoom.id) : [];
   const baikCount = roomAssets.filter(a => a.kondisi === 'Baik').length;
   const rusakCount = roomAssets.filter(a => a.kondisi !== 'Baik').length;
   const totalNilai = roomAssets.reduce((sum, a) => sum + a.nilaiPerolehan, 0);
+
+  if (!activeRoom) return null;
 
   return (
     <div className="space-y-6">
@@ -31,22 +36,61 @@ export const AssetMapping3DView: React.FC = () => {
           </p>
         </div>
 
-        <button
-          onClick={() => setActiveView('assets')}
-          className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-2 transition-colors border border-slate-700 w-fit"
-        >
-          <Boxes className="w-4 h-4 text-blue-400" />
-          <span>Buka Tabel Semua Aset</span>
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          {canManageRooms && (
+            <>
+              <button
+                onClick={() => setActiveView('rooms')}
+                className="px-3.5 py-2 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 text-xs font-semibold flex items-center gap-2 transition-colors border border-blue-500/30"
+              >
+                <Building2 className="w-4 h-4 text-blue-400" />
+                <span>Manajemen Ruangan & DBR</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setEditingRoom(null);
+                  setIsRoomModalOpen(true);
+                }}
+                className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-md shadow-blue-600/30"
+              >
+                <Plus className="w-4 h-4" />
+                <span>+ Buat Ruangan</span>
+              </button>
+            </>
+          )}
+
+          <button
+            onClick={() => setActiveView('assets')}
+            className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-2 transition-colors border border-slate-700"
+          >
+            <Boxes className="w-4 h-4 text-slate-400" />
+            <span>Tabel Semua Aset</span>
+          </button>
+        </div>
       </div>
 
       {/* 3D Model Twin */}
-      <OfficeTwin3D onSelectRoom={room => setActiveRoom(room)} />
+      <OfficeTwin3D onSelectRoom={room => setSelectedRoomId(room.id)} />
 
       {/* Room Selector Quick Chips */}
       <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
-        <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-          Pilih Ruangan Langsung:
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+            Pilih Ruangan Langsung:
+          </div>
+          {canManageRooms && (
+            <button
+              onClick={() => {
+                setEditingRoom(null);
+                setIsRoomModalOpen(true);
+              }}
+              className="text-[11px] text-blue-400 hover:text-blue-300 font-semibold flex items-center gap-1"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Tambah Ruangan Baru</span>
+            </button>
+          )}
         </div>
         <div className="flex flex-wrap gap-2">
           {rooms.map(room => {
@@ -55,7 +99,7 @@ export const AssetMapping3DView: React.FC = () => {
             return (
               <button
                 key={room.id}
-                onClick={() => setActiveRoom(room)}
+                onClick={() => setSelectedRoomId(room.id)}
                 className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-2 border ${
                   isSelected
                     ? 'bg-blue-600 text-white border-blue-500 shadow-md shadow-blue-600/20'

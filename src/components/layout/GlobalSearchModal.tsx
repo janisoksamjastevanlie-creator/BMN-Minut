@@ -118,7 +118,7 @@ export const GlobalSearchModal: React.FC = () => {
         <div className="max-h-[60vh] overflow-y-auto p-4 space-y-4">
           {!cleanQuery ? (
             <div className="text-center py-8 text-slate-400 text-xs">
-              <p>Mulai ketik untuk mencari di seluruh database SIMAN-BMN</p>
+              <p>Mulai ketik untuk mencari di seluruh database BMN BPS MINUT</p>
               <div className="mt-3 flex flex-wrap justify-center gap-2">
                 <span className="px-2 py-1 bg-slate-800/80 rounded-md text-[11px] cursor-pointer hover:bg-slate-700" onClick={() => setQuery('Laptop')}>
                   💻 Laptop

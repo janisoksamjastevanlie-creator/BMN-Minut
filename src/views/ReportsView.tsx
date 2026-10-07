@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
+import { triggerPrint } from '../utils/printHelper';
 import {
   FileText,
   Printer,
@@ -27,7 +28,7 @@ export const ReportsView: React.FC = () => {
   >('DAFTAR_BMN');
 
   const handlePrint = () => {
-    window.print();
+    triggerPrint({ title: `Laporan_${activeReport}_BPS_Minahasa_Utara` });
   };
 
   const handleExportCSV = () => {
@@ -39,6 +40,14 @@ export const ReportsView: React.FC = () => {
       headers = 'NUP,Nama Barang,Kode Barang,Merk,Ruangan,Kondisi,Nilai Buku';
       rows = assets.map(a => `"${a.nup}","${a.namaBarang}","${a.kodeBarang}","${a.merkType}","${a.ruanganNama}","${a.kondisi}","${a.nilaiBuku}"`);
       filename = 'Laporan_Daftar_BMN_BPS_Minut.csv';
+    } else if (activeReport === 'KONDISI_BMN') {
+      headers = 'NUP,Nama Barang,Kode Barang,Ruangan,Kondisi,Penanggung Jawab,Status';
+      rows = assets.map(a => `"${a.nup}","${a.namaBarang}","${a.kodeBarang}","${a.ruanganNama}","${a.kondisi}","${a.penanggungJawab}","${a.status}"`);
+      filename = 'Laporan_Rekapitulasi_Kondisi_BMN_BPS_Minut.csv';
+    } else if (activeReport === 'PENYUSUTAN_BMN') {
+      headers = 'NUP,Nama Barang,Kode Barang,Tahun,Nilai Perolehan,Akumulasi Penyusutan,Nilai Buku';
+      rows = assets.map(a => `"${a.nup}","${a.namaBarang}","${a.kodeBarang}","${a.tahunPerolehan}","${a.nilaiPerolehan}","${a.akumulasiPenyusutan}","${a.nilaiBuku}"`);
+      filename = 'Laporan_Penyusutan_Nilai_Buku_BMN_BPS_Minut.csv';
     } else if (activeReport === 'SALDO_PERSEDIAAN') {
       headers = 'Kode Barang,Nama Persediaan,Jenis,Rak,Bin Code,Stok,Satuan,Harga,Total Nilai';
       rows = inventoryItems.map(i => `"${i.kodeBarang}","${i.nama}","${i.jenis}","${i.rak}","${i.binCode}","${i.stokSaatIni}","${i.satuan}","${i.hargaSatuan}","${i.totalNilai}"`);
@@ -178,7 +187,7 @@ export const ReportsView: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800 text-slate-300">
-                {assets.slice(0, 30).map((a, idx) => (
+                {assets.map((a, idx) => (
                   <tr key={a.id}>
                     <td className="py-2 px-2 font-mono text-slate-400">{idx + 1}</td>
                     <td className="py-2 px-2 font-mono text-slate-300">{a.kodeBarang}</td>
@@ -187,6 +196,85 @@ export const ReportsView: React.FC = () => {
                     <td className="py-2 px-2">{a.merkType}</td>
                     <td className="py-2 px-2">{a.ruanganNama}</td>
                     <td className="py-2 px-2 font-semibold">{a.kondisi}</td>
+                    <td className="py-2 px-3 text-right font-mono font-bold text-emerald-400">
+                      Rp {a.nilaiBuku.toLocaleString('id-ID')}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {activeReport === 'KONDISI_BMN' && (
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-slate-700 text-slate-300 font-bold uppercase text-[10px]">
+                  <th className="py-2 px-2">No</th>
+                  <th className="py-2 px-2">NUP</th>
+                  <th className="py-2 px-4">Nama Barang & Merk</th>
+                  <th className="py-2 px-2">Lokasi Ruangan</th>
+                  <th className="py-2 px-2">Penanggung Jawab</th>
+                  <th className="py-2 px-2 text-center">Kondisi Fisik</th>
+                  <th className="py-2 px-2 text-center">Status Operasional</th>
+                  <th className="py-2 px-3 text-right">Nilai Buku (Rp)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800 text-slate-300">
+                {assets.map((a, idx) => (
+                  <tr key={a.id}>
+                    <td className="py-2 px-2 font-mono text-slate-400">{idx + 1}</td>
+                    <td className="py-2 px-2 font-mono font-bold text-cyan-400">#{a.nup}</td>
+                    <td className="py-2 px-4">
+                      <div className="font-semibold text-white">{a.namaBarang}</div>
+                      <div className="text-[10px] text-slate-400">{a.merkType}</div>
+                    </td>
+                    <td className="py-2 px-2">{a.ruanganNama}</td>
+                    <td className="py-2 px-2">{a.penanggungJawab}</td>
+                    <td className="py-2 px-2 text-center font-bold">
+                      <span className={`px-2 py-0.5 rounded text-[10px] ${
+                        a.kondisi === 'Baik' ? 'bg-emerald-500/10 text-emerald-400' :
+                        a.kondisi === 'Rusak Ringan' ? 'bg-amber-500/10 text-amber-400' :
+                        'bg-rose-500/10 text-rose-400'
+                      }`}>
+                        {a.kondisi}
+                      </span>
+                    </td>
+                    <td className="py-2 px-2 text-center text-[11px]">{a.status}</td>
+                    <td className="py-2 px-3 text-right font-mono font-bold text-emerald-400">
+                      Rp {a.nilaiBuku.toLocaleString('id-ID')}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {activeReport === 'PENYUSUTAN_BMN' && (
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-slate-700 text-slate-300 font-bold uppercase text-[10px]">
+                  <th className="py-2 px-2">No</th>
+                  <th className="py-2 px-2">NUP</th>
+                  <th className="py-2 px-4">Nama Barang BMN</th>
+                  <th className="py-2 px-2 text-center">Tahun Perolehan</th>
+                  <th className="py-2 px-3 text-right">Nilai Perolehan (Rp)</th>
+                  <th className="py-2 px-3 text-right">Akumulasi Penyusutan (Rp)</th>
+                  <th className="py-2 px-3 text-right">Nilai Buku Sisa (Rp)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800 text-slate-300">
+                {assets.map((a, idx) => (
+                  <tr key={a.id}>
+                    <td className="py-2 px-2 font-mono text-slate-400">{idx + 1}</td>
+                    <td className="py-2 px-2 font-mono font-bold text-cyan-400">#{a.nup}</td>
+                    <td className="py-2 px-4 font-semibold text-white">{a.namaBarang}</td>
+                    <td className="py-2 px-2 text-center font-mono">{a.tahunPerolehan}</td>
+                    <td className="py-2 px-3 text-right font-mono">
+                      Rp {a.nilaiPerolehan.toLocaleString('id-ID')}
+                    </td>
+                    <td className="py-2 px-3 text-right font-mono text-rose-300">
+                      Rp {(a.akumulasiPenyusutan || 0).toLocaleString('id-ID')}
+                    </td>
                     <td className="py-2 px-3 text-right font-mono font-bold text-emerald-400">
                       Rp {a.nilaiBuku.toLocaleString('id-ID')}
                     </td>
@@ -212,7 +300,7 @@ export const ReportsView: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800 text-slate-300">
-                {inventoryItems.slice(0, 30).map((i, idx) => (
+                {inventoryItems.map((i, idx) => (
                   <tr key={i.id}>
                     <td className="py-2 px-2 font-mono text-slate-400">{idx + 1}</td>
                     <td className="py-2 px-2 font-mono text-slate-300">{i.kodeBarang}</td>
@@ -250,7 +338,7 @@ export const ReportsView: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800 text-slate-300">
-                {inventoryItems.filter(i => i.status !== 'Aman').slice(0, 25).map((i, idx) => (
+                {inventoryItems.filter(i => i.status !== 'Aman').map((i, idx) => (
                   <tr key={i.id}>
                     <td className="py-2 px-2 font-mono text-slate-400">{idx + 1}</td>
                     <td className="py-2 px-4 font-semibold text-white">{i.nama}</td>
@@ -272,7 +360,7 @@ export const ReportsView: React.FC = () => {
         </div>
 
         {/* Tanda Tangan Pejabat Pengesah (Official Signatures) */}
-        <div className="pt-8 border-t border-slate-800 grid grid-cols-2 text-xs text-center text-slate-300">
+        <div className="pt-8 border-t border-slate-800 grid grid-cols-2 text-xs text-center text-slate-300 print:text-black print-signature-block">
           <div>
             <div>Mengetahui,</div>
             <div className="font-semibold text-white mt-0.5">Kuasa Pengguna Barang</div>

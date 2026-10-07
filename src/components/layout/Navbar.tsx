@@ -76,10 +76,7 @@ export const Navbar: React.FC = () => {
             <div>
               <div className="flex items-center gap-1.5 sm:gap-2">
                 <span className="font-extrabold text-white tracking-wider text-sm sm:text-base bg-gradient-to-r from-white via-blue-100 to-cyan-300 bg-clip-text text-transparent">
-                  SIMAN-BMN
-                </span>
-                <span className="text-[9px] sm:text-[10px] font-bold px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30 uppercase tracking-widest hidden xs:inline-block">
-                  Minut
+                  BMN BPS MINUT
                 </span>
               </div>
               <div className="text-[10px] text-slate-400 leading-tight tracking-tight hidden md:block">
