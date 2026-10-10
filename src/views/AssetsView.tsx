@@ -5,7 +5,10 @@ import { AssetDetailModal } from '../components/bmn/AssetDetailModal';
 import { AssetFormModal } from '../components/bmn/AssetFormModal';
 import { ImportAssetModal } from '../components/bmn/ImportAssetModal';
 import { AssetListPrintModal } from '../components/bmn/AssetListPrintModal';
+import { OfficialLetterhead } from '../components/common/OfficialLetterhead';
+import { ReportSignatureBlock } from '../components/common/ReportSignatureBlock';
 import { getAssetPhotoUrl } from '../utils/assetImages';
+import { triggerPrint } from '../utils/printHelper';
 import {
   Search,
   Filter,
@@ -147,11 +150,11 @@ export const AssetsView: React.FC = () => {
   };
 
   const handlePrint = () => {
-    window.print();
+    triggerPrint({ title: 'Daftar_BMN_BPS_Minut', orientation: 'landscape' });
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 assets-view-root">
       {/* Top Header & Metrics */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -298,7 +301,7 @@ export const AssetsView: React.FC = () => {
       </div>
 
       {/* Main Assets Content: Mobile Card View (md:hidden) & Desktop Table View (hidden md:block) */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl assets-print-container">
         {hasPermission('manageAssets') && (
           <div className="p-3 border-b border-slate-800 flex items-center justify-between gap-3">
             <label className="md:hidden flex items-center gap-2 text-xs text-slate-300">
@@ -323,7 +326,7 @@ export const AssetsView: React.FC = () => {
           </div>
         )}
         {/* MOBILE CARD VIEW */}
-        <div className="md:hidden divide-y divide-slate-800/80">
+        <div className="md:hidden divide-y divide-slate-800/80 no-print">
           {paginatedAssets.length === 0 ? (
             <div className="py-12 px-4 text-center text-slate-400 text-xs">
               Tidak ditemukan aset BMN yang sesuai dengan kriteria filter.
@@ -452,7 +455,9 @@ export const AssetsView: React.FC = () => {
         </div>
 
         {/* DESKTOP TABLE VIEW */}
-        <div className="hidden md:block overflow-x-auto">
+        <div className="assets-print-table">
+          <OfficialLetterhead />
+          <div className="hidden md:block overflow-x-auto assets-table-scroll">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
@@ -621,6 +626,14 @@ export const AssetsView: React.FC = () => {
               )}
             </tbody>
           </table>
+          </div>
+          <ReportSignatureBlock printOnly signers={[
+            {
+              heading: 'Pemohon',
+              emptyMessage: 'Pemohon tidak tercatat pada sumber data daftar aset ini.'
+            },
+            { heading: 'Kepala Sub Bagian Umum', role: 'Kepala Sub Bagian Umum' }
+          ]} />
         </div>
 
         {/* Pagination Bar */}

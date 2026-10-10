@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { triggerPrint } from '../utils/printHelper';
 import { filterDashboardAssets, filterDashboardInventory } from '../utils/dashboardFilters';
+import { OfficialLetterhead } from '../components/common/OfficialLetterhead';
+import { ReportSignatureBlock } from '../components/common/ReportSignatureBlock';
 import {
   FileText,
   Printer,
@@ -40,7 +42,7 @@ export const ReportsView: React.FC = () => {
   >('DAFTAR_BMN');
 
   const handlePrint = () => {
-    triggerPrint({ title: `Laporan_${activeReport}_BPS_Minahasa_Utara` });
+    triggerPrint({ title: `Laporan_${activeReport}_BPS_Minahasa_Utara`, orientation: 'landscape' });
   };
 
   const handleExportCSV = () => {
@@ -169,11 +171,8 @@ export const ReportsView: React.FC = () => {
 
       {/* Official Printable Report Paper Container */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 md:p-8 space-y-6 shadow-2xl print-page">
-        {/* Official Kop Surat BPS Minahasa Utara */}
-        <div className="border-b-2 border-slate-700 pb-4 text-center">
-          <div className="text-[11px] font-bold text-slate-300 uppercase tracking-widest">
-            BADAN PUSAT STATISTIK KABUPATEN MINAHASA UTARA
-          </div>
+        <OfficialLetterhead />
+        <div className="pb-1 text-center">
           <h2 className="text-lg md:text-xl font-extrabold text-white mt-1 uppercase tracking-wide">
             {activeReport === 'DAFTAR_BMN' && 'DAFTAR BARANG KUASA PENGGUNA (BMN)'}
             {activeReport === 'KONDISI_BMN' && 'LAPORAN REKAPITULASI KONDISI FISIK BMN'}
@@ -375,22 +374,13 @@ export const ReportsView: React.FC = () => {
           )}
         </div>
 
-        {/* Tanda Tangan Pejabat Pengesah (Official Signatures) */}
-        <div className="pt-8 border-t border-slate-800 grid grid-cols-2 text-xs text-center text-slate-300 print:text-black print-signature-block">
-          <div>
-            <div>Mengetahui,</div>
-            <div className="font-semibold text-white mt-0.5">Kuasa Pengguna Barang</div>
-            <div className="font-bold text-white mt-14 underline">Ir. Hendra Kawilarang, M.Si</div>
-            <div className="font-mono text-[11px] text-slate-400">NIP: 197405121998031002</div>
-          </div>
-
-          <div>
-            <div>Airmadidi, Minahasa Utara</div>
-            <div className="font-semibold text-white mt-0.5">Pengelola Barang Milik Negara & Persediaan</div>
-            <div className="font-bold text-white mt-14 underline">Christian Pangemanan, S.ST</div>
-            <div className="font-mono text-[11px] text-slate-400">NIP: 198503202008011003</div>
-          </div>
-        </div>
+        <ReportSignatureBlock signers={[
+          {
+            heading: 'Pemohon',
+            emptyMessage: 'Pemohon tidak tercatat pada sumber data laporan ini.'
+          },
+          { heading: 'Kepala Sub Bagian Umum', role: 'Kepala Sub Bagian Umum' }
+        ]} />
       </div>
     </div>
   );

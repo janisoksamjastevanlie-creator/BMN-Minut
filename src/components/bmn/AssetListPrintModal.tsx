@@ -1,6 +1,8 @@
 import React from 'react';
 import { BmnAsset } from '../../types';
 import { triggerPrint } from '../../utils/printHelper';
+import { OfficialLetterhead } from '../common/OfficialLetterhead';
+import { ReportSignatureBlock } from '../common/ReportSignatureBlock';
 import { X, Printer, FileText, CheckCircle2 } from 'lucide-react';
 
 export const AssetListPrintModal: React.FC<{
@@ -23,7 +25,7 @@ export const AssetListPrintModal: React.FC<{
   const rusakBeratCount = assets.filter(a => a.kondisi === 'Rusak Berat').length;
 
   const handlePrint = () => {
-    triggerPrint({ title: `Daftar_BMN_BPS_Minahasa_Utara_TA2026` });
+    triggerPrint({ title: `Daftar_BMN_BPS_Minahasa_Utara_TA2026`, orientation: 'landscape' });
   };
 
   return (
@@ -67,11 +69,8 @@ export const AssetListPrintModal: React.FC<{
 
         {/* Printable Document Sheet */}
         <div className="p-6 sm:p-8 overflow-y-auto flex-1 space-y-6 bg-slate-950 text-slate-100 print:bg-white print:text-black print:p-0">
-          {/* Kop Surat Resmi */}
-          <div className="text-center border-b-2 border-slate-700 print:border-black pb-4 space-y-1">
-            <div className="text-[11px] font-bold tracking-widest text-slate-400 print:text-black uppercase">
-              BADAN PUSAT STATISTIK KABUPATEN MINAHASA UTARA
-            </div>
+          <OfficialLetterhead />
+          <div className="text-center pb-1 space-y-1">
             <div className="text-base sm:text-lg font-black tracking-wide text-white print:text-black uppercase">
               DAFTAR BARANG KUASA PENGGUNA (BMN) RESMI
             </div>
@@ -150,30 +149,13 @@ export const AssetListPrintModal: React.FC<{
             </table>
           </div>
 
-          {/* Official Signatures */}
-          <div className="pt-8 grid grid-cols-2 gap-8 text-xs text-center text-slate-300 print:text-black border-t border-slate-800 print:border-black print-signature-block">
-            <div className="space-y-14">
-              <div>
-                <p className="text-slate-400 print:text-gray-600">Mengetahui,</p>
-                <p className="font-bold">Kuasa Pengguna Barang (Kepala BPS Minut)</p>
-              </div>
-              <div>
-                <p className="font-bold underline text-white print:text-black">Ir. Hendra Kawilarang, M.Si</p>
-                <p className="text-[10px] text-slate-400 print:text-gray-600">NIP. 19740512 199803 1 002</p>
-              </div>
-            </div>
-
-            <div className="space-y-14">
-              <div>
-                <p className="text-slate-400 print:text-gray-600">Airmadidi, Minahasa Utara</p>
-                <p className="font-bold">Pengelola Barang Milik Negara</p>
-              </div>
-              <div>
-                <p className="font-bold underline text-white print:text-black">Christian Pangemanan, S.ST, M.Stat</p>
-                <p className="text-[10px] text-slate-400 print:text-gray-600">NIP. 19850320 200801 1 003</p>
-              </div>
-            </div>
-          </div>
+          <ReportSignatureBlock signers={[
+            {
+              heading: 'Pemohon',
+              emptyMessage: 'Pemohon tidak tercatat pada sumber data laporan ini.'
+            },
+            { heading: 'Kepala Sub Bagian Umum', role: 'Kepala Sub Bagian Umum' }
+          ]} />
         </div>
 
         {/* Footer (Screen only) */}

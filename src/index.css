@@ -48,6 +48,33 @@
     margin: 10mm 12mm 12mm 12mm;
   }
 
+  @page official-portrait {
+    size: A4 portrait;
+    margin: 40mm 12mm 12mm 12mm;
+  }
+
+  @page official-landscape {
+    size: A4 landscape;
+    margin: 40mm 12mm 12mm 12mm;
+  }
+
+  @page report-label {
+    size: A4 portrait;
+    margin: 10mm 12mm 12mm 12mm;
+  }
+
+  body.printing-page-portrait {
+    page: official-portrait;
+  }
+
+  body.printing-page-landscape {
+    page: official-landscape;
+  }
+
+  body.printing-page-label {
+    page: report-label;
+  }
+
   /* Reset global backgrounds and text */
   html, body {
     background: #ffffff !important;
@@ -62,6 +89,18 @@
     print-color-adjust: exact !important;
   }
 
+  #root > .min-h-screen.flex.flex-col > .flex-1.flex.overflow-hidden {
+    display: block !important;
+    padding: 0 !important;
+  }
+
+  #root main {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
   /* Hide app chrome, sidebars, navigations, action buttons and modals background */
   header,
   nav,
@@ -74,10 +113,7 @@
   }
 
   /* When a modal is printing, completely hide any background view content */
-  body.printing-active main > *:not(.printable-modal-overlay),
-  body.printing-active main > div > *:not(.printable-modal-overlay),
-  body:has(.printable-modal-overlay) main > *:not(.printable-modal-overlay),
-  body:has(.printable-modal-overlay) .page-view-content {
+  body:has(.printable-modal-overlay) main > *:has(.printable-modal-overlay) > *:not(.printable-modal-overlay) {
     display: none !important;
   }
 
@@ -121,6 +157,137 @@
     overflow: visible !important;
   }
 
+  .official-letterhead {
+    position: fixed !important;
+    top: -29mm !important;
+    left: 0 !important;
+    right: 0 !important;
+    display: grid !important;
+    grid-template-columns: 29mm minmax(0, 1fr);
+    align-items: center;
+    column-gap: 3mm;
+    padding: 0 0 2mm;
+    border-bottom: 0.8mm solid #111111;
+    color: #000000 !important;
+    background: #ffffff !important;
+    z-index: 1000;
+    break-inside: avoid;
+  }
+
+  .official-letterhead img {
+    display: block !important;
+    width: 29mm !important;
+    height: 24mm !important;
+    object-fit: contain !important;
+    object-position: center;
+  }
+
+  .official-letterhead-copy {
+    min-width: 0;
+    font-style: italic;
+    line-height: 1.15;
+  }
+
+  .official-letterhead-title {
+    font-size: 14pt;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+  }
+
+  .official-letterhead-subtitle {
+    margin-top: 1mm;
+    font-size: 13pt;
+    font-weight: 800;
+    letter-spacing: 0.035em;
+  }
+
+  .official-letterhead-address,
+  .official-letterhead-contact {
+    margin-top: 0.6mm;
+    font-size: 8pt;
+    font-weight: 400;
+    overflow-wrap: anywhere;
+  }
+
+  .report-signatures {
+    display: grid;
+    gap: 8mm;
+    margin-top: 8mm;
+    padding-top: 4mm;
+    border-top: 0.3mm solid #111111;
+    color: #000000 !important;
+    text-align: center;
+    font-size: 9pt;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .report-signature {
+    min-width: 0;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    overflow-wrap: anywhere;
+  }
+
+  .report-signature-space {
+    height: 22mm;
+  }
+
+  .report-signature-name {
+    min-height: 5mm;
+    padding-top: 1mm;
+    border-top: 0.25mm solid #111111;
+    font-weight: 700;
+    text-decoration: underline;
+  }
+
+  .report-signature-nip,
+  .report-signature-note {
+    margin-top: 1mm;
+    font-size: 8pt;
+  }
+
+  .report-signature-note {
+    font-style: italic;
+  }
+
+  .report-signatures-print-only {
+    display: grid !important;
+  }
+
+  body.printing-active .assets-view-root > *:not(.assets-print-container) {
+    display: none !important;
+  }
+
+  body.printing-active .assets-print-container > *:not(.assets-print-table) {
+    display: none !important;
+  }
+
+  .assets-print-container {
+    display: block !important;
+    overflow: visible !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+
+  .assets-print-table,
+  .assets-print-table > .assets-table-scroll {
+    display: block !important;
+    overflow: visible !important;
+    width: 100% !important;
+  }
+
+  .assets-print-table table {
+    min-width: 0 !important;
+  }
+
+  .assets-table-scroll th:last-child,
+  .assets-table-scroll td:last-child,
+  .assets-table-scroll th:has(input[type="checkbox"]),
+  .assets-table-scroll td:has(input[type="checkbox"]) {
+    display: none !important;
+  }
+
   /* General print container styling */
   .print-page, .printable-sheet {
     background: #ffffff !important;
@@ -130,6 +297,14 @@
     padding: 0 !important;
     margin: 0 !important;
     width: 100% !important;
+  }
+
+  .assets-view-root > *:not(.assets-print-container) {
+    display: none !important;
+  }
+
+  .assets-print-container > *:not(.assets-print-table) {
+    display: none !important;
   }
 
   /* Crisp table styles for print */
@@ -185,6 +360,48 @@
     background: #ffffff !important;
     color: #000000 !important;
   }
+}
+
+.official-letterhead {
+  display: none;
+}
+
+.report-signatures {
+  display: grid;
+  gap: 2rem;
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid currentColor;
+  text-align: center;
+}
+
+.report-signature {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.report-signature-space {
+  height: 3.5rem;
+}
+
+.report-signature-name {
+  min-height: 1.5rem;
+  border-top: 1px solid currentColor;
+  font-weight: 700;
+}
+
+.report-signature-nip,
+.report-signature-note {
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+}
+
+.report-signature-note {
+  font-style: italic;
+}
+
+.report-signatures-print-only {
+  display: none;
 }
 
 @media screen and (min-width: 768px) {

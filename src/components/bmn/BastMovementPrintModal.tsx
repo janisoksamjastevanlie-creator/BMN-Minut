@@ -1,6 +1,8 @@
 import React from 'react';
 import { AssetMovement } from '../../types';
 import { triggerPrint } from '../../utils/printHelper';
+import { OfficialLetterhead } from '../common/OfficialLetterhead';
+import { ReportSignatureBlock } from '../common/ReportSignatureBlock';
 import { X, Printer, FileText, ArrowRightLeft } from 'lucide-react';
 
 export const BastMovementPrintModal: React.FC<{
@@ -11,7 +13,7 @@ export const BastMovementPrintModal: React.FC<{
   if (!isOpen || !movement) return null;
 
   const handlePrint = () => {
-    triggerPrint({ title: `BAST_Mutasi_${movement.nomorTransaksi}_BPS_Minahasa_Utara` });
+    triggerPrint({ title: `BAST_Mutasi_${movement.nomorTransaksi}_BPS_Minahasa_Utara`, orientation: 'landscape' });
   };
 
   return (
@@ -55,11 +57,8 @@ export const BastMovementPrintModal: React.FC<{
 
         {/* Printable Document Paper */}
         <div className="p-6 sm:p-8 overflow-y-auto flex-1 space-y-6 bg-slate-950 text-slate-100 print:bg-white print:text-black print:p-0">
-          {/* Kop Surat Resmi BPS */}
-          <div className="text-center border-b-2 border-slate-700 print:border-black pb-4 space-y-1">
-            <div className="text-[11px] font-bold tracking-widest text-slate-400 print:text-black uppercase">
-              BADAN PUSAT STATISTIK KABUPATEN MINAHASA UTARA
-            </div>
+          <OfficialLetterhead />
+          <div className="text-center pb-1 space-y-1">
             <div className="text-base sm:text-lg font-black tracking-wide text-white print:text-black uppercase">
               BERITA ACARA SERAH TERIMA PEMINDAHAN / MUTASI ASET BMN
             </div>
@@ -146,39 +145,11 @@ export const BastMovementPrintModal: React.FC<{
             Demikian Berita Acara Serah Terima ini dibuat dengan sebenarnya dalam rangkap secukupnya untuk dipergunakan sebagaimana mestinya. Sejak tanggal serah terima ini, pengawasan fisik dan pencatatan DBR pada ruangan baru menjadi tanggung jawab PIHAK KEDUA.
           </div>
 
-          {/* Signatures Block */}
-          <div className="pt-8 grid grid-cols-3 gap-4 text-xs text-center text-slate-300 print:text-black border-t border-slate-800 print:border-black print-signature-block">
-            <div className="space-y-14">
-              <div>
-                <p className="text-slate-400 print:text-gray-600">PIHAK PERTAMA (Menyerahkan),</p>
-              </div>
-              <div>
-                <p className="font-bold underline text-white print:text-black">{movement.pemohon}</p>
-                <p className="text-[10px] text-slate-400 print:text-gray-600">{movement.lokasiAsalNama}</p>
-              </div>
-            </div>
-
-            <div className="space-y-14">
-              <div>
-                <p className="text-slate-400 print:text-gray-600">PIHAK KEDUA (Menerima),</p>
-              </div>
-              <div>
-                <p className="font-bold underline text-white print:text-black">{movement.penanggungJawab}</p>
-                <p className="text-[10px] text-slate-400 print:text-gray-600">{movement.lokasiTujuanNama}</p>
-              </div>
-            </div>
-
-            <div className="space-y-14">
-              <div>
-                <p className="text-slate-400 print:text-gray-600">Mengetahui,</p>
-                <p className="font-bold">Pengelola BMN BPS Minut</p>
-              </div>
-              <div>
-                <p className="font-bold underline text-white print:text-black">Christian Pangemanan, S.ST</p>
-                <p className="text-[10px] text-slate-400 print:text-gray-600">NIP. 19850320 200801 1 003</p>
-              </div>
-            </div>
-          </div>
+          <ReportSignatureBlock signers={[
+            { heading: 'Pemohon / Pihak Pertama', name: movement.pemohon },
+            { heading: 'Penanggung Jawab / Pihak Kedua', name: movement.penanggungJawab },
+            { heading: 'Kepala Sub Bagian Umum', role: 'Kepala Sub Bagian Umum' }
+          ]} />
         </div>
 
         {/* Footer */}

@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { OfficeRoom, BmnAsset } from '../../types';
 import { triggerPrint } from '../../utils/printHelper';
+import { OfficialLetterhead } from '../common/OfficialLetterhead';
+import { ReportSignatureBlock } from '../common/ReportSignatureBlock';
 import {
   X,
   Printer,
@@ -59,7 +61,7 @@ export const DbrModal: React.FC<{
   const rusakBeratCount = roomAssets.filter(a => a.kondisi === 'Rusak Berat').length;
 
   const handlePrint = () => {
-    triggerPrint({ title: `DBR_${room.code}_BPS_Minahasa_Utara` });
+    triggerPrint({ title: `DBR_${room.code}_BPS_Minahasa_Utara`, orientation: 'landscape' });
   };
 
   return (
@@ -106,11 +108,8 @@ export const DbrModal: React.FC<{
           ref={printContentRef}
           className="p-6 sm:p-8 overflow-y-auto flex-1 space-y-6 bg-slate-950 text-slate-100 print:bg-white print:text-black print:p-0"
         >
-          {/* Official Header / Kop Surat BMN */}
-          <div className="text-center border-b-2 border-slate-700 print:border-black pb-4 space-y-1">
-            <div className="text-[11px] font-bold tracking-widest text-slate-400 print:text-black uppercase">
-              BADAN PUSAT STATISTIK KABUPATEN MINAHASA UTARA
-            </div>
+          <OfficialLetterhead />
+          <div className="text-center pb-1 space-y-1">
             <div className="text-base sm:text-lg font-black tracking-wide text-white print:text-black uppercase">
               DAFTAR BARANG RUANGAN (DBR)
             </div>
@@ -327,32 +326,10 @@ export const DbrModal: React.FC<{
             </div>
           </div>
 
-          {/* Official Signatures */}
-          <div className="pt-8 grid grid-cols-2 gap-8 text-xs text-center text-slate-300 print:text-black border-t border-slate-800 print:border-black print-signature-block">
-            <div className="space-y-14">
-              <div>
-                <p className="text-slate-400 print:text-gray-600">Mengetahui,</p>
-                <p className="font-bold">Pengelola BMN BPS Minahasa Utara</p>
-              </div>
-              <div>
-                <p className="font-bold underline text-white print:text-black">Christian Pangemanan, S.ST, M.Stat</p>
-                <p className="text-[11px] font-mono text-slate-400 print:text-gray-600">NIP. 19850320 200801 1 003</p>
-              </div>
-            </div>
-
-            <div className="space-y-14">
-              <div>
-                <p className="text-slate-400 print:text-gray-600">Airmadidi, {new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
-                <p className="font-bold">Penanggung Jawab Ruangan (PIC)</p>
-              </div>
-              <div>
-                <p className="font-bold underline text-white print:text-black">{room.picName}</p>
-                <p className="text-[11px] font-mono text-slate-400 print:text-gray-600">
-                  {room.picNip ? `NIP. ${room.picNip}` : '-'}
-                </p>
-              </div>
-            </div>
-          </div>
+          <ReportSignatureBlock signers={[
+            { heading: 'Penanggung Jawab Ruangan', name: room.picName, nip: room.picNip },
+            { heading: 'Kepala Sub Bagian Umum', role: 'Kepala Sub Bagian Umum' }
+          ]} />
         </div>
 
         {/* Modal Footer */}

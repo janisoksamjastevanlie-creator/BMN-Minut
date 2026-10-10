@@ -2,6 +2,8 @@ import React from 'react';
 import { useApp } from '../../context/AppContext';
 import { InventoryItem } from '../../types';
 import { triggerPrint } from '../../utils/printHelper';
+import { OfficialLetterhead } from '../common/OfficialLetterhead';
+import { ReportSignatureBlock } from '../common/ReportSignatureBlock';
 import { getInventoryPhotoUrl } from '../../utils/assetImages';
 import {
   FileText,
@@ -89,7 +91,7 @@ export const StockCardModal: React.FC<{
   entries.sort((a, b) => a.tanggal.localeCompare(b.tanggal));
 
   const handlePrint = () => {
-    triggerPrint({ title: `Kartu_Stok_${item.kodeBarang}_${item.nama}_BPS_Minut` });
+    triggerPrint({ title: `Kartu_Stok_${item.kodeBarang}_${item.nama}_BPS_Minut`, orientation: 'landscape' });
   };
 
   return (
@@ -124,11 +126,8 @@ export const StockCardModal: React.FC<{
 
         {/* Printable Content Paper */}
         <div className="p-6 overflow-y-auto flex-1 space-y-5 bg-slate-950 text-slate-100 print:bg-white print:text-black print:p-0">
-          {/* Official Kop Surat Header for Print */}
-          <div className="text-center border-b-2 border-slate-700 print:border-black pb-3 space-y-1">
-            <div className="text-[11px] font-bold tracking-widest text-slate-400 print:text-black uppercase">
-              BADAN PUSAT STATISTIK KABUPATEN MINAHASA UTARA
-            </div>
+          <OfficialLetterhead />
+          <div className="text-center pb-1 space-y-1">
             <div className="text-base sm:text-lg font-black tracking-wide text-white print:text-black uppercase">
               KARTU KENDALI PERSEDIAAN BARANG HABIS PAKAI (STOCK CARD)
             </div>
@@ -226,30 +225,13 @@ export const StockCardModal: React.FC<{
             </table>
           </div>
 
-          {/* Official Signatures Block */}
-          <div className="pt-6 grid grid-cols-2 gap-8 text-xs text-center text-slate-300 print:text-black border-t border-slate-800 print:border-black print-signature-block">
-            <div className="space-y-12">
-              <div>
-                <p className="text-slate-400 print:text-gray-600">Mengetahui,</p>
-                <p className="font-bold">Pengelola Persediaan BPS Minut</p>
-              </div>
-              <div>
-                <p className="font-bold underline text-white print:text-black">Christian Pangemanan, S.ST</p>
-                <p className="text-[10px] text-slate-400 print:text-gray-600">NIP. 19850320 200801 1 003</p>
-              </div>
-            </div>
-
-            <div className="space-y-12">
-              <div>
-                <p className="text-slate-400 print:text-gray-600">Petugas Gudang Logistik,</p>
-                <p className="font-bold">Pencatat Kartu Stok</p>
-              </div>
-              <div>
-                <p className="font-bold underline text-white print:text-black">Dra. Meity Sondakh</p>
-                <p className="text-[10px] text-slate-400 print:text-gray-600">Petugas Gudang BPS</p>
-              </div>
-            </div>
-          </div>
+          <ReportSignatureBlock signers={[
+            {
+              heading: 'Pemohon',
+              emptyMessage: 'Pemohon tidak tercatat pada sumber data kartu stok ini.'
+            },
+            { heading: 'Kepala Sub Bagian Umum', role: 'Kepala Sub Bagian Umum' }
+          ]} />
         </div>
 
         {/* Footer (Screen only) */}

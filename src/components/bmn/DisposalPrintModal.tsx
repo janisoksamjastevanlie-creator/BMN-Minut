@@ -1,6 +1,8 @@
 import React from 'react';
 import { AssetDisposal } from '../../types';
 import { triggerPrint } from '../../utils/printHelper';
+import { OfficialLetterhead } from '../common/OfficialLetterhead';
+import { ReportSignatureBlock } from '../common/ReportSignatureBlock';
 import { X, Printer, FileText, Trash2 } from 'lucide-react';
 
 export const DisposalPrintModal: React.FC<{
@@ -11,7 +13,7 @@ export const DisposalPrintModal: React.FC<{
   if (!isOpen || !disposal) return null;
 
   const handlePrint = () => {
-    triggerPrint({ title: `Usulan_Penghapusan_${disposal.nomorPengajuan}_BPS_Minahasa_Utara` });
+    triggerPrint({ title: `Usulan_Penghapusan_${disposal.nomorPengajuan}_BPS_Minahasa_Utara`, orientation: 'portrait' });
   };
 
   return (
@@ -55,11 +57,8 @@ export const DisposalPrintModal: React.FC<{
 
         {/* Printable Document Paper */}
         <div className="p-6 sm:p-8 overflow-y-auto flex-1 space-y-6 bg-slate-950 text-slate-100 print:bg-white print:text-black print:p-0">
-          {/* Kop Surat Resmi */}
-          <div className="text-center border-b-2 border-slate-700 print:border-black pb-4 space-y-1">
-            <div className="text-[11px] font-bold tracking-widest text-slate-400 print:text-black uppercase">
-              BADAN PUSAT STATISTIK KABUPATEN MINAHASA UTARA
-            </div>
+          <OfficialLetterhead />
+          <div className="text-center pb-1 space-y-1">
             <div className="text-base sm:text-lg font-black tracking-wide text-white print:text-black uppercase">
               SURAT USULAN PENGHAPUSAN BARANG MILIK NEGARA (BMN)
             </div>
@@ -146,30 +145,13 @@ export const DisposalPrintModal: React.FC<{
             Demikian surat usulan penghapusan ini kami sampaikan, kiranya dapat diproses untuk penerbitan Keputusan Penghapusan BMN sesuai ketentuan perundang-undangan yang berlaku.
           </div>
 
-          {/* Signatures Block */}
-          <div className="pt-8 grid grid-cols-2 gap-8 text-xs text-center text-slate-300 print:text-black border-t border-slate-800 print:border-black print-signature-block">
-            <div className="space-y-14">
-              <div>
-                <p className="text-slate-400 print:text-gray-600">Disiapkan oleh,</p>
-                <p className="font-bold">Pengelola BMN BPS Minahasa Utara</p>
-              </div>
-              <div>
-                <p className="font-bold underline text-white print:text-black">Christian Pangemanan, S.ST, M.Stat</p>
-                <p className="text-[10px] text-slate-400 print:text-gray-600">NIP. 19850320 200801 1 003</p>
-              </div>
-            </div>
-
-            <div className="space-y-14">
-              <div>
-                <p className="text-slate-400 print:text-gray-600">Airmadidi, {disposal.tanggalPengajuan}</p>
-                <p className="font-bold">Kuasa Pengguna Barang (Kepala BPS Minut)</p>
-              </div>
-              <div>
-                <p className="font-bold underline text-white print:text-black">Ir. Hendra Kawilarang, M.Si</p>
-                <p className="text-[10px] text-slate-400 print:text-gray-600">NIP. 19740512 199803 1 002</p>
-              </div>
-            </div>
-          </div>
+          <ReportSignatureBlock signers={[
+            {
+              heading: 'Pemohon',
+              emptyMessage: 'Data pemohon tidak tersedia pada transaksi penghapusan ini.'
+            },
+            { heading: 'Kepala Sub Bagian Umum', role: 'Kepala Sub Bagian Umum' }
+          ]} />
         </div>
 
         {/* Footer */}

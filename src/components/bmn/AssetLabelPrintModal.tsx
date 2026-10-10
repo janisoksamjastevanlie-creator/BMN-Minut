@@ -13,7 +13,7 @@ export const AssetLabelPrintModal: React.FC<{
   if (!isOpen || !asset) return null;
 
   const handlePrint = () => {
-    triggerPrint({ title: `Stiker_Label_BMN_${asset.nup}_${asset.kodeBarang}_BPS_Minut` });
+    triggerPrint({ title: `Stiker_Label_BMN_${asset.nup}_${asset.kodeBarang}_BPS_Minut`, orientation: 'label' });
   };
 
   // Helper component to render an individual official BMN sticker

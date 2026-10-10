@@ -2,6 +2,8 @@ import React, { useState, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { InventoryRequest, InventoryRequestItem, RequestStatus } from '../types';
 import { StockRequestModal } from '../components/inventory/StockRequestModal';
+import { OfficialLetterhead } from '../components/common/OfficialLetterhead';
+import { ReportSignatureBlock } from '../components/common/ReportSignatureBlock';
 import { triggerPrint } from '../utils/printHelper';
 import {
   ClipboardList,
@@ -935,18 +937,7 @@ export const StockRequestsView: React.FC = () => {
 
             {/* Printable Content Area */}
             <div className="p-6 overflow-y-auto space-y-4 text-xs bg-slate-950 print-page text-slate-200">
-              {/* Kop Surat Resmi */}
-              <div className="text-center border-b-2 border-slate-700 pb-3">
-                <div className="font-extrabold uppercase tracking-wide text-sm text-white">
-                  BADAN PUSAT STATISTIK KABUPATEN MINAHASA UTARA
-                </div>
-                <div className="text-[11px] text-slate-400">
-                  Jalan Worang By Pass, Airmadidi, Minahasa Utara, Sulawesi Utara 95371
-                </div>
-                <div className="text-[10px] text-slate-400 font-mono">
-                  Sistem Informasi Manajemen Persediaan • Kode Satker: 7106
-                </div>
-              </div>
+              <OfficialLetterhead />
 
               <div className="text-center py-1">
                 <div className="font-bold text-xs uppercase tracking-wider text-white underline">
@@ -1025,35 +1016,10 @@ export const StockRequestsView: React.FC = () => {
                 </tbody>
               </table>
 
-              {/* Tanda Tangan Resmi */}
-              <div className="pt-6 grid grid-cols-3 gap-2 text-center text-[10px] print-signature-block">
-                <div>
-                  <div className="text-slate-400">Yang Memohon,</div>
-                  <div className="h-14"></div>
-                  <div className="font-bold text-white border-t border-slate-700 pt-1">
-                    {selectedDetail.pemohonNama}
-                  </div>
-                  <div className="text-slate-400">Pegawai BPS</div>
-                </div>
-
-                <div>
-                  <div className="text-slate-400">Mengetahui / Verifikator,</div>
-                  <div className="h-14"></div>
-                  <div className="font-bold text-white border-t border-slate-700 pt-1">
-                    Dra. Meity Sondakh
-                  </div>
-                  <div className="text-slate-400">Kepala Subbagian Umum</div>
-                </div>
-
-                <div>
-                  <div className="text-slate-400">Petugas Gudang / Persediaan,</div>
-                  <div className="h-14"></div>
-                  <div className="font-bold text-white border-t border-slate-700 pt-1">
-                    Pengelola Logistik
-                  </div>
-                  <div className="text-slate-400">BPS Minahasa Utara</div>
-                </div>
-              </div>
+              <ReportSignatureBlock signers={[
+                { heading: 'Pemohon', name: selectedDetail.pemohonNama },
+                { heading: 'Kepala Sub Bagian Umum', role: 'Kepala Sub Bagian Umum' }
+              ]} />
             </div>
 
             {/* Modal Actions */}
@@ -1068,7 +1034,10 @@ export const StockRequestsView: React.FC = () => {
 
               <button
                 type="button"
-                onClick={() => triggerPrint({ title: `SBBK_${selectedDetail.nomorPermintaan}_BPS_Minut` })}
+                onClick={() => triggerPrint({
+                  title: `SBBK_${selectedDetail.nomorPermintaan}_BPS_Minut`,
+                  orientation: 'portrait'
+                })}
                 className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-lg shadow-indigo-600/30"
               >
                 <Printer className="w-4 h-4" />

@@ -1,6 +1,8 @@
 import React from 'react';
 import { StockOpname } from '../../types';
 import { triggerPrint } from '../../utils/printHelper';
+import { OfficialLetterhead } from '../common/OfficialLetterhead';
+import { ReportSignatureBlock } from '../common/ReportSignatureBlock';
 import { X, Printer, FileText, CheckCircle2 } from 'lucide-react';
 
 export const BasoPrintModal: React.FC<{
@@ -15,7 +17,7 @@ export const BasoPrintModal: React.FC<{
   const diffItems = opname.items.filter(i => i.selisih !== 0).length;
 
   const handlePrint = () => {
-    triggerPrint({ title: `BASO_${opname.nomorOpname}_BPS_Minahasa_Utara` });
+    triggerPrint({ title: `BASO_${opname.nomorOpname}_BPS_Minahasa_Utara`, orientation: 'landscape' });
   };
 
   return (
@@ -59,11 +61,8 @@ export const BasoPrintModal: React.FC<{
 
         {/* Printable Document Paper */}
         <div className="p-6 sm:p-8 overflow-y-auto flex-1 space-y-6 bg-slate-950 text-slate-100 print:bg-white print:text-black print:p-0">
-          {/* Kop Surat Resmi */}
-          <div className="text-center border-b-2 border-slate-700 print:border-black pb-4 space-y-1">
-            <div className="text-[11px] font-bold tracking-widest text-slate-400 print:text-black uppercase">
-              BADAN PUSAT STATISTIK KABUPATEN MINAHASA UTARA
-            </div>
+          <OfficialLetterhead />
+          <div className="text-center pb-1 space-y-1">
             <div className="text-base sm:text-lg font-black tracking-wide text-white print:text-black uppercase">
               BERITA ACARA PEMERIKSAAN FISIK & STOCK OPNAME PERSEDIAAN
             </div>
@@ -148,39 +147,11 @@ export const BasoPrintModal: React.FC<{
             </div>
           </div>
 
-          {/* Signatures Block */}
-          <div className="pt-8 grid grid-cols-3 gap-4 text-xs text-center text-slate-300 print:text-black border-t border-slate-800 print:border-black print-signature-block">
-            <div className="space-y-14">
-              <div>
-                <p className="text-slate-400 print:text-gray-600">Petugas Tim Pemeriksa,</p>
-              </div>
-              <div>
-                <p className="font-bold underline text-white print:text-black">{opname.petugas}</p>
-                <p className="text-[10px] text-slate-400 print:text-gray-600">Pengelola Gudang BPS</p>
-              </div>
-            </div>
-
-            <div className="space-y-14">
-              <div>
-                <p className="text-slate-400 print:text-gray-600">Pengelola Persediaan & BMN,</p>
-              </div>
-              <div>
-                <p className="font-bold underline text-white print:text-black">Christian Pangemanan, S.ST</p>
-                <p className="text-[10px] text-slate-400 print:text-gray-600">NIP. 19850320 200801 1 003</p>
-              </div>
-            </div>
-
-            <div className="space-y-14">
-              <div>
-                <p className="text-slate-400 print:text-gray-600">Mengetahui,</p>
-                <p className="font-bold">Kepala BPS Minahasa Utara</p>
-              </div>
-              <div>
-                <p className="font-bold underline text-white print:text-black">Ir. Hendra Kawilarang, M.Si</p>
-                <p className="text-[10px] text-slate-400 print:text-gray-600">NIP. 19740512 199803 1 002</p>
-              </div>
-            </div>
-          </div>
+          <ReportSignatureBlock signers={[
+            { heading: 'Petugas Tim Pemeriksa', name: opname.petugas },
+            { heading: 'Pengelola Persediaan & BMN', role: 'Pengelola BMN' },
+            { heading: 'Kepala Sub Bagian Umum', role: 'Kepala Sub Bagian Umum' }
+          ]} />
         </div>
 
         {/* Footer */}
