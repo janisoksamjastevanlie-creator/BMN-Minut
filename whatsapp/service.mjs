@@ -14,6 +14,7 @@ import {
 
 const WEBHOOK_PATH = '/api/whatsapp/webhook';
 const TIMEZONE = 'Asia/Makassar';
+const asyncHandler = handler => (request, response, next) => Promise.resolve(handler(request, response, next)).catch(next);
 
 function nowIso() {
   return new Date().toISOString();
@@ -25,9 +26,9 @@ function localDateAndHour(date = new Date()) {
   return { date: `${get('year')}-${get('month')}-${get('day')}`, hour: Number(get('hour')) % 24 };
 }
 
-export function createWhatsAppService({ db, getCollection, userHasPermission, requireUser }) {
+export async function createWhatsAppService({ db, getCollection, userHasPermission, requireUser, refreshCollections }) {
   const config = getWhatsAppConfig();
-  const store = createWhatsAppStore(db);
+  const store = await createWhatsAppStore(db);
   const provider = createProvider(config);
   const tools = createTools({ getCollection, userHasPermission });
   const classifyIntent = createIntentClassifier(config);
@@ -35,8 +36,9 @@ export function createWhatsAppService({ db, getCollection, userHasPermission, re
   const requestLimiter = new SlidingWindowLimiter({ limit: 300, windowMs: 60_000 });
   const responseTimes = [];
 
-  function resolveUser(userId) {
-    const row = db.prepare('SELECT profile_json FROM auth_users WHERE id = ?').get(userId);
+  async function resolveUser(userId) {
+    const [rows] = await db.execute('SELECT profile_json FROM auth_users WHERE id = ?', [userId]);
+    const row = rows[0];
     if (!row) return { user: null };
     const profile = JSON.parse(row.profile_json);
     const users = getCollection('users');
@@ -48,26 +50,30 @@ export function createWhatsAppService({ db, getCollection, userHasPermission, re
 
   const chatbot = createChatbot({ config, store, tools, resolveUser, classifyIntent, appUrl: config.appBaseUrl });
 
-  function recordSuccess(startedAt) {
-    store.setMeta('whatsapp_last_success_at', nowIso());
+  async function recordSuccess(startedAt) {
+    await store.setMeta('whatsapp_last_success_at', nowIso());
     responseTimes.push(Date.now() - startedAt);
     if (responseTimes.length > 50) responseTimes.shift();
   }
 
-  function recordFailure(error) {
-    store.setMeta('whatsapp_last_failure_at', nowIso());
-    store.setMeta('whatsapp_error_count', Number(store.getMeta('whatsapp_error_count') || 0) + 1);
+  async function recordFailure(error) {
+    try {
+      await store.setMeta('whatsapp_last_failure_at', nowIso());
+      await store.incrementMeta('whatsapp_error_count');
+    } catch (storageError) {
+      console.error('WhatsApp failure could not be recorded:', String(storageError).slice(0, 200));
+    }
     console.error('WhatsApp error:', String(error instanceof Error ? error.message : error).slice(0, 250));
   }
 
   async function sendReply(phone, reply, context) {
     try {
       await provider.sendReply(phone, reply);
-      store.logMessage({ phone, userId: context.userId, direction: 'out', message: reply.text, intent: context.intent, status: 'sent' });
+      await store.logMessage({ phone, userId: context.userId, direction: 'out', message: reply.text, intent: context.intent, status: 'sent' });
       return true;
     } catch (error) {
-      store.logMessage({ phone, userId: context.userId, direction: 'out', message: null, intent: context.intent, status: 'failed' });
-      recordFailure(error);
+      await store.logMessage({ phone, userId: context.userId, direction: 'out', message: null, intent: context.intent, status: 'failed' });
+      await recordFailure(error);
       return false;
     }
   }
@@ -76,27 +82,28 @@ export function createWhatsAppService({ db, getCollection, userHasPermission, re
     if (!config.validProvider || !config.outboundConfigured) {
       return { success: false, sentCount: 0, error: 'Integrasi WhatsApp belum dikonfigurasi.' };
     }
+    await refreshCollections();
     const message = formatter.notification(title, lines, config.appBaseUrl);
     let sentCount = 0;
     let failedCount = 0;
-    for (const account of store.listAccounts()) {
+    for (const account of await store.listAccounts()) {
       if (!account.notify_enabled) continue;
-      const { user } = resolveUser(account.user_id);
+      const { user } = await resolveUser(account.user_id);
       if (!user) continue;
       const isOwner = user.id === ownerUserId;
       const canManageRequests = userHasPermission(user, 'approveRequests') ||
         userHasPermission(user, 'manageInventory');
       if (!isOwner && !canManageRequests) continue;
-      if (!store.claimNotification(eventKey, user.id)) continue;
+      if (!await store.claimNotification(eventKey, user.id)) continue;
       try {
         await provider.sendNotification(account.phone, message);
-        store.finishNotification(eventKey, user.id, 'sent');
-        store.logMessage({ phone: account.phone, userId: user.id, direction: 'out', message: title, intent: 'REQUEST_NOTIFICATION', status: 'sent' });
+        await store.finishNotification(eventKey, user.id, 'sent');
+        await store.logMessage({ phone: account.phone, userId: user.id, direction: 'out', message: title, intent: 'REQUEST_NOTIFICATION', status: 'sent' });
         sentCount += 1;
       } catch (error) {
-        store.finishNotification(eventKey, user.id, 'failed', error instanceof Error ? error.message : 'gagal');
-        store.logMessage({ phone: account.phone, userId: user.id, direction: 'out', message: title, intent: 'REQUEST_NOTIFICATION', status: 'failed' });
-        recordFailure(error);
+        await store.finishNotification(eventKey, user.id, 'failed', error instanceof Error ? error.message : 'gagal');
+        await store.logMessage({ phone: account.phone, userId: user.id, direction: 'out', message: title, intent: 'REQUEST_NOTIFICATION', status: 'failed' });
+        await recordFailure(error);
         failedCount += 1;
       }
     }
@@ -110,13 +117,14 @@ export function createWhatsAppService({ db, getCollection, userHasPermission, re
   async function processMessage({ messageId, phone, text, interactiveId, timestampMs }) {
     const startedAt = Date.now();
     try {
+      await refreshCollections();
       if (!isValidPhone(phone)) return;
       if (timestampMs && (startedAt - timestampMs > config.maxMessageAgeMs || timestampMs - startedAt > 5 * 60_000)) {
-        store.logMessage({ messageId, phone, direction: 'in', message: null, status: 'rejected' });
+        await store.logMessage({ messageId, phone, direction: 'in', message: null, status: 'rejected' });
         return;
       }
-      if (!store.claimMessage(messageId)) return;
-      store.logMessage({ messageId, phone, direction: 'in', message: text || interactiveId, status: 'received' });
+      if (!await store.claimMessage(messageId)) return;
+      await store.logMessage({ messageId, phone, direction: 'in', message: text || interactiveId, status: 'received' });
 
       const limit = messageLimiter.hit(normalizePhone(phone));
       if (!limit.allowed) {
@@ -126,9 +134,9 @@ export function createWhatsAppService({ db, getCollection, userHasPermission, re
 
       const result = await chatbot.handle({ phone, text, interactiveId });
       const sent = await sendReply(phone, result.reply, result);
-      if (sent) recordSuccess(startedAt);
+      if (sent) await recordSuccess(startedAt);
     } catch (error) {
-      recordFailure(error);
+      await recordFailure(error);
       await sendReply(phone, formatter.failure(), { intent: 'ERROR' });
     }
   }
@@ -207,7 +215,7 @@ export function createWhatsAppService({ db, getCollection, userHasPermission, re
       return response.sendStatus(503);
     }
 
-    store.setMeta('whatsapp_last_webhook_at', nowIso());
+    void store.setMeta('whatsapp_last_webhook_at', nowIso()).catch(recordFailure);
     if (config.provider === 'twilio') response.status(200).type('text/xml').send('<Response/>');
     else response.sendStatus(200);
 
@@ -219,20 +227,21 @@ export function createWhatsAppService({ db, getCollection, userHasPermission, re
   });
 
   async function handleUnsupported(message) {
-    if (!isValidPhone(message.phone) || !store.claimMessage(message.messageId)) return;
+    await refreshCollections();
+    if (!isValidPhone(message.phone) || !await store.claimMessage(message.messageId)) return;
     if (message.timestampMs && (Date.now() - message.timestampMs > config.maxMessageAgeMs || message.timestampMs - Date.now() > 5 * 60_000)) {
-      store.logMessage({ messageId: message.messageId, phone: message.phone, direction: 'in', message: null, status: 'rejected' });
+      await store.logMessage({ messageId: message.messageId, phone: message.phone, direction: 'in', message: null, status: 'rejected' });
       return;
     }
-    store.logMessage({ messageId: message.messageId, phone: message.phone, direction: 'in', message: null, status: 'received' });
+    await store.logMessage({ messageId: message.messageId, phone: message.phone, direction: 'in', message: null, status: 'received' });
     if (!messageLimiter.hit(normalizePhone(message.phone)).allowed) return;
     await sendReply(message.phone, formatter.unsupported(), { intent: 'UNSUPPORTED' });
   }
 
   const api = express.Router();
 
-  api.get('/api/whatsapp/me', requireUser, (request, response) => {
-    const account = store.getAccountByUser(request.user.id);
+  api.get('/api/whatsapp/me', requireUser, asyncHandler(async (request, response) => {
+    const account = await store.getAccountByUser(request.user.id);
     response.json({
       linked: Boolean(account),
       phone: account ? maskPhone(account.phone) : null,
@@ -242,35 +251,35 @@ export function createWhatsAppService({ db, getCollection, userHasPermission, re
       provider: config.provider,
       available: config.validProvider && config.inboundConfigured && config.outboundConfigured
     });
-  });
+  }));
 
-  api.post('/api/whatsapp/link-token', requireUser, (request, response) => {
+  api.post('/api/whatsapp/link-token', requireUser, asyncHandler(async (request, response) => {
     if (!config.validProvider || !config.inboundConfigured || !config.outboundConfigured) {
       return response.status(503).json({ error: 'Integrasi WhatsApp belum dikonfigurasi oleh administrator.' });
     }
-    const { code, expiresAt } = store.createLinkToken(request.user.id);
+    const { code, expiresAt } = await store.createLinkToken(request.user.id);
     response.json({ code, expiresAt, botNumber: config.botNumber || null });
-  });
+  }));
 
-  api.delete('/api/whatsapp/me', requireUser, (request, response) => {
-    store.unlink(request.user.id);
+  api.delete('/api/whatsapp/me', requireUser, asyncHandler(async (request, response) => {
+    await store.unlink(request.user.id);
     response.json({ success: true });
-  });
+  }));
 
-  api.put('/api/whatsapp/me/notifications', requireUser, (request, response) => {
+  api.put('/api/whatsapp/me/notifications', requireUser, asyncHandler(async (request, response) => {
     if (typeof request.body?.enabled !== 'boolean') return response.status(400).json({ error: 'Data tidak valid.' });
-    if (!store.getAccountByUser(request.user.id)) return response.status(409).json({ error: 'WhatsApp belum terhubung.' });
-    store.setNotify(request.user.id, request.body.enabled);
+    if (!await store.getAccountByUser(request.user.id)) return response.status(409).json({ error: 'WhatsApp belum terhubung.' });
+    await store.setNotify(request.user.id, request.body.enabled);
     response.json({ success: true });
-  });
+  }));
 
-  api.get('/api/whatsapp/status', requireUser, (request, response) => {
+  api.get('/api/whatsapp/status', requireUser, asyncHandler(async (request, response) => {
     if (!userHasPermission(request.user, 'systemSettings')) {
       return response.status(403).json({ error: 'Tidak memiliki izin melihat status integrasi.' });
     }
-    const stats = store.stats();
-    const lastSuccess = store.getMeta('whatsapp_last_success_at');
-    const lastFailure = store.getMeta('whatsapp_last_failure_at');
+    const stats = await store.stats();
+    const lastSuccess = await store.getMeta('whatsapp_last_success_at');
+    const lastFailure = await store.getMeta('whatsapp_last_failure_at');
     const configured = config.validProvider && config.inboundConfigured && config.outboundConfigured;
     const healthy = configured && (!lastFailure || (lastSuccess && lastSuccess >= lastFailure));
     response.json({
@@ -282,39 +291,40 @@ export function createWhatsAppService({ db, getCollection, userHasPermission, re
       webhookStatus: config.inboundConfigured ? 'Siap menerima' : 'Belum dikonfigurasi',
       botNumber: config.botNumber ? maskPhone(config.botNumber) : null,
       aiEnabled: config.aiEnabled && Boolean(config.geminiApiKey),
-      lastWebhookAt: store.getMeta('whatsapp_last_webhook_at'),
+      lastWebhookAt: await store.getMeta('whatsapp_last_webhook_at'),
       lastSuccessAt: lastSuccess,
       lastFailureAt: lastFailure,
-      errorCount: Number(store.getMeta('whatsapp_error_count') || 0),
+      errorCount: Number(await store.getMeta('whatsapp_error_count') || 0),
       avgResponseMs: responseTimes.length ? Math.round(responseTimes.reduce((sum, value) => sum + value, 0) / responseTimes.length) : null,
       ...stats
     });
-  });
+  }));
 
   // Mengirim notifikasi proaktif hanya kepada pengguna yang tertaut, aktif, mengaktifkan notifikasi,
   // dan memiliki salah satu izin terkait. Tidak pernah melempar error.
   async function notify({ eventKey, permissions, title, lines, excludeUserId }) {
     try {
       if (!config.validProvider || !config.outboundConfigured) return;
+      await refreshCollections();
       const message = formatter.notification(title, lines, config.appBaseUrl);
-      for (const account of store.listAccounts()) {
+      for (const account of await store.listAccounts()) {
         if (!account.notify_enabled || account.user_id === excludeUserId) continue;
-        const { user } = resolveUser(account.user_id);
+        const { user } = await resolveUser(account.user_id);
         if (!user || !permissions.some(permission => userHasPermission(user, permission))) continue;
-        if (!store.claimNotification(eventKey, user.id)) continue;
+        if (!await store.claimNotification(eventKey, user.id)) continue;
         try {
           await provider.sendNotification(account.phone, message);
-          store.finishNotification(eventKey, user.id, 'sent');
-          store.logMessage({ phone: account.phone, userId: user.id, direction: 'out', message: title, intent: 'NOTIFICATION', status: 'sent' });
-          store.setMeta('whatsapp_last_success_at', nowIso());
+          await store.finishNotification(eventKey, user.id, 'sent');
+          await store.logMessage({ phone: account.phone, userId: user.id, direction: 'out', message: title, intent: 'NOTIFICATION', status: 'sent' });
+          await store.setMeta('whatsapp_last_success_at', nowIso());
         } catch (error) {
-          store.finishNotification(eventKey, user.id, 'failed', error instanceof Error ? error.message : 'gagal');
-          store.logMessage({ phone: account.phone, userId: user.id, direction: 'out', message: title, intent: 'NOTIFICATION', status: 'failed' });
-          recordFailure(error);
+          await store.finishNotification(eventKey, user.id, 'failed', error instanceof Error ? error.message : 'gagal');
+          await store.logMessage({ phone: account.phone, userId: user.id, direction: 'out', message: title, intent: 'NOTIFICATION', status: 'failed' });
+          await recordFailure(error);
         }
       }
     } catch (error) {
-      recordFailure(error);
+      await recordFailure(error);
     }
   }
 
@@ -358,42 +368,43 @@ export function createWhatsAppService({ db, getCollection, userHasPermission, re
         ? { eventKey: `stock:${item.id}:${item.status}:${item.stokSaatIni}`, permissions: ['manageInventory'], title: `Persediaan ${item.status.toLowerCase()}`, lines: [`${item.nama}: ${item.stokSaatIni} ${item.satuan}`] }
         : null);
 
-      for (const event of events.slice(0, 20)) void notify({ ...event, excludeUserId: actorId });
+      for (const event of events.slice(0, 20)) void notify({ ...event, excludeUserId: actorId }).catch(recordFailure);
     } catch (error) {
       recordFailure(error);
     }
   }
 
   async function sendDailyReminders() {
+    await refreshCollections();
     const { date, hour } = localDateAndHour();
-    if (hour !== config.reminderHour || store.getMeta('whatsapp_last_reminder') === date) return;
-    store.setMeta('whatsapp_last_reminder', date);
-    for (const account of store.listAccounts()) {
+    if (hour !== config.reminderHour || await store.getMeta('whatsapp_last_reminder') === date) return;
+    await store.setMeta('whatsapp_last_reminder', date);
+    for (const account of await store.listAccounts()) {
       if (!account.notify_enabled) continue;
-      const { user } = resolveUser(account.user_id);
+      const { user } = await resolveUser(account.user_id);
       if (!user) continue;
       const pending = tools.getPendingActions(user);
       if (!pending.items.length) continue;
-      if (!store.claimNotification(`reminder:${date}`, user.id)) continue;
+      if (!await store.claimNotification(`reminder:${date}`, user.id)) continue;
       try {
         await provider.sendNotification(account.phone, formatter.reminder(pending.items, config.appBaseUrl));
-        store.finishNotification(`reminder:${date}`, user.id, 'sent');
+        await store.finishNotification(`reminder:${date}`, user.id, 'sent');
       } catch (error) {
-        store.finishNotification(`reminder:${date}`, user.id, 'failed', error instanceof Error ? error.message : 'gagal');
-        recordFailure(error);
+        await store.finishNotification(`reminder:${date}`, user.id, 'failed', error instanceof Error ? error.message : 'gagal');
+        await recordFailure(error);
       }
     }
   }
 
-  function start() {
-    store.prune();
+  async function start() {
+    await store.prune();
     if (!config.validProvider) console.warn('WHATSAPP_PROVIDER tidak valid; chatbot WhatsApp dinonaktifkan.');
     else if (!config.inboundConfigured) console.warn('Chatbot WhatsApp belum aktif: webhook secret/verify token belum dikonfigurasi di .env.');
     if (config.remindersEnabled && config.outboundConfigured) {
       const timer = setInterval(() => { void sendDailyReminders().catch(recordFailure); }, 5 * 60_000);
       timer.unref();
     }
-    const pruneTimer = setInterval(() => { try { store.prune(); } catch (error) { recordFailure(error); } }, 6 * 3600_000);
+    const pruneTimer = setInterval(() => { void store.prune().catch(recordFailure); }, 6 * 3600_000);
     pruneTimer.unref();
   }
 

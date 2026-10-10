@@ -101,18 +101,18 @@ export function createChatbot({ config, store, tools, resolveUser, classifyInten
 
     const linkCode = extractLinkCode(input);
     if (linkCode) {
-      const result = store.redeemLinkToken(linkCode, phone);
+      const result = await store.redeemLinkToken(linkCode, phone);
       if (!result.ok) {
         return { reply: result.reason === 'phone_in_use' ? formatter.linkPhoneInUse() : formatter.linkInvalid(), intent: 'LINK_ACCOUNT' };
       }
-      const linkedUser = resolveUser(result.userId);
+      const linkedUser = await resolveUser(result.userId);
       return { reply: linkedUser.user ? formatter.linked(linkedUser.user) : formatter.linkInvalid(), intent: 'LINK_ACCOUNT', userId: result.userId };
     }
 
-    const account = store.getAccountByPhone(phone);
+    const account = await store.getAccountByPhone(phone);
     if (!account) return { reply: formatter.notLinked(), intent: 'NOT_LINKED' };
 
-    const resolved = resolveUser(account.user_id);
+    const resolved = await resolveUser(account.user_id);
     if (!resolved.user) return { reply: formatter.accountInactive(), intent: 'INACTIVE', userId: account.user_id };
     const user = resolved.user;
     const base = { userId: user.id };
@@ -121,26 +121,26 @@ export function createChatbot({ config, store, tools, resolveUser, classifyInten
     if (!input && !interactiveId) return { ...base, reply: formatter.unsupported(), intent: 'UNSUPPORTED' };
 
     if (/^(putuskan|unlink|lepas)( whatsapp)?$/.test(lower)) {
-      store.unlink(user.id);
-      store.clearSession(phone);
+      await store.unlink(user.id);
+      await store.clearSession(phone);
       return { ...base, reply: formatter.unlinked(), intent: 'UNLINK' };
     }
     const notify = lower.match(/^notif(?:ikasi)? (on|off|aktif|nonaktif|mati)$/);
     if (notify) {
       const enabled = ['on', 'aktif'].includes(notify[1]);
-      store.setNotify(user.id, enabled);
+      await store.setNotify(user.id, enabled);
       return { ...base, reply: formatter.notifyChanged(enabled), intent: 'NOTIFY_PREFERENCE' };
     }
     if (lower === 'batal') {
-      store.clearSession(phone);
+      await store.clearSession(phone);
       return { ...base, reply: formatter.searchCancelled(), intent: 'CANCEL' };
     }
 
-    const session = store.getSession(phone);
+    const session = await store.getSession(phone);
     const menu = menuIntent(input, interactiveId);
 
     if (menu === 'cari' || /^cari( bmn| aset)?$/.test(lower)) {
-      store.setSession(phone, 'awaiting_search');
+      await store.setSession(phone, 'awaiting_search');
       return { ...base, reply: formatter.searchPrompt(), intent: 'SEARCH_PROMPT' };
     }
 
@@ -149,12 +149,12 @@ export function createChatbot({ config, store, tools, resolveUser, classifyInten
     }
 
     if (menu) {
-      store.clearSession(phone);
+      await store.clearSession(phone);
       return { ...base, reply: run(menu, user), intent: menu };
     }
 
     if (session?.state === 'awaiting_search') {
-      store.clearSession(phone);
+      await store.clearSession(phone);
       const filter = parseAssetQuery(input);
       if (!hasCriteria(filter)) return { ...base, reply: formatter.searchPrompt(), intent: 'SEARCH_PROMPT' };
       return { ...base, reply: run('SEARCH_ASSET', user, filter), intent: 'SEARCH_ASSET' };
@@ -163,7 +163,7 @@ export function createChatbot({ config, store, tools, resolveUser, classifyInten
     if (/^(cari|carikan|search)\b/.test(lower) || /\bnup\s*\d/.test(lower)) {
       const filter = parseAssetQuery(input);
       if (!hasCriteria(filter)) {
-        store.setSession(phone, 'awaiting_search');
+        await store.setSession(phone, 'awaiting_search');
         return { ...base, reply: formatter.searchPrompt(), intent: 'SEARCH_PROMPT' };
       }
       return { ...base, reply: run('SEARCH_ASSET', user, filter), intent: 'SEARCH_ASSET' };

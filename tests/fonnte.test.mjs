@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import express from 'express';
-import { DatabaseSync } from 'node:sqlite';
 import { getWhatsAppConfig } from '../whatsapp/config.mjs';
 import { parseFonnteWebhookMessage, sendFonnteMessage } from '../whatsapp/fonnte.mjs';
 import { createWhatsAppService } from '../whatsapp/service.mjs';
@@ -116,16 +115,34 @@ test('Fonnte webhook checks its shared secret and processes an inbox message onl
   process.env.FONNTE_API_URL = 'https://api.fonnte.com/send';
   process.env.FONNTE_WEBHOOK_SECRET = 'test-webhook-secret-with-32-chars';
 
-  const database = new DatabaseSync(':memory:');
-  database.exec(`
-    CREATE TABLE app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-    CREATE TABLE auth_users (id TEXT PRIMARY KEY, profile_json TEXT NOT NULL);
-  `);
-  const service = createWhatsAppService({
+  const processed = new Set();
+  const metadata = new Map();
+  const database = {
+    async query() { return [[], []]; },
+    async execute(sql, params = []) {
+      if (sql.startsWith('SELECT value FROM app_meta')) {
+        const value = metadata.get(params[0]);
+        return [value === undefined ? [] : [{ value }], []];
+      }
+      if (sql.startsWith('INSERT IGNORE INTO whatsapp_processed_messages')) {
+        const before = processed.size;
+        processed.add(params[0]);
+        return [{ affectedRows: processed.size - before }, []];
+      }
+      if (sql.startsWith('INSERT INTO app_meta')) {
+        metadata.set(params[0], params[1]);
+        return [{ affectedRows: 1 }, []];
+      }
+      if (sql.includes('FROM whatsapp_accounts WHERE phone')) return [[], []];
+      return [{ affectedRows: 1 }, []];
+    }
+  };
+  const service = await createWhatsAppService({
     db: database,
     getCollection: () => null,
     userHasPermission: () => false,
-    requireUser: (_request, response) => response.sendStatus(401)
+    requireUser: (_request, response) => response.sendStatus(401),
+    refreshCollections: async () => {}
   });
   const app = express();
   app.use(service.webhook);
@@ -148,7 +165,6 @@ test('Fonnte webhook checks its shared secret and processes an inbox message onl
       else process.env[key] = previousEnv[key];
     }
     await new Promise(resolve => server.close(resolve));
-    database.close();
   });
 
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -188,5 +204,5 @@ test('Fonnte webhook checks its shared secret and processes an inbox message onl
   assert.equal(duplicate.status, 200);
   await new Promise(resolve => setTimeout(resolve, 20));
   assert.equal(outboundCount, 1);
-  assert.equal(database.prepare('SELECT COUNT(*) AS count FROM whatsapp_processed_messages').get().count, 1);
+  assert.equal(processed.size, 1);
 });
