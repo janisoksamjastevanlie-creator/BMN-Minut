@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import {
   User,
   RoleDefinition,
@@ -8,6 +8,7 @@ import {
   StockInTransaction,
   StockOutTransaction,
   InventoryRequest,
+  InventoryRequestItem,
   StockOpname,
   AssetMovement,
   AssetMaintenance,
@@ -36,6 +37,7 @@ import {
   generateInitialNotifications
 } from '../data/initialData';
 import { getAssetPhotoUrl, getInventoryPhotoUrl } from '../utils/assetImages';
+import { DashboardFilters, DEFAULT_DASHBOARD_FILTERS } from '../utils/dashboardFilters';
 
 export type ActiveView =
   | 'landing'
@@ -59,13 +61,26 @@ export type ActiveView =
   | 'users'
   | 'settings';
 
+type StockInDetails = {
+  itemId: string;
+  jumlah: number;
+  nomorDokumen: string;
+  sumber: string;
+  keterangan: string;
+  hargaSatuan?: number;
+  tanggal: string;
+};
+
 interface AppContextType {
   currentUser: User | null;
-  setCurrentUser: (user: User | null) => void;
-  loginAs: (role: User['role']) => void;
-  logout: () => void;
+  isInitializing: boolean;
+  syncError: string | null;
+  login: (nip: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
   activeView: ActiveView;
   setActiveView: (view: ActiveView) => void;
+  dashboardFilters: DashboardFilters;
+  setDashboardFilters: (filters: DashboardFilters) => void;
   
   // 3D Settings
   performance3D: 'normal' | 'performance' | 'low';
@@ -99,8 +114,7 @@ interface AppContextType {
   addUser: (user: Omit<User, 'id'>) => User;
   updateUser: (id: string, updates: Partial<User>) => void;
   deleteUser: (id: string) => { success: boolean; message: string };
-  switchUser: (id: string) => void;
-
+  setUserPassword: (user: User, password: string) => Promise<void>;
   // Roles & Permissions Management (RBAC)
   roles: RoleDefinition[];
   addRole: (role: Omit<RoleDefinition, 'id' | 'isSystem'>) => RoleDefinition;
@@ -117,6 +131,8 @@ interface AppContextType {
   
   addInventoryItem: (item: Omit<InventoryItem, 'id'>) => void;
   updateInventoryItem: (id: string, updates: Partial<InventoryItem>) => void;
+  // DITAMBAHKAN: penghapusan master persediaan berdasarkan ID.
+  deleteInventoryItem: (id: string) => { success: boolean; message: string };
   importInventoryItems: (newItems: Omit<InventoryItem, 'id'>[], mode?: 'append' | 'upsert') => { successCount: number; updatedCount: number };
   
   addStockIn: (data: {
@@ -126,7 +142,12 @@ interface AppContextType {
     sumber: string;
     keterangan: string;
     hargaSatuan?: number;
+    tanggal: string;
   }) => { success: boolean; message: string };
+  updateStockIn: (id: string, data: StockInDetails) => { success: boolean; message: string };
+  inspectStockIn: (id: string, pemeriksaan: NonNullable<StockInTransaction['pemeriksaan']>) => { success: boolean; message: string };
+  verifyStockIn: (id: string, diterima: boolean, catatan?: string) => { success: boolean; message: string };
+  deleteStockIn: (id: string) => { success: boolean; message: string };
   
   addStockOut: (data: {
     itemId: string;
@@ -135,17 +156,19 @@ interface AppContextType {
     ruangan: string;
     pemohon: string;
     keperluan: string;
-  }) => { success: boolean; message: string };
+  }, sequenceOffset?: number) => { success: boolean; message: string };
   
   addInventoryRequest: (req: Omit<InventoryRequest, 'id' | 'nomorPermintaan' | 'tanggal' | 'status'>) => InventoryRequest;
-  updateRequestStatus: (id: string, status: InventoryRequest['status'], catatan?: string, jumlahDisetujui?: number) => { success: boolean; message: string };
+  updateRequestStatus: (id: string, status: InventoryRequest['status'], catatan?: string, jumlahDisetujui?: number, itemsDisetujui?: InventoryRequestItem[]) => { success: boolean; message: string };
   deleteInventoryRequest: (id: string) => void;
   
   addAssetMovement: (mov: Omit<AssetMovement, 'id' | 'nomorTransaksi' | 'status' | 'createdAt' | 'updatedAt'>) => void;
   updateMovementStatus: (id: string, status: AssetMovement['status'], catatan?: string) => void;
+  deleteAssetMovement: (id: string) => { success: boolean; message: string };
   
   addAssetMaintenance: (mnt: Omit<AssetMaintenance, 'id' | 'nomorTiket'>) => void;
   updateMaintenanceStatus: (id: string, status: AssetMaintenance['status']) => void;
+  deleteAssetMaintenance: (id: string) => { success: boolean; message: string };
   
   addAssetDisposal: (disp: Omit<AssetDisposal, 'id' | 'nomorPengajuan'>) => void;
   updateDisposalStatus: (id: string, status: AssetDisposal['status']) => void;
@@ -183,14 +206,79 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
+function normalizeNotificationIds(notifications: NotificationItem[]): NotificationItem[] {
+  const reservedIds = new Set(notifications.map(notification => notification.id));
+  const usedIds = new Set<string>();
+  const seenContent = new Map<string, Map<string, number>>();
+  const normalized: NotificationItem[] = [];
+
+  for (const notification of notifications) {
+    const signature = JSON.stringify([
+      notification.type,
+      notification.title,
+      notification.message,
+      notification.timestamp,
+      notification.link
+    ]);
+    let contentIds = seenContent.get(notification.id);
+    if (!contentIds) {
+      contentIds = new Map();
+      seenContent.set(notification.id, contentIds);
+    }
+
+    const existingIndex = contentIds.get(signature);
+    if (existingIndex !== undefined) {
+      normalized[existingIndex] = {
+        ...normalized[existingIndex],
+        read: normalized[existingIndex].read && notification.read
+      };
+      continue;
+    }
+
+    let id = notification.id;
+    if (usedIds.has(id)) {
+      let firstHash = 0x811c9dc5;
+      let secondHash = 0x811c9dc5;
+      for (let index = 0; index < signature.length; index += 1) {
+        const code = signature.charCodeAt(index);
+        firstHash = Math.imul(firstHash ^ code, 0x01000193);
+        secondHash = Math.imul(secondHash ^ (code + index), 0x01000193);
+      }
+      const suffix = `${(firstHash >>> 0).toString(36)}${(secondHash >>> 0).toString(36)}`;
+      let collision = 0;
+      do {
+        id = `${notification.id}-${suffix}${collision ? `-${collision}` : ''}`;
+        collision += 1;
+      } while (usedIds.has(id) || reservedIds.has(id));
+    }
+
+    contentIds.set(signature, normalized.length);
+    usedIds.add(id);
+    normalized.push(id === notification.id ? notification : { ...notification, id });
+  }
+
+  return normalized;
+}
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Authentication: default to Administrator for seamless preview or 'landing'
-  const [currentUser, setCurrentUser] = useState<User | null>(() => {
-    const saved = localStorage.getItem('siman_user');
-    return saved ? JSON.parse(saved) : INITIAL_USERS[0]; // Start logged in as Ir. Hendra (Pimpinan) or Admin
-  });
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [dataReady, setDataReady] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const revisionRef = useRef(0);
+  const syncBlockedRef = useRef(false);
+  const syncQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingRequestWhatsAppEventsRef = useRef<Array<{
+    eventId: string;
+    requestId: string;
+    status: InventoryRequest['status'];
+    action: 'submitted' | 'status_changed';
+    note?: string;
+  }>>([]);
+  const queuedRequestWhatsAppStatusRef = useRef<Map<string, InventoryRequest['status']>>(new Map());
 
   const [activeView, setActiveView] = useState<ActiveView>('dashboard');
+  const [dashboardFilters, setDashboardFilters] = useState<DashboardFilters>({ ...DEFAULT_DASHBOARD_FILTERS });
   const [performance3D, setPerformance3D] = useState<'normal' | 'performance' | 'low'>('normal');
 
   // Rooms & Racks
@@ -309,7 +397,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [notifications, setNotifications] = useState<NotificationItem[]>(() => {
     const saved = localStorage.getItem('siman_notifications');
-    return saved ? JSON.parse(saved) : generateInitialNotifications();
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return normalizeNotificationIds(parsed);
+      } catch {
+        // Fall back to the generated notifications.
+      }
+    }
+    return normalizeNotificationIds(generateInitialNotifications());
   });
 
   const [users, setUsers] = useState<User[]>(() => {
@@ -352,126 +448,204 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [printableData, setPrintableData] = useState<any | null>(null);
 
-  // Sync to local storage
-  useEffect(() => {
-    if (currentUser) {
-      localStorage.setItem('siman_user', JSON.stringify(currentUser));
+  const sharedState = {
+    rooms, assets, inventoryItems, stockInList, stockOutList, requests, opnames,
+    movements, maintenances, disposals, documents, auditLogs, notifications, users, roles
+  };
+
+  const applySharedState = (state: Record<string, unknown>) => {
+    if (Array.isArray(state.rooms)) setRooms(state.rooms as OfficeRoom[]);
+    if (Array.isArray(state.assets)) setAssets(state.assets as BmnAsset[]);
+    if (Array.isArray(state.inventoryItems)) setInventoryItems(state.inventoryItems as InventoryItem[]);
+    if (Array.isArray(state.stockInList)) setStockInList(state.stockInList as StockInTransaction[]);
+    if (Array.isArray(state.stockOutList)) setStockOutList(state.stockOutList as StockOutTransaction[]);
+    if (Array.isArray(state.requests)) setRequests(state.requests as InventoryRequest[]);
+    if (Array.isArray(state.opnames)) setOpnames(state.opnames as StockOpname[]);
+    if (Array.isArray(state.movements)) setMovements(state.movements as AssetMovement[]);
+    if (Array.isArray(state.maintenances)) setMaintenances(state.maintenances as AssetMaintenance[]);
+    if (Array.isArray(state.disposals)) setDisposals(state.disposals as AssetDisposal[]);
+    if (Array.isArray(state.documents)) setDocuments(state.documents as DocumentItem[]);
+    if (Array.isArray(state.auditLogs)) setAuditLogs(state.auditLogs as AuditLog[]);
+    if (Array.isArray(state.notifications)) {
+      setNotifications(normalizeNotificationIds(state.notifications as NotificationItem[]));
+    }
+    if (Array.isArray(state.users)) setUsers(state.users as User[]);
+    if (Array.isArray(state.roles)) setRoles(state.roles as RoleDefinition[]);
+  };
+
+  const loadSessionData = async (authenticatedUser: User) => {
+    const response = await fetch('/api/state');
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Gagal memuat data terpusat.');
+    revisionRef.current = result.revision;
+    if (!result.initialized) {
+      if (authenticatedUser.role !== 'Administrator') {
+        throw new Error('Database belum diinisialisasi. Administrator harus masuk terlebih dahulu.');
+      }
+      const existingAdmin = sharedState.users.find(user => user.id === authenticatedUser.id);
+      const initialUsers = existingAdmin
+        ? sharedState.users.map(user => user.id === authenticatedUser.id ? { ...user, ...authenticatedUser, role: 'Administrator' } : user)
+        : [authenticatedUser, ...sharedState.users];
+      const initialState = { ...sharedState, users: initialUsers };
+      const saveResponse = await fetch('/api/state', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ state: initialState, revision: revisionRef.current })
+      });
+      const saveResult = await saveResponse.json();
+      if (!saveResponse.ok) throw new Error(saveResult.error || 'Gagal menginisialisasi data terpusat.');
+      revisionRef.current = saveResult.revision;
+      applySharedState(initialState);
     } else {
-      localStorage.removeItem('siman_user');
+      applySharedState(result.state);
+      const storedUser = (result.state.users as User[] | null)?.find(user => user.id === authenticatedUser.id);
+      if (storedUser) setCurrentUser(storedUser);
     }
-  }, [currentUser]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('siman_assets', JSON.stringify(assets));
-    } catch {
-      // quota safeguard
-    }
-  }, [assets]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('siman_inventory', JSON.stringify(inventoryItems));
-    } catch {
-      // quota safeguard
-    }
-  }, [inventoryItems]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('siman_documents', JSON.stringify(documents));
-    } catch {
-      // quota safeguard
-    }
-  }, [documents]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('siman_requests', JSON.stringify(requests));
-    } catch {
-      // quota safeguard
-    }
-  }, [requests]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('siman_stock_in', JSON.stringify(stockInList));
-    } catch {
-      // quota safeguard
-    }
-  }, [stockInList]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('siman_stock_out', JSON.stringify(stockOutList));
-    } catch {
-      // quota safeguard
-    }
-  }, [stockOutList]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('siman_movements', JSON.stringify(movements));
-    } catch {
-      // quota safeguard
-    }
-  }, [movements]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('siman_maintenance', JSON.stringify(maintenances));
-    } catch {
-      // quota safeguard
-    }
-  }, [maintenances]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('siman_users', JSON.stringify(users));
-    } catch {
-      // quota safeguard
-    }
-  }, [users]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('siman_roles', JSON.stringify(roles));
-    } catch {
-      // quota safeguard
-    }
-  }, [roles]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('siman_rooms', JSON.stringify(rooms));
-    } catch {
-      // quota safeguard
-    }
-  }, [rooms]);
-
-  // Auth Helpers
-  const loginAs = (role: User['role']) => {
-    const target = users.find(u => u.role === role) || INITIAL_USERS.find(u => u.role === role) || users[0];
-    setCurrentUser(target);
-    setActiveView('dashboard');
-    logAudit('Login Pengguna Berhasil', 'AUTH', `Pengguna ${target.name} (${target.role}) masuk ke sistem.`);
+    setDataReady(true);
   };
 
-  const switchUser = (id: string) => {
-    const target = users.find(u => u.id === id);
-    if (target) {
-      setCurrentUser(target);
-      logAudit('Alih Pengguna', 'AUTH', `Beralih ke akun ${target.name} (${target.role})`);
-      pushNotification('SISTEM', 'Sesi Pengguna Berubah', `Sekarang Anda login sebagai ${target.name} (${target.role}).`, 'users');
+  useEffect(() => {
+    let mounted = true;
+    const restoreSession = async () => {
+      try {
+        const response = await fetch('/api/auth/me');
+        if (response.status === 401) {
+          if (mounted) setCurrentUser(null);
+          return;
+        }
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Gagal memeriksa sesi masuk.');
+        if (!mounted) return;
+        setCurrentUser(result.user);
+        await loadSessionData(result.user);
+      } catch (error) {
+        if (mounted) {
+          setCurrentUser(null);
+          setDataReady(false);
+          setSyncError(error instanceof Error ? error.message : 'Server tidak dapat dihubungi.');
+        }
+      } finally {
+        if (mounted) setAuthReady(true);
+      }
+    };
+    void restoreSession();
+    return () => { mounted = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!currentUser || !dataReady) return;
+    const timer = window.setTimeout(async () => {
+      syncQueueRef.current = syncQueueRef.current.then(async () => {
+        if (syncBlockedRef.current) return;
+        const response = await fetch('/api/state', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ state: sharedState, revision: revisionRef.current })
+        });
+        const result = await response.json();
+        if (response.status === 409) {
+          syncBlockedRef.current = true;
+          setSyncError(result.error || 'Data berubah di perangkat lain. Muat ulang halaman sebelum menyimpan lagi.');
+          return;
+        }
+        if (!response.ok) throw new Error(result.error || 'Perubahan tidak tersimpan ke server.');
+        revisionRef.current = result.revision;
+        setSyncError(null);
+        const persistedRequests = (sharedState.requests as InventoryRequest[]) || [];
+        const pendingEvents = pendingRequestWhatsAppEventsRef.current;
+        const readyEvents = pendingEvents.filter(event =>
+          persistedRequests.some(request => request.id === event.requestId && request.status === event.status)
+        );
+        for (const event of readyEvents) {
+          if (queuedRequestWhatsAppStatusRef.current.get(event.requestId) === event.status) {
+            queuedRequestWhatsAppStatusRef.current.delete(event.requestId);
+          }
+        }
+        pendingRequestWhatsAppEventsRef.current = pendingEvents.filter(event =>
+          !readyEvents.includes(event) && !persistedRequests.some(request => request.id === event.requestId && request.status !== event.status)
+        );
+        for (const event of readyEvents) {
+          void fetch('/api/whatsapp/request-events', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(event)
+          }).then(async notificationResponse => {
+            const notificationResult = await notificationResponse.json();
+            if (notificationResult.skipped) return;
+            const success = notificationResponse.ok && notificationResult.success;
+            pushNotification(
+              success ? 'TRANSAKSI' : 'PERINGATAN',
+              success ? 'Provider WhatsApp Menerima Pesan' : 'Notifikasi WhatsApp Gagal',
+              success
+                ? 'Provider WhatsApp menerima permintaan pesan. Status pengantaran ke perangkat belum terkonfirmasi.'
+                : notificationResult.error || 'Permohonan berhasil diproses, tetapi notifikasi WhatsApp gagal dikirim.',
+              'requests'
+            );
+          }).catch(error => {
+            const details = error instanceof Error ? error.message : 'Server notifikasi tidak dapat dihubungi.';
+            pushNotification(
+              'PERINGATAN',
+              'Notifikasi WhatsApp Gagal',
+              `Permohonan berhasil diproses, tetapi notifikasi WhatsApp gagal dikirim. ${details}`,
+              'requests'
+            );
+          });
+        }
+      }).catch(error => {
+        setSyncError(error instanceof Error ? error.message : 'Perubahan tidak tersimpan ke server.');
+      });
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [
+    currentUser, dataReady, rooms, assets, inventoryItems, stockInList, stockOutList,
+    requests, opnames, movements, maintenances, disposals, documents, auditLogs,
+    notifications, users, roles
+  ]);
+
+  const login = async (nip: string, password: string) => {
+    const response = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nip, password })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Gagal masuk.');
+    setDataReady(false);
+    syncBlockedRef.current = false;
+    revisionRef.current = 0;
+    setCurrentUser(result.user);
+    try {
+      await loadSessionData(result.user);
+      setSyncError(null);
+      setActiveView('dashboard');
+    } catch (error) {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      setCurrentUser(null);
+      setDataReady(false);
+      syncBlockedRef.current = false;
+      throw error;
     }
   };
 
-  const logout = () => {
-    if (currentUser) {
-      logAudit('Logout Pengguna', 'AUTH', `Pengguna ${currentUser.name} keluar dari sistem.`);
-    }
+  const logout = async () => {
+    const response = await fetch('/api/auth/logout', { method: 'POST' });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Gagal keluar dari sistem.');
+    setDataReady(false);
+    syncBlockedRef.current = false;
     setCurrentUser(null);
+    setSyncError(null);
     setActiveView('login');
+  };
+
+  const setUserPassword = async (user: User, password: string) => {
+    const response = await fetch(`/api/auth/users/${encodeURIComponent(user.id)}/password`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user, password })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Gagal menyimpan kata sandi akun.');
   };
 
   // User Management CRUD
@@ -611,7 +785,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Helper for notifications
   const pushNotification = (type: NotificationItem['type'], title: string, message: string, link?: string) => {
     const newNotif: NotificationItem = {
-      id: `notif-${Date.now()}`,
+      id: `notif-${crypto.randomUUID()}`,
       type,
       title,
       message,
@@ -620,6 +794,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       link
     };
     setNotifications(prev => [newNotif, ...prev]);
+  };
+
+  const queueRequestWhatsAppEvent = (
+    request: InventoryRequest,
+    action: 'submitted' | 'status_changed',
+    note?: string
+  ) => {
+    pendingRequestWhatsAppEventsRef.current.push({
+      eventId: crypto.randomUUID(),
+      requestId: request.id,
+      status: request.status,
+      action,
+      note
+    });
   };
 
   // Room Management CRUD
@@ -632,9 +820,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       throw new Error('Akses ditolak: Role Anda tidak memiliki izin untuk membuat ruangan.');
     }
 
+    const code = roomData.code.trim();
+    if (!code || !roomData.name.trim() || !roomData.building.trim() || !roomData.picName.trim() ||
+        !Number.isInteger(roomData.floor) || roomData.floor < 1) {
+      throw new Error('Kode, nama, gedung, lantai, dan penanggung jawab ruangan wajib diisi dengan benar.');
+    }
+    if (rooms.some(room => room.code.trim().toLocaleLowerCase('id-ID') === code.toLocaleLowerCase('id-ID'))) {
+      throw new Error(`Kode ruangan "${code}" sudah digunakan oleh ruangan lain.`);
+    }
+
     const newId = `rm-${Date.now()}`;
     const newRoom: OfficeRoom = {
       ...roomData,
+      code,
+      name: roomData.name.trim(),
+      building: roomData.building.trim(),
+      picName: roomData.picName.trim(),
       id: newId
     };
     setRooms(prev => [...prev, newRoom]);
@@ -647,7 +848,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (currentUser && !ALLOWED_ROOM_ROLES.includes(currentUser.role)) {
       logAudit('Percobaan Akses Ditolak', 'AUTH', `Pengguna ${currentUser.name} (${currentUser.role}) mencoba memperbarui data ruangan tanpa izin.`);
       pushNotification('PERINGATAN', 'Akses Ditolak', 'Hanya Pimpinan, Administrator, dan Pengelola BMN yang berhak mengubah data ruangan.', 'dashboard');
-      return;
+      throw new Error('Akses ditolak: Role Anda tidak memiliki izin untuk mengubah data ruangan.');
+    }
+
+    const existingRoom = rooms.find(room => room.id === id);
+    if (!existingRoom) throw new Error('Ruangan yang akan diperbarui tidak ditemukan.');
+    const updatedRoom = { ...existingRoom, ...updates };
+    const code = updatedRoom.code.trim();
+    if (!code || !updatedRoom.name.trim() || !updatedRoom.building.trim() || !updatedRoom.picName.trim() ||
+        !Number.isInteger(updatedRoom.floor) || updatedRoom.floor < 1) {
+      throw new Error('Kode, nama, gedung, lantai, dan penanggung jawab ruangan wajib diisi dengan benar.');
+    }
+    if (rooms.some(room => room.id !== id && room.code.trim().toLocaleLowerCase('id-ID') === code.toLocaleLowerCase('id-ID'))) {
+      throw new Error(`Kode ruangan "${code}" sudah digunakan oleh ruangan lain.`);
     }
 
     setRooms(prev => prev.map(r => (r.id === id ? { ...r, ...updates } : r)));
@@ -783,6 +996,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
   };
 
+  // DITAMBAHKAN: validasi ID sebelum menghapus satu barang persediaan.
+  const deleteInventoryItem = (id: string) => {
+    if (typeof id !== 'string' || !id.trim()) {
+      return { success: false, message: 'ID persediaan tidak valid.' };
+    }
+    const target = inventoryItems.find(item => item.id === id);
+    if (!target) {
+      return { success: false, message: 'Data persediaan tidak ditemukan.' };
+    }
+    setInventoryItems(prev => prev.filter(item => item.id !== id));
+    logAudit('Penghapusan Master Persediaan', 'PERSEDIAAN', `Barang persediaan ${target.nama} (${target.kodeBarang}) dihapus.`);
+    return { success: true, message: `Barang "${target.nama}" berhasil dihapus.` };
+  };
+
   const importInventoryItems = (newItemsData: Omit<InventoryItem, 'id'>[], mode: 'append' | 'upsert' = 'upsert') => {
     let added = 0;
     let updated = 0;
@@ -835,31 +1062,52 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { successCount: added, updatedCount: updated };
   };
 
-  // Stock In Automation (STOK OTOMATIS BERTAMBAH)
-  const addStockIn = (data: {
-    itemId: string;
-    jumlah: number;
-    nomorDokumen: string;
-    sumber: string;
-    keterangan: string;
-    hargaSatuan?: number;
-  }) => {
-    const item = inventoryItems.find(i => i.id === data.itemId);
-    if (!item) return { success: false, message: 'Barang tidak ditemukan' };
+  const validateStockInDetails = (data: StockInDetails) => {
+    const item = inventoryItems.find(candidate => candidate.id === data.itemId);
+    if (!item) {
+      return 'Barang persediaan tidak ditemukan.';
+    }
+    if (!Number.isFinite(data.jumlah) || data.jumlah <= 0) return 'Jumlah harus lebih besar dari 0.';
+    if (data.hargaSatuan !== undefined && (!Number.isFinite(data.hargaSatuan) || data.hargaSatuan < 0)) {
+      return 'Harga satuan tidak valid.';
+    }
+    if (!Number.isFinite(data.jumlah * (data.hargaSatuan ?? item.hargaSatuan))) {
+      return 'Nilai transaksi terlalu besar atau tidak valid.';
+    }
+    if (!data.nomorDokumen.trim() || !data.sumber.trim()) return 'Nomor dokumen dan sumber perolehan wajib diisi.';
+    const parsedDate = /^\d{4}-\d{2}-\d{2}$/.test(data.tanggal)
+      ? new Date(`${data.tanggal}T00:00:00`)
+      : null;
+    if (!parsedDate || Number.isNaN(parsedDate.getTime()) ||
+        `${parsedDate.getFullYear()}-${String(parsedDate.getMonth() + 1).padStart(2, '0')}-${String(parsedDate.getDate()).padStart(2, '0')}` !== data.tanggal) {
+      return 'Tanggal transaksi tidak valid.';
+    }
+    return null;
+  };
 
-    const newStock = item.stokSaatIni + data.jumlah;
-    const finalPrice = data.hargaSatuan || item.hargaSatuan;
+  const addStockIn = (data: StockInDetails) => {
+    const validationError = validateStockInDetails(data);
+    if (validationError) return { success: false, message: validationError };
+    const item = inventoryItems.find(i => i.id === data.itemId);
+    if (!item) return { success: false, message: 'Barang persediaan tidak ditemukan.' };
+    const finalPrice = data.hargaSatuan ?? item.hargaSatuan;
     const totalHarga = data.jumlah * finalPrice;
-    const now = new Date();
-    const tgl = now.toISOString().split('T')[0];
-    const nomorTx = `BM-BPS7106/2026/${String(stockInList.length + 1).padStart(4, '0')}`;
+    const year = data.tanggal.slice(0, 4);
+    const sequence = stockInList.reduce((max, tx) => {
+      if (!tx.nomorTransaksi?.startsWith(`BM-BPS7106/${year}/`)) return max;
+      const suffix = Number(tx.nomorTransaksi.split('/').pop());
+      return Number.isFinite(suffix) ? Math.max(max, suffix) : max;
+    }, 0) + 1;
+    let id = `sin-${Date.now()}`;
+    while (stockInList.some(tx => tx.id === id)) id = `sin-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+    const nomorTx = `BM-BPS7106/${year}/${String(sequence).padStart(4, '0')}`;
 
     const newTx: StockInTransaction = {
-      id: `sin-${Date.now()}`,
+      id,
       nomorTransaksi: nomorTx,
-      tanggal: tgl,
-      nomorDokumen: data.nomorDokumen,
-      sumber: data.sumber,
+      tanggal: data.tanggal,
+      nomorDokumen: data.nomorDokumen.trim(),
+      sumber: data.sumber.trim(),
       itemId: item.id,
       namaBarang: item.nama,
       kategori: item.kategori,
@@ -870,21 +1118,123 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       totalHarga: totalHarga,
       lokasiRak: item.rak,
       petugas: currentUser?.name || 'Petugas Gudang',
-      keterangan: data.keterangan
+      keterangan: data.keterangan.trim(),
+      status: 'Menunggu Pemeriksaan'
     };
 
     setStockInList(prev => [newTx, ...prev]);
+    logAudit('Pencatatan Barang Masuk', 'PERSEDIAAN', `Penerimaan ${data.jumlah} ${item.satuan} ${item.nama} dicatat dan menunggu pemeriksaan. No: ${nomorTx}`);
+    pushNotification('TRANSAKSI', '📥 Barang Masuk Menunggu Pemeriksaan', `${item.nama} (${data.jumlah} ${item.satuan}) menunggu pemeriksaan sebelum stok diperbarui.`, 'inventory');
+    return { success: true, message: `Penerimaan ${nomorTx} tersimpan dan menunggu pemeriksaan. Stok belum berubah.` };
+  };
 
-    // Update item stock
-    updateInventoryItem(item.id, {
-      stokSaatIni: newStock,
-      hargaSatuan: finalPrice
-    });
+  const updateStockIn = (id: string, data: StockInDetails) => {
+    const target = stockInList.find(tx => tx.id === id);
+    if (!target) return { success: false, message: 'Transaksi Barang Masuk tidak ditemukan.' };
+    if (target.status !== 'Menunggu Pemeriksaan' && target.status !== 'Ditolak') {
+      return { success: false, message: 'Transaksi yang sudah diperiksa atau diverifikasi tidak dapat diedit.' };
+    }
+    const validationError = validateStockInDetails(data);
+    if (validationError) return { success: false, message: validationError };
+    const item = inventoryItems.find(i => i.id === data.itemId);
+    if (!item) return { success: false, message: 'Barang persediaan tidak ditemukan.' };
+    const updated: StockInTransaction = {
+      ...target,
+      tanggal: data.tanggal,
+      nomorDokumen: data.nomorDokumen.trim(),
+      sumber: data.sumber.trim(),
+      itemId: item.id,
+      namaBarang: item.nama,
+      kategori: item.kategori,
+      jenis: item.jenis,
+      jumlah: data.jumlah,
+      satuan: item.satuan,
+      hargaSatuan: data.hargaSatuan ?? item.hargaSatuan,
+      totalHarga: data.jumlah * (data.hargaSatuan ?? item.hargaSatuan),
+      lokasiRak: item.rak,
+      keterangan: data.keterangan.trim(),
+      status: 'Menunggu Pemeriksaan',
+      pemeriksaan: undefined,
+      diverifikasiOleh: undefined,
+      diverifikasiPada: undefined
+    };
+    setStockInList(prev => prev.map(tx => tx.id === id ? updated : tx));
+    logAudit('Perubahan Barang Masuk', 'PERSEDIAAN', `Transaksi ${target.nomorTransaksi} diperbarui dan kembali menunggu pemeriksaan.`);
+    return { success: true, message: 'Transaksi diperbarui dan menunggu pemeriksaan ulang.' };
+  };
 
-    logAudit('Penerimaan Barang Masuk', 'PERSEDIAAN', `Barang masuk: ${data.jumlah} ${item.satuan} ${item.nama}. Stok bertambah menjadi ${newStock}. No: ${nomorTx}`);
-    pushNotification('TRANSAKSI', '📥 Barang Masuk Tersimpan', `Penerimaan ${data.jumlah} ${item.satuan} ${item.nama} telah masuk ke ${item.rak}.`, 'inventory');
+  const inspectStockIn = (id: string, pemeriksaan: NonNullable<StockInTransaction['pemeriksaan']>) => {
+    const target = stockInList.find(tx => tx.id === id);
+    if (!target) return { success: false, message: 'Transaksi Barang Masuk tidak ditemukan.' };
+    if (target.status !== 'Menunggu Pemeriksaan') return { success: false, message: 'Transaksi ini tidak sedang menunggu pemeriksaan.' };
+    if (!pemeriksaan.diperiksaOleh.trim() || !pemeriksaan.diperiksaPada ||
+        !['Baik', 'Rusak Ringan', 'Rusak Berat'].includes(pemeriksaan.kondisi)) {
+      return { success: false, message: 'Data pemeriksaan belum lengkap.' };
+    }
+    setStockInList(prev => prev.map(tx => tx.id === id
+      ? { ...tx, status: 'Sudah Diperiksa', pemeriksaan }
+      : tx));
+    logAudit('Pemeriksaan Barang Masuk', 'PERSEDIAAN', `Transaksi ${target.nomorTransaksi} diperiksa oleh ${pemeriksaan.diperiksaOleh}.`);
+    return { success: true, message: 'Pemeriksaan tersimpan. Lanjutkan dengan verifikasi diterima atau ditolak.' };
+  };
 
-    return { success: true, message: `Penerimaan barang berhasil disimpan! Stok bertambah menjadi ${newStock} ${item.satuan}.` };
+  const verifyStockIn = (id: string, diterima: boolean, catatan = '') => {
+    const target = stockInList.find(tx => tx.id === id);
+    if (!target) return { success: false, message: 'Transaksi Barang Masuk tidak ditemukan.' };
+    if (target.status !== 'Sudah Diperiksa' || !target.pemeriksaan) {
+      return { success: false, message: 'Transaksi harus diperiksa sebelum diverifikasi.' };
+    }
+    if (diterima && (!target.pemeriksaan.jumlahSesuai || !target.pemeriksaan.dokumenSesuai ||
+        !target.pemeriksaan.barangSesuai || target.pemeriksaan.kondisi === 'Rusak Berat')) {
+      return { success: false, message: 'Penerimaan dengan hasil pemeriksaan tidak sesuai atau kondisi rusak berat harus ditolak.' };
+    }
+    const item = inventoryItems.find(i => i.id === target.itemId);
+    if (diterima && !item) return { success: false, message: 'Barang persediaan terkait tidak ditemukan; stok tidak dapat diperbarui.' };
+    if (diterima && item && !Number.isFinite(item.stokSaatIni + target.jumlah)) {
+      return { success: false, message: 'Perubahan stok menghasilkan nilai yang tidak valid.' };
+    }
+    const status = diterima ? 'Diverifikasi' : 'Ditolak';
+    if (diterima && item) {
+      updateInventoryItem(item.id, {
+        stokSaatIni: item.stokSaatIni + target.jumlah,
+        hargaSatuan: target.hargaSatuan
+      });
+    }
+    setStockInList(prev => prev.map(tx => tx.id === id
+      ? {
+          ...tx,
+          status,
+          keterangan: catatan.trim() ? `${tx.keterangan}${tx.keterangan ? ' | ' : ''}Verifikasi: ${catatan.trim()}` : tx.keterangan,
+          diverifikasiOleh: currentUser?.name || 'Petugas Gudang',
+          diverifikasiPada: new Date().toISOString()
+        }
+      : tx));
+    const auditDetail = `Transaksi ${target.nomorTransaksi} ${diterima ? 'diterima dan stok ditambahkan' : 'ditolak'}${catatan.trim() ? `: ${catatan.trim()}` : '.'}`;
+    logAudit('Verifikasi Barang Masuk', 'PERSEDIAAN', auditDetail);
+    if (diterima && item) {
+      pushNotification('TRANSAKSI', '✅ Barang Masuk Diverifikasi', `${target.jumlah} ${item.satuan} ${item.nama} telah ditambahkan ke stok.`, 'inventory');
+    }
+    return {
+      success: true,
+      message: diterima ? `Transaksi diverifikasi; stok ${item?.nama} bertambah ${target.jumlah} ${target.satuan}.` : 'Transaksi ditolak dan tidak mengubah stok.'
+    };
+  };
+
+  const deleteStockIn = (id: string) => {
+    const target = stockInList.find(tx => tx.id === id);
+    if (!target) return { success: false, message: 'Transaksi Barang Masuk tidak ditemukan.' };
+    const isPosted = target.status === undefined || target.status === 'Diverifikasi';
+    if (isPosted) {
+      const item = inventoryItems.find(i => i.id === target.itemId);
+      if (!item) return { success: false, message: 'Barang persediaan terkait tidak ditemukan; transaksi historis tidak dapat dihapus dengan aman.' };
+      if (item.stokSaatIni < target.jumlah) {
+        return { success: false, message: 'Stok saat ini tidak mencukupi untuk membatalkan transaksi ini.' };
+      }
+      updateInventoryItem(item.id, { stokSaatIni: item.stokSaatIni - target.jumlah });
+    }
+    setStockInList(prev => prev.filter(tx => tx.id !== id));
+    logAudit('Penghapusan Barang Masuk', 'PERSEDIAAN', `Transaksi ${target.nomorTransaksi} dihapus${isPosted ? ' dan jumlah stoknya dikoreksi' : ''}.`);
+    return { success: true, message: `Transaksi ${target.nomorTransaksi} berhasil dihapus.` };
   };
 
   // Stock Out Automation (STOK OTOMATIS BERKURANG)
@@ -895,7 +1245,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     ruangan: string;
     pemohon: string;
     keperluan: string;
-  }) => {
+  }, sequenceOffset = 0) => {
     const item = inventoryItems.find(i => i.id === data.itemId);
     if (!item) return { success: false, message: 'Barang tidak ditemukan' };
 
@@ -910,10 +1260,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const newStock = item.stokSaatIni - data.jumlah;
     const now = new Date();
     const tgl = now.toISOString().split('T')[0];
-    const nomorTx = `BK-BPS7106/2026/${String(stockOutList.length + 1).padStart(4, '0')}`;
+    const nomorTx = `BK-BPS7106/2026/${String(stockOutList.length + sequenceOffset + 1).padStart(4, '0')}`;
 
     const newTx: StockOutTransaction = {
-      id: `sout-${Date.now()}`,
+      id: `sout-${crypto.randomUUID()}`,
       nomorTransaksi: nomorTx,
       tanggal: tgl,
       unitKerja: data.unitKerja,
@@ -950,7 +1300,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Inventory Requests
   const addInventoryRequest = (reqData: Omit<InventoryRequest, 'id' | 'nomorPermintaan' | 'tanggal' | 'status'>) => {
-    const item = inventoryItems.find(i => i.id === reqData.itemId);
+    const requestedItems = reqData.items?.length
+      ? reqData.items
+      : [{
+          itemId: reqData.itemId,
+          namaBarang: reqData.namaBarang,
+          jumlahDiminta: reqData.jumlahDiminta,
+          satuan: reqData.satuan
+        }];
+    if (requestedItems.length > 100) throw new Error('Satu permohonan maksimal berisi 100 jenis barang.');
+    const seenItemIds = new Set<string>();
+    const normalizedItems = requestedItems.map((requestedItem, index) => {
+      const item = inventoryItems.find(inventoryItem => inventoryItem.id === requestedItem.itemId);
+      if (!item) throw new Error(`Barang pada baris ${index + 1} tidak ditemukan dalam master persediaan.`);
+      if (!Number.isSafeInteger(requestedItem.jumlahDiminta) || requestedItem.jumlahDiminta <= 0) {
+        throw new Error(`Jumlah barang pada baris ${index + 1} harus berupa bilangan bulat lebih dari nol.`);
+      }
+      if (seenItemIds.has(item.id)) throw new Error(`Barang pada baris ${index + 1} dipilih lebih dari sekali.`);
+      seenItemIds.add(item.id);
+      return {
+        itemId: item.id,
+        namaBarang: item.nama,
+        kodeBarang: item.kodeBarang,
+        jumlahDiminta: requestedItem.jumlahDiminta,
+        satuan: item.satuan,
+        spesifikasi: requestedItem.spesifikasi?.trim() || undefined,
+        catatan: requestedItem.catatan?.trim() || undefined
+      };
+    });
+    const item = inventoryItems.find(i => i.id === normalizedItems[0].itemId);
     const now = new Date();
     const newReq: InventoryRequest = {
       ...reqData,
@@ -959,12 +1337,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       tanggal: now.toISOString().split('T')[0],
       status: 'Diajukan',
       namaBarang: item ? item.nama : reqData.namaBarang,
-      satuan: item ? item.satuan : reqData.satuan
+      itemId: normalizedItems[0].itemId,
+      jumlahDiminta: normalizedItems[0].jumlahDiminta,
+      satuan: item ? item.satuan : reqData.satuan,
+      items: normalizedItems
     };
 
     setRequests(prev => [newReq, ...prev]);
-    logAudit('Pengajuan Permohonan Barang', 'PERSEDIAAN', `Permohonan baru ${newReq.nomorPermintaan}: ${newReq.jumlahDiminta} ${newReq.satuan} ${newReq.namaBarang} diajukan oleh ${newReq.pemohonNama}`);
-    pushNotification('PERMINTAAN_BARU', '📋 Permohonan Barang Baru', `${newReq.pemohonNama} mengajukan ${newReq.jumlahDiminta} ${newReq.satuan} ${newReq.namaBarang}`, 'requests');
+    queueRequestWhatsAppEvent(newReq, 'submitted', newReq.catatan);
+    const itemSummary = normalizedItems.map(requestedItem => `${requestedItem.namaBarang} (${requestedItem.jumlahDiminta} ${requestedItem.satuan})`).join(', ');
+    logAudit('Pengajuan Permohonan Barang', 'PERSEDIAAN', `Permohonan baru ${newReq.nomorPermintaan}: ${itemSummary} diajukan oleh ${newReq.pemohonNama}`);
+    pushNotification('PERMINTAAN_BARU', '📋 Permohonan Barang Baru', `${newReq.pemohonNama} mengajukan ${normalizedItems.length} jenis barang: ${itemSummary}`, 'requests');
     return newReq;
   };
 
@@ -972,7 +1355,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     id: string,
     status: InventoryRequest['status'],
     catatan?: string,
-    jumlahDisetujui?: number
+    jumlahDisetujui?: number,
+    itemsDisetujui?: InventoryRequestItem[]
   ) => {
     const target = requests.find(r => r.id === id);
     if (!target) return { success: false, message: 'Permohonan tidak ditemukan' };
@@ -980,19 +1364,62 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const approvedQty = jumlahDisetujui !== undefined
       ? jumlahDisetujui
       : (status === 'Disetujui' || status === 'Diproses' ? (target.jumlahDisetujui || target.jumlahDiminta) : target.jumlahDisetujui);
+    const requestedItems = target.items?.length
+      ? target.items
+      : [{
+          itemId: target.itemId,
+          namaBarang: target.namaBarang,
+          jumlahDiminta: target.jumlahDiminta,
+          jumlahDisetujui: target.jumlahDisetujui,
+          satuan: target.satuan
+        }];
+    const approvedItems = requestedItems.map(item => {
+      const approvedItem = itemsDisetujui?.find(candidate => candidate.itemId === item.itemId);
+      return {
+        ...item,
+        jumlahDisetujui: approvedItem?.jumlahDisetujui
+          ?? item.jumlahDisetujui
+          ?? (requestedItems.length === 1 ? approvedQty : item.jumlahDiminta)
+      };
+    });
+    const shouldSetApprovedItems = status === 'Disetujui' || status === 'Diproses' || status === 'Selesai';
+    if (shouldSetApprovedItems) {
+      const invalidApprovedItem = approvedItems.find(item =>
+        !Number.isSafeInteger(item.jumlahDisetujui)
+        || (item.jumlahDisetujui || 0) <= 0
+        || (item.jumlahDisetujui || 0) > item.jumlahDiminta
+      );
+      if (invalidApprovedItem) {
+        return { success: false, message: `Jumlah yang disetujui untuk ${invalidApprovedItem.namaBarang} harus lebih dari nol dan tidak melebihi jumlah permohonan.` };
+      }
+    }
 
     // If status is "Selesai", auto stock out if not done yet
     if (status === 'Selesai' && target.status !== 'Selesai') {
-      const stockRes = addStockOut({
-        itemId: target.itemId,
-        jumlah: approvedQty || target.jumlahDiminta,
-        unitKerja: target.unitKerja,
-        ruangan: target.ruangan,
-        pemohon: target.pemohonNama,
-        keperluan: target.keperluan
-      });
-      if (!stockRes.success) {
-        return stockRes;
+      const itemsToIssue = approvedItems.map(item => ({
+        ...item,
+        jumlah: item.jumlahDisetujui || item.jumlahDiminta
+      }));
+      for (const item of itemsToIssue) {
+        const stockItem = inventoryItems.find(inventoryItem => inventoryItem.id === item.itemId);
+        if (!stockItem) return { success: false, message: `Barang ${item.namaBarang} tidak ditemukan dalam persediaan.` };
+        if (!Number.isSafeInteger(item.jumlah) || item.jumlah <= 0 || item.jumlah > item.jumlahDiminta) {
+          return { success: false, message: `Jumlah pengeluaran ${item.namaBarang} tidak valid.` };
+        }
+        if (item.jumlah > stockItem.stokSaatIni) {
+          return { success: false, message: `Stok ${item.namaBarang} tidak mencukupi. Tersedia ${stockItem.stokSaatIni} ${stockItem.satuan}.` };
+        }
+      }
+      for (const [index, item] of itemsToIssue.entries()) {
+        const stockRes = addStockOut({
+          itemId: item.itemId,
+          jumlah: item.jumlah,
+          unitKerja: target.unitKerja,
+          ruangan: target.ruangan,
+          pemohon: target.pemohonNama,
+          keperluan: target.keperluan
+        }, index);
+        if (!stockRes.success) return stockRes;
       }
     }
 
@@ -1003,14 +1430,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               ...r,
               status,
               catatan: catatan !== undefined ? catatan : r.catatan,
-              jumlahDisetujui: approvedQty
+              jumlahDisetujui: approvedQty,
+              items: shouldSetApprovedItems ? r.items?.map(item => ({
+                ...item,
+                jumlahDisetujui: approvedItems.find(approvedItem => approvedItem.itemId === item.itemId)?.jumlahDisetujui
+              })) : r.items
             }
           : r
       )
     );
 
-    logAudit('Pembaruan Status Permohonan', 'PERSEDIAAN', `Permohonan ${target.nomorPermintaan} (${target.namaBarang}) diubah statusnya menjadi ${status}.`);
-    pushNotification('TRANSAKSI', `📋 Status Permohonan: ${status}`, `Permohonan ${target.nomorPermintaan} (${target.namaBarang}) kini berstatus ${status}.`, 'requests');
+    if (target.status !== status && queuedRequestWhatsAppStatusRef.current.get(id) !== status) {
+      queuedRequestWhatsAppStatusRef.current.set(id, status);
+      queueRequestWhatsAppEvent({
+        ...target,
+        status,
+        catatan: catatan !== undefined ? catatan : target.catatan,
+        jumlahDisetujui: approvedQty,
+        items: shouldSetApprovedItems ? target.items?.map(item => ({
+          ...item,
+          jumlahDisetujui: approvedItems.find(approvedItem => approvedItem.itemId === item.itemId)?.jumlahDisetujui
+        })) : target.items
+      }, 'status_changed', catatan);
+    }
+    logAudit('Pembaruan Status Permohonan', 'PERSEDIAAN', `Permohonan ${target.nomorPermintaan} (${requestedItems.map(item => item.namaBarang).join(', ')}) diubah statusnya menjadi ${status}.`);
+    pushNotification('TRANSAKSI', `📋 Status Permohonan: ${status}`, `Permohonan ${target.nomorPermintaan} (${requestedItems.map(item => item.namaBarang).join(', ')}) kini berstatus ${status}.`, 'requests');
     return { success: true, message: `Status permohonan berhasil diperbarui menjadi ${status}.` };
   };
 
@@ -1076,6 +1520,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const deleteAssetMovement = (id: string) => {
+    if (typeof id !== 'string' || !id.trim()) {
+      return { success: false, message: 'ID transaksi pemindahan tidak valid.' };
+    }
+    const target = movements.find(m => m.id === id);
+    if (!target) {
+      return { success: false, message: 'Transaksi pemindahan tidak ditemukan.' };
+    }
+    setMovements(prev => prev.filter(m => m.id !== id));
+    logAudit('Penghapusan Transaksi Pemindahan Aset', 'ASET_BMN', `Transaksi ${target.nomorTransaksi} untuk ${target.assetName} dihapus.`);
+    return { success: true, message: `Transaksi ${target.nomorTransaksi} berhasil dihapus.` };
+  };
+
   // Asset Maintenance
   const addAssetMaintenance = (mntData: Omit<AssetMaintenance, 'id' | 'nomorTiket'>) => {
     const newMnt: AssetMaintenance = {
@@ -1096,6 +1553,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       updateAsset(target.assetId, { status: 'Aktif', kondisi: 'Baik' });
     }
     logAudit('Update Status Pemeliharaan BMN', 'ASET_BMN', `Tiket ${target.nomorTiket} status diubah menjadi ${status}`);
+  };
+
+  const deleteAssetMaintenance = (id: string) => {
+    if (typeof id !== 'string' || !id.trim()) {
+      return { success: false, message: 'ID tiket pemeliharaan tidak valid.' };
+    }
+    const target = maintenances.find(m => m.id === id);
+    if (!target) {
+      return { success: false, message: 'Tiket pemeliharaan tidak ditemukan.' };
+    }
+    setMaintenances(prev => prev.filter(m => m.id !== id));
+    logAudit('Penghapusan Tiket Pemeliharaan BMN', 'ASET_BMN', `Tiket ${target.nomorTiket} untuk ${target.assetName} dihapus.`);
+    return { success: true, message: `Tiket ${target.nomorTiket} berhasil dihapus.` };
   };
 
   // Asset Disposal
@@ -1194,11 +1664,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     <AppContext.Provider
       value={{
         currentUser,
-        setCurrentUser,
-        loginAs,
+        isInitializing: !authReady || (!!currentUser && !dataReady),
+        syncError,
+        login,
         logout,
         activeView,
         setActiveView,
+        dashboardFilters,
+        setDashboardFilters,
         performance3D,
         setPerformance3D,
         rooms,
@@ -1226,7 +1699,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addUser,
         updateUser,
         deleteUser,
-        switchUser,
+        setUserPassword,
         roles,
         addRole,
         updateRole,
@@ -1239,16 +1712,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         importAssets,
         addInventoryItem,
         updateInventoryItem,
+        deleteInventoryItem,
         importInventoryItems,
         addStockIn,
+        updateStockIn,
+        inspectStockIn,
+        verifyStockIn,
+        deleteStockIn,
         addStockOut,
         addInventoryRequest,
         updateRequestStatus,
         deleteInventoryRequest,
         addAssetMovement,
         updateMovementStatus,
+        deleteAssetMovement,
         addAssetMaintenance,
         updateMaintenanceStatus,
+        deleteAssetMaintenance,
         addAssetDisposal,
         updateDisposalStatus,
         addStockOpname,

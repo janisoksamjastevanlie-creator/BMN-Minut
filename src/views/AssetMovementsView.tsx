@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { AssetMovement, MovementStatus } from '../types';
 import { BastMovementPrintModal } from '../components/bmn/BastMovementPrintModal';
@@ -14,15 +14,20 @@ import {
   Building,
   User,
   Calendar,
-  Printer
+  Printer,
+  Trash2
 } from 'lucide-react';
 
 export const AssetMovementsView: React.FC = () => {
-  const { movements, assets, rooms, addAssetMovement, updateMovementStatus, currentUser } = useApp();
+  const { movements, assets, rooms, addAssetMovement, updateMovementStatus, deleteAssetMovement, currentUser, hasPermission } = useApp();
 
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
   const [selectedMovementForPrint, setSelectedMovementForPrint] = useState<AssetMovement | null>(null);
+  const [selectedMovementIds, setSelectedMovementIds] = useState<Set<string>>(new Set());
+  const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
+  const [bulkDeleteNotice, setBulkDeleteNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const selectAllMovementsRef = useRef<HTMLInputElement>(null);
 
   // Form states
   const [selectedAssetId, setSelectedAssetId] = useState(assets[0]?.id || '');
@@ -33,6 +38,71 @@ export const AssetMovementsView: React.FC = () => {
   const filteredMovements = movements.filter(m => {
     return filterStatus === 'all' || m.status === filterStatus;
   });
+
+  const areAllFilteredMovementsSelected =
+    filteredMovements.length > 0 && filteredMovements.every(movement => selectedMovementIds.has(movement.id));
+  const areSomeFilteredMovementsSelected =
+    filteredMovements.some(movement => selectedMovementIds.has(movement.id)) && !areAllFilteredMovementsSelected;
+
+  useEffect(() => {
+    if (selectAllMovementsRef.current) {
+      selectAllMovementsRef.current.indeterminate = areSomeFilteredMovementsSelected;
+    }
+  }, [areSomeFilteredMovementsSelected]);
+
+  const toggleMovementSelection = (id: string) => {
+    setSelectedMovementIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllMovementSelection = () => {
+    setSelectedMovementIds(prev => {
+      if (areAllFilteredMovementsSelected) return new Set();
+      const next = new Set(prev);
+      filteredMovements.forEach(movement => next.add(movement.id));
+      return next;
+    });
+  };
+
+  const handleBulkDeleteMovements = () => {
+    const selectedMovements = movements.filter(movement => selectedMovementIds.has(movement.id));
+    const failedIds = new Set<string>();
+    const errors: string[] = [];
+    let deletedCount = 0;
+
+    selectedMovementIds.forEach(id => {
+      if (!selectedMovements.some(movement => movement.id === id)) {
+        failedIds.add(id);
+        errors.push(`Transaksi dengan ID ${id} tidak ditemukan.`);
+      }
+    });
+
+    selectedMovements.forEach(movement => {
+      try {
+        const result = deleteAssetMovement(movement.id);
+        if (result.success) deletedCount += 1;
+        else {
+          failedIds.add(movement.id);
+          errors.push(result.message);
+        }
+      } catch (error) {
+        failedIds.add(movement.id);
+        errors.push(error instanceof Error ? error.message : `Gagal menghapus transaksi ${movement.nomorTransaksi}.`);
+      }
+    });
+
+    setSelectedMovementIds(failedIds);
+    setIsBulkDeleteConfirmOpen(false);
+    setBulkDeleteNotice(
+      errors.length > 0
+        ? { type: 'error', message: `${deletedCount} transaksi berhasil dihapus. ${errors.length} gagal: ${errors.join(' ')}` }
+        : { type: 'success', message: `${deletedCount} transaksi pemindahan berhasil dihapus.` }
+    );
+  };
 
   const handleCreateMovement = (e: React.FormEvent) => {
     e.preventDefault();
@@ -122,10 +192,52 @@ export const AssetMovementsView: React.FC = () => {
 
       {/* Movements Table */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+        {hasPermission('manageMovements') && (
+          <div className="p-3 border-b border-slate-800 flex items-center justify-between gap-3">
+            <span className="text-xs text-slate-400">{selectedMovementIds.size} data dipilih</span>
+            <button
+              onClick={() => {
+                if (selectedMovementIds.size > 0) {
+                  setBulkDeleteNotice(null);
+                  setIsBulkDeleteConfirmOpen(true);
+                }
+              }}
+              disabled={selectedMovementIds.size === 0}
+              className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-rose-400 text-xs font-semibold flex items-center gap-1.5 border border-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Trash2 className="w-4 h-4" />
+              Hapus Terpilih ({selectedMovementIds.size})
+            </button>
+          </div>
+        )}
+        {bulkDeleteNotice && (
+          <div
+            role="status"
+            className={`mx-3 mt-3 p-3 rounded-xl border text-xs ${
+              bulkDeleteNotice.type === 'success'
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+            }`}
+          >
+            {bulkDeleteNotice.message}
+          </div>
+        )}
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
+                {hasPermission('manageMovements') && (
+                  <th className="py-3 px-3 text-center">
+                    <input
+                      ref={selectAllMovementsRef}
+                      type="checkbox"
+                      checked={areAllFilteredMovementsSelected}
+                      onChange={toggleAllMovementSelection}
+                      className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-cyan-500 focus:ring-cyan-500"
+                      aria-label="Pilih semua transaksi pemindahan yang ditampilkan"
+                    />
+                  </th>
+                )}
                 <th className="py-3 px-3">No Transaksi</th>
                 <th className="py-3 px-3">Tanggal</th>
                 <th className="py-3 px-4">Aset BMN</th>
@@ -138,6 +250,17 @@ export const AssetMovementsView: React.FC = () => {
             <tbody className="divide-y divide-slate-800/60 text-slate-300">
               {filteredMovements.map(mov => (
                 <tr key={mov.id} className="hover:bg-slate-800/40 transition-colors">
+                  {hasPermission('manageMovements') && (
+                    <td className="py-3 px-3 text-center">
+                      <input
+                        type="checkbox"
+                        checked={selectedMovementIds.has(mov.id)}
+                        onChange={() => toggleMovementSelection(mov.id)}
+                        className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-cyan-500 focus:ring-cyan-500"
+                        aria-label={`Pilih transaksi ${mov.nomorTransaksi}`}
+                      />
+                    </td>
+                  )}
                   <td className="py-3 px-3 font-mono font-bold text-slate-300">
                     {mov.nomorTransaksi}
                   </td>
@@ -227,6 +350,39 @@ export const AssetMovementsView: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {isBulkDeleteConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-150">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="bulk-delete-movements-title"
+            className="w-full max-w-md bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl p-5"
+          >
+            <h3 id="bulk-delete-movements-title" className="text-sm font-bold text-white">
+              Konfirmasi Hapus Transaksi Pemindahan
+            </h3>
+            <p className="mt-2 text-xs text-slate-300">
+              Apakah Anda yakin ingin menghapus {selectedMovementIds.size} data mutasi/pemindahan aset BMN?
+            </p>
+            <p className="mt-1 text-xs text-slate-400">Data yang sudah dihapus tidak dapat dikembalikan.</p>
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                onClick={() => setIsBulkDeleteConfirmOpen(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleBulkDeleteMovements}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded-xl"
+              >
+                Hapus
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* New Movement Modal */}
       {isNewModalOpen && (

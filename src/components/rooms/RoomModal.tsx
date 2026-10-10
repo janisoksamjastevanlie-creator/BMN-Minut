@@ -78,6 +78,7 @@ export const RoomModal: React.FC<{
   const [sizeD, setSizeD] = useState(3.5);
 
   const [errorMsg, setErrorMsg] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (initialRoom) {
@@ -125,6 +126,7 @@ export const RoomModal: React.FC<{
       setSizeD(3.5);
     }
     setErrorMsg('');
+    setIsSubmitting(false);
   }, [initialRoom, isOpen]);
 
   // Adjust Y coordinate when floor changes
@@ -150,6 +152,7 @@ export const RoomModal: React.FC<{
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     setErrorMsg('');
 
     if (!code.trim()) {
@@ -164,16 +167,20 @@ export const RoomModal: React.FC<{
       setErrorMsg('Penanggung jawab ruangan (PIC) wajib diisi.');
       return;
     }
+    if (!building.trim() || !Number.isInteger(floor) || floor < 1) {
+      setErrorMsg('Gedung dan lantai ruangan wajib diisi dengan benar.');
+      return;
+    }
 
     // Check duplicate code if adding new
     if (!initialRoom) {
-      const isDuplicate = rooms.some(r => r.code.toLowerCase() === code.trim().toLowerCase());
+      const isDuplicate = rooms.some(r => r.code.trim().toLocaleLowerCase('id-ID') === code.trim().toLocaleLowerCase('id-ID'));
       if (isDuplicate) {
         setErrorMsg(`Kode ruangan "${code.trim()}" sudah digunakan oleh ruangan lain.`);
         return;
       }
     } else {
-      const isDuplicate = rooms.some(r => r.id !== initialRoom.id && r.code.toLowerCase() === code.trim().toLowerCase());
+      const isDuplicate = rooms.some(r => r.id !== initialRoom.id && r.code.trim().toLocaleLowerCase('id-ID') === code.trim().toLocaleLowerCase('id-ID'));
       if (isDuplicate) {
         setErrorMsg(`Kode ruangan "${code.trim()}" sudah digunakan oleh ruangan lain.`);
         return;
@@ -196,13 +203,18 @@ export const RoomModal: React.FC<{
       size3D: [Math.max(1, Number(sizeW) || 3), Math.max(1, Number(sizeH) || 1.8), Math.max(1, Number(sizeD) || 3)]
     };
 
-    if (initialRoom) {
-      updateRoom(initialRoom.id, roomPayload);
-    } else {
-      addRoom(roomPayload);
+    setIsSubmitting(true);
+    try {
+      if (initialRoom) {
+        updateRoom(initialRoom.id, roomPayload);
+      } else {
+        addRoom(roomPayload);
+      }
+      onClose();
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : 'Data ruangan gagal disimpan. Periksa kembali isian Anda.');
+      setIsSubmitting(false);
     }
-
-    onClose();
   };
 
   if (!isOpen || (currentUser && !ALLOWED_ROOM_ROLES.includes(currentUser.role))) return null;
@@ -603,16 +615,18 @@ export const RoomModal: React.FC<{
             <button
               type="button"
               onClick={onClose}
+              disabled={isSubmitting}
               className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold transition-colors"
             >
               Batal
             </button>
             <button
               type="submit"
-              className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold transition-all shadow-lg shadow-blue-600/30 flex items-center gap-2"
+              disabled={isSubmitting}
+              className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold transition-all shadow-lg shadow-blue-600/30 flex items-center gap-2 disabled:opacity-60 disabled:cursor-wait"
             >
-              <Check className="w-4 h-4" />
-              <span>{initialRoom ? 'Simpan Perubahan' : 'Buat Ruangan'}</span>
+              {isSubmitting ? <span className="w-4 h-4 rounded-full border-2 border-white/40 border-t-white animate-spin" /> : <Check className="w-4 h-4" />}
+              <span>{isSubmitting ? 'Menyimpan...' : initialRoom ? 'Simpan Perubahan' : 'Buat Ruangan'}</span>
             </button>
           </div>
         </form>

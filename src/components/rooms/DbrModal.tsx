@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { OfficeRoom, BmnAsset } from '../../types';
 import { triggerPrint } from '../../utils/printHelper';
 import {
@@ -10,7 +10,8 @@ import {
   CheckCircle,
   AlertTriangle,
   QrCode,
-  Download
+  Download,
+  Search
 } from 'lucide-react';
 
 export const DbrModal: React.FC<{
@@ -20,10 +21,37 @@ export const DbrModal: React.FC<{
   assets: BmnAsset[];
 }> = ({ isOpen, onClose, room, assets }) => {
   const printContentRef = useRef<HTMLDivElement>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [conditionFilter, setConditionFilter] = useState('all');
+  const [yearFilter, setYearFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+
+  useEffect(() => {
+    setSearchTerm('');
+    setConditionFilter('all');
+    setYearFilter('all');
+    setStatusFilter('all');
+  }, [room?.id, isOpen]);
 
   if (!isOpen || !room) return null;
 
   const roomAssets = assets.filter(a => a.ruanganId === room.id);
+  const query = searchTerm.trim().toLocaleLowerCase('id-ID');
+  const filteredAssets = roomAssets.filter(asset => {
+    const matchesSearch = !query || [
+      asset.kodeBarang,
+      asset.namaBarang,
+      String(asset.nup),
+      asset.merkType,
+      asset.nomorSeri
+    ].some(value => value.toLocaleLowerCase('id-ID').includes(query));
+    return matchesSearch &&
+      (conditionFilter === 'all' || asset.kondisi === conditionFilter) &&
+      (yearFilter === 'all' || String(asset.tahunPerolehan) === yearFilter) &&
+      (statusFilter === 'all' || asset.status === statusFilter);
+  });
+  const acquisitionYears = Array.from(new Set(roomAssets.map(asset => asset.tahunPerolehan))).sort((a, b) => b - a);
+  const assetStatuses = Array.from(new Set(roomAssets.map(asset => asset.status))).sort((a, b) => a.localeCompare(b, 'id-ID'));
   const totalNilaiPerolehan = roomAssets.reduce((sum, a) => sum + a.nilaiPerolehan, 0);
   const totalNilaiBuku = roomAssets.reduce((sum, a) => sum + a.nilaiBuku, 0);
   const baikCount = roomAssets.filter(a => a.kondisi === 'Baik').length;
@@ -108,6 +136,12 @@ export const DbrModal: React.FC<{
                   {room.building} (Lt. {room.floor})
                 </span>
               </div>
+              {room.description && (
+                <div className="flex items-start justify-between gap-4 pt-1">
+                  <span className="text-slate-400 print:text-gray-600 shrink-0">Keterangan:</span>
+                  <span className="text-right text-slate-200 print:text-black">{room.description}</span>
+                </div>
+              )}
             </div>
 
             <div className="space-y-1.5">
@@ -128,32 +162,83 @@ export const DbrModal: React.FC<{
             </div>
           </div>
 
+          <div className="flex flex-col sm:flex-row gap-2 print:hidden">
+            <label className="relative flex-1">
+              <Search className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+              <input
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                placeholder="Cari kode, nama, NUP, merk, atau nomor seri..."
+                className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                aria-label="Cari aset di DBR"
+              />
+            </label>
+            <select
+              value={conditionFilter}
+              onChange={e => setConditionFilter(e.target.value)}
+              className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
+              aria-label="Filter kondisi aset di DBR"
+            >
+              <option value="all">Semua Kondisi</option>
+              <option value="Baik">Baik</option>
+              <option value="Rusak Ringan">Rusak Ringan</option>
+              <option value="Rusak Berat">Rusak Berat</option>
+            </select>
+            <select
+              value={statusFilter}
+              onChange={e => setStatusFilter(e.target.value)}
+              className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
+              aria-label="Filter status aset di DBR"
+            >
+              <option value="all">Semua Status</option>
+              {assetStatuses.map(status => <option key={status} value={status}>{status}</option>)}
+            </select>
+            <select
+              value={yearFilter}
+              onChange={e => setYearFilter(e.target.value)}
+              className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
+              aria-label="Filter tahun perolehan aset di DBR"
+            >
+              <option value="all">Semua Tahun</option>
+              {acquisitionYears.map(year => <option key={year} value={year}>{year}</option>)}
+            </select>
+            <span className="text-[11px] text-slate-400 self-center">
+              Menampilkan {filteredAssets.length} dari {roomAssets.length} aset
+            </span>
+          </div>
+
           {/* Table of Assets */}
-          <div className="rounded-2xl border border-slate-800 overflow-hidden print:border-black">
-            <table className="w-full text-left text-xs border-collapse">
+          <div className="rounded-2xl border border-slate-800 overflow-x-auto print:border-black">
+            <table className="w-full min-w-[1050px] print:min-w-0 text-left text-xs print:text-[8px] border-collapse">
               <thead>
                 <tr className="bg-slate-900 border-b border-slate-800 print:bg-gray-100 print:border-black text-[11px] font-bold text-slate-300 print:text-black">
                   <th className="py-2.5 px-3 text-center w-10">No</th>
                   <th className="py-2.5 px-3">Kode Barang & NUP</th>
                   <th className="py-2.5 px-3">Nama Barang / Spesifikasi</th>
-                  <th className="py-2.5 px-3">Merk / Tipe</th>
+                  <th className="py-2.5 px-3">Merk / Type & Nomor Seri</th>
                   <th className="py-2.5 px-3 text-center">Tahun</th>
                   <th className="py-2.5 px-3 text-center">Kondisi</th>
-                  <th className="py-2.5 px-3 text-right">Nilai Buku (Rp)</th>
+                  <th className="py-2.5 px-3 text-right whitespace-nowrap">Nilai Perolehan (Rp)</th>
+                  <th className="py-2.5 px-3 text-right whitespace-nowrap">Nilai Buku (Rp)</th>
+                  <th className="py-2.5 px-3">Penanggung Jawab</th>
+                  <th className="py-2.5 px-3">Status</th>
+                  <th className="py-2.5 px-3">Keterangan</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800 print:divide-gray-300">
-                {roomAssets.length === 0 ? (
+                {filteredAssets.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-8 text-center text-slate-500 print:text-gray-500 text-xs">
-                      Belum ada aset BMN yang ditempatkan di ruangan ini.
+                    <td colSpan={11} className="py-8 text-center text-slate-500 print:text-gray-500 text-xs print:hidden">
+                      {roomAssets.length === 0 ? 'Belum ada aset BMN yang ditempatkan di ruangan ini.' : 'Tidak ada aset yang sesuai dengan pencarian atau filter.'}
                     </td>
                   </tr>
                 ) : (
-                  roomAssets.map((asset, idx) => (
+                  roomAssets.map((asset, idx) => {
+                    const matchesSearch = filteredAssets.some(filteredAsset => filteredAsset.id === asset.id);
+                    return (
                     <tr
                       key={asset.id}
-                      className="hover:bg-slate-900/50 print:hover:bg-transparent text-slate-200 print:text-black"
+                      className={`hover:bg-slate-900/50 print:hover:bg-transparent text-slate-200 print:text-black ${matchesSearch ? '' : 'hidden print:table-row'}`}
                     >
                       <td className="py-2.5 px-3 text-center font-mono text-[11px] text-slate-400 print:text-gray-600">
                         {idx + 1}
@@ -197,24 +282,32 @@ export const DbrModal: React.FC<{
                         </span>
                       </td>
                       <td className="py-2.5 px-3 text-right font-mono font-semibold text-emerald-400 print:text-black">
+                        Rp {asset.nilaiPerolehan.toLocaleString('id-ID')}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono font-semibold text-emerald-400 print:text-black">
                         Rp {asset.nilaiBuku.toLocaleString('id-ID')}
                       </td>
+                      <td className="py-2.5 px-3">{asset.penanggungJawab || '-'}</td>
+                      <td className="py-2.5 px-3">{asset.status}</td>
+                      <td className="py-2.5 px-3 min-w-40 whitespace-normal">{asset.keterangan || '-'}</td>
                     </tr>
-                  ))
+                    );
+                  })
                 )}
               </tbody>
               {roomAssets.length > 0 && (
                 <tfoot>
                   <tr className="bg-slate-900 border-t border-slate-700 print:bg-gray-100 print:border-black font-bold">
-                    <td colSpan={5} className="py-2.5 px-3 text-right text-xs text-slate-300 print:text-black">
-                      Total Nilai Buku BMN di Ruangan:
+                    <td colSpan={6} className="py-2.5 px-3 text-right text-xs text-slate-300 print:text-black">
+                      Total BMN di Ruangan ({roomAssets.length} unit):
                     </td>
-                    <td className="py-2.5 px-3 text-center text-xs text-slate-300 print:text-black">
-                      {roomAssets.length} unit
+                    <td className="py-2.5 px-3 text-right font-mono text-emerald-300 print:text-black text-xs font-bold">
+                      Rp {totalNilaiPerolehan.toLocaleString('id-ID')}
                     </td>
                     <td className="py-2.5 px-3 text-right font-mono text-emerald-300 print:text-black text-xs font-bold">
                       Rp {totalNilaiBuku.toLocaleString('id-ID')}
                     </td>
+                    <td colSpan={3} />
                   </tr>
                 </tfoot>
               )}

@@ -247,9 +247,13 @@ export const Sidebar: React.FC = () => {
   return (
     <>
       {/* Desktop Sidebar (visible on md screens and up) */}
-      <aside className="hidden md:flex w-64 bg-slate-900/90 backdrop-blur-md border-r border-slate-800 flex-col justify-between shrink-0 select-none">
-        {navigationContent}
-        {sidebarFooter}
+      <aside className="hidden md:flex fixed left-0 top-16 bottom-0 z-30 w-64 min-h-0 bg-slate-900/90 backdrop-blur-md border-r border-slate-800 overflow-hidden select-none">
+        <div className="flex h-full w-full flex-col">
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            {navigationContent}
+          </div>
+          {sidebarFooter}
+        </div>
       </aside>
 
       {/* Mobile Drawer (active on small screens when isMobileMenuOpen is true) */}
@@ -269,12 +273,7 @@ export const Sidebar: React.FC = () => {
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-700 via-blue-600 to-indigo-800 p-0.5 shadow-md">
                   <div className="w-full h-full rounded-[10px] bg-slate-950 flex items-center justify-center">
-                    <div className="flex items-end gap-0.5">
-                      <div className="w-1 h-2 bg-blue-500 rounded-xs"></div>
-                      <div className="w-1 h-3 bg-emerald-400 rounded-xs"></div>
-                      <div className="w-1 h-4 bg-cyan-400 rounded-xs"></div>
-                      <div className="w-1 h-2.5 bg-amber-400 rounded-xs"></div>
-                    </div>
+                    <img src="/bps-minut-logo.png" alt="Logo BPS Minahasa Utara" className="w-full h-full object-contain" />
                   </div>
                 </div>
                 <div>

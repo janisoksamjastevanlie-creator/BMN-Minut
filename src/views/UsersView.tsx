@@ -298,7 +298,7 @@ export const UsersView: React.FC = () => {
     addUser,
     updateUser,
     deleteUser,
-    switchUser,
+    setUserPassword,
     roles,
     addRole,
     updateRole,
@@ -307,6 +307,8 @@ export const UsersView: React.FC = () => {
 
   // Navigation Tab State
   const [activeTab, setActiveTab] = useState<'users' | 'roles'>('users');
+  const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
+  const [selectedRoleIds, setSelectedRoleIds] = useState<Set<string>>(new Set());
 
   // Search & Filter State for Users
   const [searchQuery, setSearchQuery] = useState('');
@@ -331,9 +333,11 @@ export const UsersView: React.FC = () => {
     unitKerja: 'Subbagian Umum & Perlengkapan BMN',
     phone: '',
     avatar: AVATAR_PRESETS[0].url,
-    statusAktif: true
+    statusAktif: true,
+    password: ''
   });
   const [formError, setFormError] = useState('');
+  const [isSavingUser, setIsSavingUser] = useState(false);
   const [copiedNip, setCopiedNip] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
@@ -415,6 +419,13 @@ export const UsersView: React.FC = () => {
     );
   }, [roles, roleSearchQuery]);
 
+  const selectableUsers = filteredUsers.filter(user => user.id !== currentUser?.id);
+  const selectableRoles = filteredRoles.filter(role => !role.isSystem);
+  const areAllVisibleUsersSelected =
+    selectableUsers.length > 0 && selectableUsers.every(user => selectedUserIds.has(user.id));
+  const areAllVisibleRolesSelected =
+    selectableRoles.length > 0 && selectableRoles.every(role => selectedRoleIds.has(role.id));
+
   // Statistics
   const stats = useMemo(() => {
     const totalUsers = users.length;
@@ -438,7 +449,8 @@ export const UsersView: React.FC = () => {
       unitKerja: 'Subbagian Umum & Perlengkapan BMN',
       phone: '',
       avatar: AVATAR_PRESETS[Math.floor(Math.random() * AVATAR_PRESETS.length)].url,
-      statusAktif: true
+      statusAktif: true,
+      password: ''
     });
     setFormError('');
     setIsFormModalOpen(true);
@@ -456,7 +468,8 @@ export const UsersView: React.FC = () => {
       unitKerja: user.unitKerja,
       phone: user.phone || '',
       avatar: user.avatar || AVATAR_PRESETS[0].url,
-      statusAktif: user.statusAktif !== false
+      statusAktif: user.statusAktif !== false,
+      password: ''
     });
     setFormError('');
     setIsFormModalOpen(true);
@@ -469,8 +482,9 @@ export const UsersView: React.FC = () => {
   };
 
   // User Form Submit (Add or Edit)
-  const handleUserFormSubmit = (e: React.FormEvent) => {
+  const handleUserFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError('');
     if (!formData.name.trim()) {
       setFormError('Nama lengkap pegawai wajib diisi');
       return;
@@ -483,34 +497,42 @@ export const UsersView: React.FC = () => {
       setFormError('Email resmi instansi wajib diisi');
       return;
     }
-
-    if (formMode === 'create') {
-      addUser({
-        name: formData.name.trim(),
-        nip: formData.nip.trim(),
-        email: formData.email.trim(),
-        role: formData.role,
-        unitKerja: formData.unitKerja.trim(),
-        phone: formData.phone.trim() || undefined,
-        avatar: formData.avatar,
-        statusAktif: formData.statusAktif
-      });
-      showToast('success', `Pengguna "${formData.name}" dengan role ${formData.role} berhasil didaftarkan.`);
-    } else if (selectedUser) {
-      updateUser(selectedUser.id, {
-        name: formData.name.trim(),
-        nip: formData.nip.trim(),
-        email: formData.email.trim(),
-        role: formData.role,
-        unitKerja: formData.unitKerja.trim(),
-        phone: formData.phone.trim() || undefined,
-        avatar: formData.avatar,
-        statusAktif: formData.statusAktif
-      });
-      showToast('success', `Data pengguna "${formData.name}" berhasil diperbarui.`);
+    if ((formMode === 'create' || formData.password) && formData.password.length < 12) {
+      setFormError('Kata sandi akun harus minimal 12 karakter.');
+      return;
     }
 
-    setIsFormModalOpen(false);
+    setIsSavingUser(true);
+    const profile = {
+        name: formData.name.trim(),
+        nip: formData.nip.trim(),
+        email: formData.email.trim(),
+        role: formData.role,
+        unitKerja: formData.unitKerja.trim(),
+        phone: formData.phone.trim() || undefined,
+        avatar: formData.avatar,
+        statusAktif: formData.statusAktif
+    };
+    try {
+      let savedUser: User;
+      if (formMode === 'create') {
+        savedUser = addUser(profile);
+        await setUserPassword(savedUser, formData.password);
+        showToast('success', `Pengguna "${formData.name}" berhasil dibuat. NIP dan kata sandi dapat digunakan untuk login.`);
+      } else if (selectedUser) {
+        savedUser = { ...selectedUser, ...profile };
+        updateUser(selectedUser.id, profile);
+        if (formData.password) await setUserPassword(savedUser, formData.password);
+        showToast('success', `Data pengguna "${formData.name}" berhasil diperbarui.`);
+      } else {
+        return;
+      }
+      setIsFormModalOpen(false);
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Gagal menyimpan akun pengguna.');
+    } finally {
+      setIsSavingUser(false);
+    }
   };
 
   // Delete User Action
@@ -606,6 +628,92 @@ export const UsersView: React.FC = () => {
     } else {
       showToast('error', res.message);
     }
+  };
+
+  const toggleUserSelection = (id: string) => {
+    setSelectedUserIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllUserSelection = () => {
+    setSelectedUserIds(
+      areAllVisibleUsersSelected ? new Set() : new Set(selectableUsers.map(user => user.id))
+    );
+  };
+
+  const handleBulkDeleteUsers = () => {
+    const selectedUsers = users.filter(user => selectedUserIds.has(user.id));
+    if (selectedUsers.length === 0) {
+      showToast('error', 'Pilih data pengguna yang ingin dihapus terlebih dahulu.');
+      return;
+    }
+    if (!window.confirm('Apakah Anda yakin ingin menghapus data yang dipilih?')) return;
+
+    let deletedCount = 0;
+    const errors: string[] = [];
+    selectedUsers.forEach(user => {
+      try {
+        const result = deleteUser(user.id);
+        if (result.success) deletedCount += 1;
+        else errors.push(result.message);
+      } catch (error) {
+        errors.push(`Pengguna "${user.name}": ${error instanceof Error ? error.message : 'terjadi kesalahan saat menghapus.'}`);
+      }
+    });
+    setSelectedUserIds(new Set());
+    showToast(
+      errors.length > 0 ? 'error' : 'success',
+      errors.length > 0
+        ? `${deletedCount} pengguna berhasil dihapus. ${errors.length} gagal: ${errors.join(' ')}`
+        : `${deletedCount} pengguna berhasil dihapus.`
+    );
+  };
+
+  const toggleRoleSelection = (id: string) => {
+    setSelectedRoleIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllRoleSelection = () => {
+    setSelectedRoleIds(
+      areAllVisibleRolesSelected ? new Set() : new Set(selectableRoles.map(role => role.id))
+    );
+  };
+
+  const handleBulkDeleteRoles = () => {
+    const selectedRoles = roles.filter(role => selectedRoleIds.has(role.id));
+    if (selectedRoles.length === 0) {
+      showToast('error', 'Pilih data role yang ingin dihapus terlebih dahulu.');
+      return;
+    }
+    if (!window.confirm('Apakah Anda yakin ingin menghapus data yang dipilih?')) return;
+
+    let deletedCount = 0;
+    const errors: string[] = [];
+    selectedRoles.forEach(role => {
+      try {
+        const result = deleteRole(role.id);
+        if (result.success) deletedCount += 1;
+        else errors.push(result.message);
+      } catch (error) {
+        errors.push(`Role "${role.name}": ${error instanceof Error ? error.message : 'terjadi kesalahan saat menghapus.'}`);
+      }
+    });
+    setSelectedRoleIds(new Set());
+    showToast(
+      errors.length > 0 ? 'error' : 'success',
+      errors.length > 0
+        ? `${deletedCount} role berhasil dihapus. ${errors.length} gagal: ${errors.join(' ')}`
+        : `${deletedCount} role berhasil dihapus.`
+    );
   };
 
   const handleApplyRoleTemplate = (template: typeof ROLE_TEMPLATES[0]) => {
@@ -909,6 +1017,32 @@ export const UsersView: React.FC = () => {
             </div>
           </div>
 
+          {filteredUsers.length > 0 && (
+            <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-slate-950/70 border border-slate-800">
+              <label className="flex items-center gap-2 text-xs text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={areAllVisibleUsersSelected}
+                  onChange={toggleAllUserSelection}
+                  className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-blue-500 focus:ring-blue-500"
+                  aria-label="Pilih semua pengguna yang dapat dihapus"
+                />
+                Pilih Semua
+              </label>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-slate-400">{selectedUserIds.size} pengguna dipilih</span>
+                <button
+                  onClick={handleBulkDeleteUsers}
+                  disabled={selectedUserIds.size === 0}
+                  className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-rose-400 text-xs font-semibold flex items-center gap-1.5 border border-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Hapus Terpilih
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Empty State */}
           {filteredUsers.length === 0 ? (
             <div className="p-12 text-center rounded-2xl bg-slate-900/40 border border-slate-800/80 space-y-3">
@@ -948,6 +1082,14 @@ export const UsersView: React.FC = () => {
                     {/* User Header */}
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedUserIds.has(user.id)}
+                          onChange={() => toggleUserSelection(user.id)}
+                          disabled={isCurrentUser}
+                          className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-blue-500 focus:ring-blue-500 disabled:opacity-40"
+                          aria-label={`Pilih pengguna ${user.name}`}
+                        />
                         <div className="relative">
                           {user.avatar ? (
                             <img
@@ -1031,22 +1173,12 @@ export const UsersView: React.FC = () => {
 
                     {/* Action Buttons */}
                     <div className="flex items-center justify-between gap-2 pt-1">
-                      {/* Switch User Session Button */}
-                      {!isCurrentUser ? (
-                        <button
-                          onClick={() => switchUser(user.id)}
-                          className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 hover:text-white transition-colors flex items-center gap-1.5"
-                          title="Beralih ke akun pegawai ini untuk simulasi pengujian peran"
-                        >
-                          <LogIn className="w-3.5 h-3.5 text-cyan-400" />
-                          <span>Alih ke Akun Ini</span>
-                        </button>
-                      ) : (
+                      {isCurrentUser ? (
                         <div className="text-[11px] text-blue-400 font-medium flex items-center gap-1">
                           <CheckCircle2 className="w-3.5 h-3.5" />
-                          <span>Sedang Digunakan</span>
+                          <span>Akun Anda</span>
                         </div>
-                      )}
+                      ) : <span />}
 
                       <div className="flex items-center gap-1">
                         <button
@@ -1082,6 +1214,15 @@ export const UsersView: React.FC = () => {
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-950/60 text-slate-400 uppercase tracking-wider font-semibold border-b border-slate-800">
                     <tr>
+                      <th className="px-3 py-3.5 text-center">
+                        <input
+                          type="checkbox"
+                          checked={areAllVisibleUsersSelected}
+                          onChange={toggleAllUserSelection}
+                          className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-blue-500 focus:ring-blue-500"
+                          aria-label="Pilih semua pengguna yang dapat dihapus"
+                        />
+                      </th>
                       <th className="px-4 py-3.5">Pegawai & NIP</th>
                       <th className="px-4 py-3.5">Unit Kerja / Jabatan</th>
                       <th className="px-4 py-3.5">Hak Akses (Role)</th>
@@ -1103,6 +1244,16 @@ export const UsersView: React.FC = () => {
                             isCurrentUser ? 'bg-blue-500/5' : ''
                           }`}
                         >
+                          <td className="px-3 py-3.5 text-center">
+                            <input
+                              type="checkbox"
+                              checked={selectedUserIds.has(user.id)}
+                              onChange={() => toggleUserSelection(user.id)}
+                              disabled={isCurrentUser}
+                              className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-blue-500 focus:ring-blue-500 disabled:opacity-40"
+                              aria-label={`Pilih pengguna ${user.name}`}
+                            />
+                          </td>
                           <td className="px-4 py-3.5">
                             <div className="flex items-center gap-3">
                               {user.avatar ? (
@@ -1171,15 +1322,6 @@ export const UsersView: React.FC = () => {
 
                           <td className="px-4 py-3.5 text-right">
                             <div className="flex items-center justify-end gap-1.5">
-                              {!isCurrentUser && (
-                                <button
-                                  onClick={() => switchUser(user.id)}
-                                  className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[11px] font-medium"
-                                  title="Alih ke akun ini"
-                                >
-                                  Login
-                                </button>
-                              )}
                               <button
                                 onClick={() => handleOpenEditUser(user)}
                                 className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-blue-400"
@@ -1286,6 +1428,31 @@ export const UsersView: React.FC = () => {
           </div>
 
           {/* Role Cards Grid */}
+          {filteredRoles.length > 0 && (
+            <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-slate-950/70 border border-slate-800">
+              <label className="flex items-center gap-2 text-xs text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={areAllVisibleRolesSelected}
+                  onChange={toggleAllRoleSelection}
+                  className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-purple-500 focus:ring-purple-500"
+                  aria-label="Pilih semua role yang dapat dihapus"
+                />
+                Pilih Semua
+              </label>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-slate-400">{selectedRoleIds.size} role dipilih</span>
+                <button
+                  onClick={handleBulkDeleteRoles}
+                  disabled={selectedRoleIds.size === 0}
+                  className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-rose-400 text-xs font-semibold flex items-center gap-1.5 border border-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Hapus Terpilih
+                </button>
+              </div>
+            </div>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {filteredRoles.map(role => {
               const theme = getRoleTheme(role.name);
@@ -1307,6 +1474,14 @@ export const UsersView: React.FC = () => {
                     {/* Role Header */}
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedRoleIds.has(role.id)}
+                          onChange={() => toggleRoleSelection(role.id)}
+                          disabled={role.isSystem}
+                          className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-purple-500 focus:ring-purple-500 disabled:opacity-40"
+                          aria-label={`Pilih role ${role.name}`}
+                        />
                         <div className={`w-11 h-11 rounded-2xl bg-gradient-to-br ${theme.gradient} flex items-center justify-center font-bold text-white shadow-md`}>
                           <ShieldCheck className="w-5 h-5" />
                         </div>
@@ -1663,6 +1838,25 @@ export const UsersView: React.FC = () => {
                 </div>
               </div>
 
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">
+                  Kata Sandi Login {formMode === 'create' && <span className="text-rose-400">*</span>}
+                </label>
+                <input
+                  type="password"
+                  required={formMode === 'create'}
+                  minLength={12}
+                  autoComplete="new-password"
+                  value={formData.password}
+                  onChange={e => setFormData(prev => ({ ...prev, password: e.target.value }))}
+                  placeholder={formMode === 'create' ? 'Minimal 12 karakter' : 'Kosongkan jika tidak diubah'}
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-blue-500"
+                />
+                <p className="mt-1 text-[10px] text-slate-500">
+                  Kata sandi disimpan dalam bentuk hash di server, tidak ditampilkan di daftar pengguna.
+                </p>
+              </div>
+
               {/* Unit Kerja */}
               <div>
                 <label className="block text-xs font-bold text-slate-300 mb-1">
@@ -1763,10 +1957,11 @@ export const UsersView: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-all shadow-lg shadow-blue-600/30 flex items-center gap-1.5"
+                  disabled={isSavingUser}
+                  className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-xs font-bold transition-all shadow-lg shadow-blue-600/30 flex items-center gap-1.5"
                 >
                   <Check className="w-4 h-4" />
-                  <span>{formMode === 'create' ? 'Simpan Pengguna' : 'Perbarui Pengguna'}</span>
+                  <span>{isSavingUser ? 'Menyimpan...' : formMode === 'create' ? 'Simpan Pengguna' : 'Perbarui Pengguna'}</span>
                 </button>
               </div>
             </form>

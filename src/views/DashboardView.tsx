@@ -1,6 +1,17 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { OfficeTwin3D } from '../components/3d/OfficeTwin3D';
+import { DashboardFilterPanel } from '../components/dashboard/DashboardFilterPanel';
+import {
+  filterDashboardAssets,
+  filterDashboardInventory,
+  hasDashboardAssetCriteria,
+  hasDashboardInventoryCriteria,
+  matchesDashboardAssetAttributes,
+  matchesDashboardInventoryItem,
+  matchesDashboardPeriod,
+  matchesDashboardSearch
+} from '../utils/dashboardFilters';
 import {
   Box,
   Boxes,
@@ -37,18 +48,82 @@ export const DashboardView: React.FC<{
   onOpenAddAsset
 }) => {
   const {
-    assets,
-    inventoryItems,
+    assets: allAssets,
+    inventoryItems: allInventoryItems,
     stockInList,
     stockOutList,
     requests,
-    movements,
     maintenances,
+    rooms,
+    dashboardFilters,
+    setDashboardFilters,
     setActiveView,
     setIsQrScannerOpen,
     currentUser,
     hasPermission
   } = useApp();
+
+  const assets = useMemo(() => filterDashboardAssets(allAssets, dashboardFilters), [allAssets, dashboardFilters]);
+  const inventoryItems = useMemo(() => filterDashboardInventory(allInventoryItems, dashboardFilters), [allInventoryItems, dashboardFilters]);
+  const matchesInventoryFields = (entry: { jenis?: string; kategori?: string; itemId?: string }) => {
+    const linkedItem = entry.itemId ? allInventoryItems.find(item => item.id === entry.itemId) : undefined;
+    if (hasDashboardInventoryCriteria(dashboardFilters) && (!linkedItem || !matchesDashboardInventoryItem(linkedItem, dashboardFilters, false))) {
+      return false;
+    }
+    return (!dashboardFilters.inventoryType || (entry.jenis || linkedItem?.jenis) === dashboardFilters.inventoryType)
+      && (!dashboardFilters.inventoryCategory || (entry.kategori || linkedItem?.kategori) === dashboardFilters.inventoryCategory)
+      && (!dashboardFilters.inventorySubcategory || linkedItem?.subkategori === dashboardFilters.inventorySubcategory)
+      && (!dashboardFilters.warehouse || linkedItem?.lokasiGudang === dashboardFilters.warehouse)
+      && (!dashboardFilters.rack || linkedItem?.rak === dashboardFilters.rack);
+  };
+  const filteredStockInList = useMemo(() => stockInList.filter(entry =>
+    matchesDashboardPeriod(entry.tanggal, dashboardFilters)
+    && matchesInventoryFields(entry)
+    && matchesDashboardSearch(dashboardFilters.keyword, [
+      entry.nomorTransaksi, entry.nomorDokumen, entry.namaBarang, entry.kategori,
+      entry.sumber, entry.petugas, entry.keterangan, entry.status
+    ])
+  ), [stockInList, allInventoryItems, dashboardFilters]);
+  const filteredStockOutList = useMemo(() => stockOutList.filter(entry =>
+    matchesDashboardPeriod(entry.tanggal, dashboardFilters)
+    && matchesInventoryFields(entry)
+    && matchesDashboardSearch(dashboardFilters.keyword, [
+      entry.nomorTransaksi, entry.namaBarang, entry.unitKerja, entry.ruangan,
+      entry.pemohon, entry.keperluan, entry.petugas
+    ])
+  ).sort((a, b) => b.tanggal.localeCompare(a.tanggal)), [stockOutList, allInventoryItems, dashboardFilters]);
+  const filteredRequests = useMemo(() => requests.filter(entry =>
+    (() => {
+      const requestItems = entry.items?.length ? entry.items : [{
+        itemId: entry.itemId,
+        namaBarang: entry.namaBarang,
+        jumlahDiminta: entry.jumlahDiminta,
+        satuan: entry.satuan
+      }];
+      const matchesInventoryFilters = !hasDashboardInventoryCriteria(dashboardFilters)
+        || requestItems.some(requestItem => {
+          const item = allInventoryItems.find(inventoryItem => inventoryItem.id === requestItem.itemId);
+          return Boolean(item && matchesDashboardInventoryItem(item, dashboardFilters, false));
+        });
+      return matchesDashboardPeriod(entry.tanggal, dashboardFilters)
+        && matchesInventoryFilters
+        && matchesDashboardSearch(dashboardFilters.keyword, [
+          entry.nomorPermintaan, entry.pemohonNama, entry.unitKerja, entry.ruangan,
+          entry.keperluan, entry.status,
+          ...requestItems.flatMap(item => [item.namaBarang, item.kodeBarang, item.spesifikasi, item.catatan])
+        ]);
+    })()
+  ), [requests, allInventoryItems, dashboardFilters]);
+  const filteredMaintenances = useMemo(() => maintenances.filter(entry =>
+    matchesDashboardPeriod(entry.tanggalMulai, dashboardFilters)
+    && (!hasDashboardAssetCriteria(dashboardFilters) || Boolean(
+      allAssets.find(asset => asset.id === entry.assetId && matchesDashboardAssetAttributes(asset, dashboardFilters))
+    ))
+    && matchesDashboardSearch(dashboardFilters.keyword, [
+      entry.nomorTiket, entry.assetName, entry.kodeBarang, entry.jenisPemeliharaan,
+      entry.teknisi, entry.vendor, entry.status, entry.ruanganNama, entry.keterangan
+    ])
+  ).sort((a, b) => b.tanggalMulai.localeCompare(a.tanggalMulai)), [maintenances, allAssets, dashboardFilters]);
 
   // BMN Calculations
   const totalAssetsCount = assets.length;
@@ -66,7 +141,7 @@ export const DashboardView: React.FC<{
   const totalInvValue = inventoryItems.reduce((sum, i) => sum + i.totalNilai, 0);
   const lowStockCount = inventoryItems.filter(i => i.status === 'Menipis').length;
   const outOfStockCount = inventoryItems.filter(i => i.status === 'Habis').length;
-  const pendingRequests = requests.filter(r => r.status === 'Diajukan' || r.status === 'Diverifikasi').length;
+  const pendingRequests = filteredRequests.filter(r => r.status === 'Diajukan' || r.status === 'Diverifikasi').length;
 
   return (
     <div className="space-y-6">
@@ -159,6 +234,16 @@ export const DashboardView: React.FC<{
         </div>
       </div>
 
+      <DashboardFilterPanel
+        filters={dashboardFilters}
+        onChange={setDashboardFilters}
+        assets={allAssets}
+        inventoryItems={allInventoryItems}
+        rooms={rooms}
+        assetResultCount={assets.length}
+        inventoryResultCount={inventoryItems.length}
+      />
+
       {/* DUAL MONITORING SECTION: SECTION A (ASET BMN) & SECTION B (PERSEDIAAN) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* GROUP A: ASET BMN MONITORING */}
@@ -214,7 +299,7 @@ export const DashboardView: React.FC<{
                 <span>Kondisi Baik</span>
               </div>
               <div className="text-lg font-bold text-emerald-300 mt-0.5">{assetsBaik}</div>
-              <div className="text-[9px] text-slate-400 font-mono">{((assetsBaik / totalAssetsCount) * 100).toFixed(1)}%</div>
+              <div className="text-[9px] text-slate-400 font-mono">{(totalAssetsCount ? (assetsBaik / totalAssetsCount) * 100 : 0).toFixed(1)}%</div>
             </div>
 
             <div className="bg-amber-950/20 border border-amber-900/40 p-2.5 rounded-xl">
@@ -223,7 +308,7 @@ export const DashboardView: React.FC<{
                 <span>Rusak Ringan</span>
               </div>
               <div className="text-lg font-bold text-amber-300 mt-0.5">{assetsRusakRingan}</div>
-              <div className="text-[9px] text-slate-400 font-mono">{((assetsRusakRingan / totalAssetsCount) * 100).toFixed(1)}%</div>
+              <div className="text-[9px] text-slate-400 font-mono">{(totalAssetsCount ? (assetsRusakRingan / totalAssetsCount) * 100 : 0).toFixed(1)}%</div>
             </div>
 
             <div className="bg-rose-950/20 border border-rose-900/40 p-2.5 rounded-xl">
@@ -232,7 +317,7 @@ export const DashboardView: React.FC<{
                 <span>Rusak Berat</span>
               </div>
               <div className="text-lg font-bold text-rose-300 mt-0.5">{assetsRusakBerat}</div>
-              <div className="text-[9px] text-slate-400 font-mono">{((assetsRusakBerat / totalAssetsCount) * 100).toFixed(1)}%</div>
+              <div className="text-[9px] text-slate-400 font-mono">{(totalAssetsCount ? (assetsRusakBerat / totalAssetsCount) * 100 : 0).toFixed(1)}%</div>
             </div>
           </div>
 
@@ -311,7 +396,7 @@ export const DashboardView: React.FC<{
           <div className="grid grid-cols-3 gap-2 text-center text-xs">
             <div className="bg-slate-950/60 border border-slate-800 p-2.5 rounded-xl">
               <div className="text-[10px] text-blue-400 font-semibold">Barang Masuk</div>
-              <div className="text-lg font-bold text-white mt-0.5">{stockInList.length}</div>
+              <div className="text-lg font-bold text-white mt-0.5">{filteredStockInList.length}</div>
               <div className="text-[9px] text-slate-400">Penerimaan TA 26</div>
             </div>
 
@@ -383,7 +468,7 @@ export const DashboardView: React.FC<{
           </button>
         </div>
 
-        <OfficeTwin3D />
+        <OfficeTwin3D assets={assets} />
       </div>
 
       {/* RECENT ACTIVITY & AUDIT SNIPPET */}
@@ -404,7 +489,7 @@ export const DashboardView: React.FC<{
           </div>
 
           <div className="space-y-2">
-            {stockOutList.slice(0, 4).map(s => (
+            {filteredStockOutList.slice(0, 4).map(s => (
               <div key={s.id} className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80 flex items-center justify-between text-xs">
                 <div>
                   <div className="font-semibold text-white">{s.namaBarang}</div>
@@ -418,6 +503,7 @@ export const DashboardView: React.FC<{
                 </div>
               </div>
             ))}
+            {filteredStockOutList.length === 0 && <p className="py-3 text-center text-xs text-slate-500">Tidak ada aktivitas barang keluar yang sesuai filter.</p>}
           </div>
         </div>
 
@@ -437,7 +523,7 @@ export const DashboardView: React.FC<{
           </div>
 
           <div className="space-y-2">
-            {maintenances.slice(0, 4).map(m => (
+            {filteredMaintenances.slice(0, 4).map(m => (
               <div key={m.id} className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80 flex items-center justify-between text-xs">
                 <div>
                   <div className="font-semibold text-white">{m.assetName}</div>
@@ -453,6 +539,7 @@ export const DashboardView: React.FC<{
                 </div>
               </div>
             ))}
+            {filteredMaintenances.length === 0 && <p className="py-3 text-center text-xs text-slate-500">Tidak ada aktivitas pemeliharaan yang sesuai filter.</p>}
           </div>
         </div>
       </div>

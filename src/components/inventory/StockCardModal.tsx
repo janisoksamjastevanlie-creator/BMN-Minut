@@ -23,7 +23,12 @@ export const StockCardModal: React.FC<{
   if (!item) return null;
 
   // Build ledger entries from transactions matching item.id
-  const itemIn = stockInList.filter(s => s.itemId === item.id);
+  const itemIn = stockInList.filter(s =>
+    s.itemId === item.id && (!s.status || s.status === 'Diverifikasi')
+  );
+  const pendingItemIn = stockInList.filter(s =>
+    s.itemId === item.id && (s.status === 'Menunggu Pemeriksaan' || s.status === 'Sudah Diperiksa')
+  );
   const itemOut = stockOutList.filter(s => s.itemId === item.id);
 
   // Combine into single chronological timeline
@@ -179,6 +184,11 @@ export const StockCardModal: React.FC<{
           </div>
 
           {/* Ledger Table */}
+          {pendingItemIn.length > 0 && (
+            <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-200 print:hidden">
+              {pendingItemIn.length} penerimaan masih menunggu verifikasi dan belum dihitung sebagai stok masuk pada kartu ini.
+            </div>
+          )}
           <div className="rounded-xl border border-slate-800 overflow-hidden print:border-black">
             <table className="w-full text-left border-collapse text-xs">
               <thead>

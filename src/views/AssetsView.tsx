@@ -31,6 +31,7 @@ import {
 export const AssetsView: React.FC = () => {
   const { assets, deleteAsset, setSelectedAsset, rooms, setActiveView, hasPermission } = useApp();
 
+  const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
   const [filterKategori, setFilterKategori] = useState<string>('all');
   const [filterKondisi, setFilterKondisi] = useState<string>('all');
@@ -86,6 +87,49 @@ export const AssetsView: React.FC = () => {
     const start = (currentPage - 1) * itemsPerPage;
     return filteredAssets.slice(start, start + itemsPerPage);
   }, [filteredAssets, currentPage]);
+
+  const areVisibleAssetsSelected =
+    paginatedAssets.length > 0 && paginatedAssets.every(asset => selectedAssetIds.has(asset.id));
+
+  const toggleAssetSelection = (id: string) => {
+    setSelectedAssetIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleVisibleAssetSelection = () => {
+    setSelectedAssetIds(areVisibleAssetsSelected ? new Set() : new Set(paginatedAssets.map(asset => asset.id)));
+  };
+
+  const handleBulkDeleteAssets = () => {
+    const selectedAssets = assets.filter(asset => selectedAssetIds.has(asset.id));
+    if (selectedAssets.length === 0) {
+      window.alert('Pilih data aset yang ingin dihapus terlebih dahulu.');
+      return;
+    }
+    if (!window.confirm('Apakah Anda yakin ingin menghapus data yang dipilih?')) return;
+
+    let deletedCount = 0;
+    const errors: string[] = [];
+    selectedAssets.forEach(asset => {
+      try {
+        deleteAsset(asset.id);
+        deletedCount += 1;
+      } catch (error) {
+        errors.push(`${asset.namaBarang}: ${error instanceof Error ? error.message : 'terjadi kesalahan saat menghapus.'}`);
+      }
+    });
+    setSelectedAssetIds(new Set());
+
+    if (errors.length > 0) {
+      window.alert(`${deletedCount} aset berhasil dihapus. ${errors.length} aset gagal dihapus:\n${errors.join('\n')}`);
+    } else {
+      window.alert(`${deletedCount} aset berhasil dihapus.`);
+    }
+  };
 
   const handleExportCSV = () => {
     const headers = ['Kode Barang,NUP,Nama Barang,Kategori,Merk,Nomor Seri,Tahun,Nilai Perolehan,Penyusutan,Nilai Buku,Kondisi,Ruangan,Penanggung Jawab,Status'];
@@ -255,6 +299,29 @@ export const AssetsView: React.FC = () => {
 
       {/* Main Assets Content: Mobile Card View (md:hidden) & Desktop Table View (hidden md:block) */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+        {hasPermission('manageAssets') && (
+          <div className="p-3 border-b border-slate-800 flex items-center justify-between gap-3">
+            <label className="md:hidden flex items-center gap-2 text-xs text-slate-300">
+              <input
+                type="checkbox"
+                checked={areVisibleAssetsSelected}
+                onChange={toggleVisibleAssetSelection}
+                className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-blue-500 focus:ring-blue-500"
+                aria-label="Pilih semua aset yang ditampilkan"
+              />
+              Pilih Semua
+            </label>
+            <span className="text-xs text-slate-400">{selectedAssetIds.size} aset dipilih</span>
+            <button
+              onClick={handleBulkDeleteAssets}
+              disabled={selectedAssetIds.size === 0}
+              className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-rose-400 text-xs font-semibold flex items-center gap-1.5 border border-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Trash2 className="w-4 h-4" />
+              Hapus Terpilih
+            </button>
+          </div>
+        )}
         {/* MOBILE CARD VIEW */}
         <div className="md:hidden divide-y divide-slate-800/80">
           {paginatedAssets.length === 0 ? (
@@ -266,6 +333,15 @@ export const AssetsView: React.FC = () => {
               <div key={asset.id} className="p-4 space-y-3 hover:bg-slate-800/30 transition-colors">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-2">
+                    {hasPermission('manageAssets') && (
+                      <input
+                        type="checkbox"
+                        checked={selectedAssetIds.has(asset.id)}
+                        onChange={() => toggleAssetSelection(asset.id)}
+                        className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-blue-500 focus:ring-blue-500"
+                        aria-label={`Pilih aset ${asset.namaBarang}`}
+                      />
+                    )}
                     <span className="font-mono font-bold text-xs text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">
                       NUP #{asset.nup}
                     </span>
@@ -380,6 +456,17 @@ export const AssetsView: React.FC = () => {
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
+                {hasPermission('manageAssets') && (
+                  <th className="py-3 px-3 text-center">
+                    <input
+                      type="checkbox"
+                      checked={areVisibleAssetsSelected}
+                      onChange={toggleVisibleAssetSelection}
+                      className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-blue-500 focus:ring-blue-500"
+                      aria-label="Pilih semua aset yang ditampilkan"
+                    />
+                  </th>
+                )}
                 <th className="py-3 px-3">NUP</th>
                 <th className="py-3 px-4">Nama Barang & Spesifikasi</th>
                 <th className="py-3 px-3">Kode BMN</th>
@@ -394,13 +481,24 @@ export const AssetsView: React.FC = () => {
             <tbody className="divide-y divide-slate-800/60 text-slate-300">
               {paginatedAssets.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-slate-400">
+                  <td colSpan={hasPermission('manageAssets') ? 10 : 9} className="py-12 text-center text-slate-400">
                     Tidak ditemukan aset BMN yang sesuai dengan kriteria filter.
                   </td>
                 </tr>
               ) : (
                 paginatedAssets.map(asset => (
                   <tr key={asset.id} className="hover:bg-slate-800/40 transition-colors">
+                    {hasPermission('manageAssets') && (
+                      <td className="py-3 px-3 text-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedAssetIds.has(asset.id)}
+                          onChange={() => toggleAssetSelection(asset.id)}
+                          className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-blue-500 focus:ring-blue-500"
+                          aria-label={`Pilih aset ${asset.namaBarang}`}
+                        />
+                      </td>
+                    )}
                     {/* NUP */}
                     <td className="py-3 px-3 font-mono font-bold text-cyan-400">
                       #{asset.nup}

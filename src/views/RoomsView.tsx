@@ -38,10 +38,12 @@ export const RoomsView: React.FC = () => {
     setActiveView
   } = useApp();
 
+  const [selectedRoomIds, setSelectedRoomIds] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedBuilding, setSelectedBuilding] = useState<string>('all');
   const [selectedFloor, setSelectedFloor] = useState<string>('all');
   const [selectedType, setSelectedType] = useState<string>('all');
+  const [sortBy, setSortBy] = useState<'code' | 'name' | 'assets' | 'value'>('code');
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
 
   // DBR View Modal state
@@ -55,24 +57,35 @@ export const RoomsView: React.FC = () => {
 
   // Filtered rooms
   const filteredRooms = rooms.filter(room => {
-    const matchesSearch =
-      room.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      room.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      room.picName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      room.picNip.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      room.building.toLowerCase().includes(searchTerm.toLowerCase());
+    const query = searchTerm.trim().toLocaleLowerCase('id-ID');
+    const matchesSearch = !query || [room.name, room.code, room.picName, room.picNip || '', room.building]
+      .some(value => value.toLocaleLowerCase('id-ID').includes(query));
 
     const matchesBuilding = selectedBuilding === 'all' || room.building === selectedBuilding;
     const matchesFloor = selectedFloor === 'all' || String(room.floor) === selectedFloor;
     const matchesType = selectedType === 'all' || room.roomType === selectedType;
 
     return matchesSearch && matchesBuilding && matchesFloor && matchesType;
+  }).sort((a, b) => {
+    if (sortBy === 'name') return a.name.localeCompare(b.name, 'id-ID');
+    if (sortBy === 'assets') {
+      return assets.filter(asset => asset.ruanganId === b.id).length - assets.filter(asset => asset.ruanganId === a.id).length;
+    }
+    if (sortBy === 'value') {
+      const valueA = assets.filter(asset => asset.ruanganId === a.id).reduce((sum, asset) => sum + asset.nilaiBuku, 0);
+      const valueB = assets.filter(asset => asset.ruanganId === b.id).reduce((sum, asset) => sum + asset.nilaiBuku, 0);
+      return valueB - valueA;
+    }
+    return a.code.localeCompare(b.code, 'id-ID', { numeric: true });
   });
 
   // Calculate global summary stats
-  const totalAssetsCount = assets.length;
-  const totalAssetsValue = assets.reduce((sum, a) => sum + a.nilaiBuku, 0);
-  const totalBaikCount = assets.filter(a => a.kondisi === 'Baik').length;
+  const roomIds = new Set(rooms.map(room => room.id));
+  const distributedAssets = assets.filter(asset => roomIds.has(asset.ruanganId));
+  const unassignedAssetsCount = assets.length - distributedAssets.length;
+  const totalAssetsCount = distributedAssets.length;
+  const totalAssetsValue = distributedAssets.reduce((sum, a) => sum + a.nilaiBuku, 0);
+  const totalBaikCount = distributedAssets.filter(a => a.kondisi === 'Baik').length;
   const percentBaik = totalAssetsCount > 0 ? Math.round((totalBaikCount / totalAssetsCount) * 100) : 100;
 
   const handleOpenAddRoom = () => {
@@ -104,6 +117,52 @@ export const RoomsView: React.FC = () => {
       });
       setTimeout(() => setDeleteStatus(null), 4000);
     }
+  };
+
+  const areAllVisibleRoomsSelected =
+    filteredRooms.length > 0 && filteredRooms.every(room => selectedRoomIds.has(room.id));
+
+  const toggleRoomSelection = (id: string) => {
+    setSelectedRoomIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllRoomSelection = () => {
+    setSelectedRoomIds(areAllVisibleRoomsSelected ? new Set() : new Set(filteredRooms.map(room => room.id)));
+  };
+
+  const handleBulkDeleteRooms = () => {
+    const selectedRooms = rooms.filter(room => selectedRoomIds.has(room.id));
+    if (selectedRooms.length === 0) {
+      setDeleteStatus({ message: 'Pilih data ruangan yang ingin dihapus terlebih dahulu.', isError: true });
+      setTimeout(() => setDeleteStatus(null), 4000);
+      return;
+    }
+    if (!window.confirm('Apakah Anda yakin ingin menghapus data yang dipilih?')) return;
+
+    let deletedCount = 0;
+    const errors: string[] = [];
+    selectedRooms.forEach(room => {
+      try {
+        const result = deleteRoom(room.id);
+        if (result.success) deletedCount += 1;
+        else errors.push(result.message);
+      } catch (error) {
+        errors.push(`Ruangan "${room.name}": ${error instanceof Error ? error.message : 'terjadi kesalahan saat menghapus.'}`);
+      }
+    });
+    setSelectedRoomIds(new Set());
+    setDeleteStatus({
+      message: errors.length > 0
+        ? `${deletedCount} ruangan berhasil dihapus. ${errors.length} gagal: ${errors.join(' ')}`
+        : `${deletedCount} ruangan berhasil dihapus.`,
+      isError: errors.length > 0
+    });
+    setTimeout(() => setDeleteStatus(null), 5000);
   };
 
   const handleView3D = (room: OfficeRoom) => {
@@ -144,7 +203,7 @@ export const RoomsView: React.FC = () => {
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-extrabold text-white">Manajemen Ruangan & DBR</h1>
             <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 font-bold">
-              {rooms.length} Ruangan Aktif
+              {rooms.length} Ruangan Terdaftar
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
@@ -172,7 +231,7 @@ export const RoomsView: React.FC = () => {
       </div>
 
       {/* KPI Stats Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
         <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-between">
           <div>
             <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Ruangan</div>
@@ -210,6 +269,17 @@ export const RoomsView: React.FC = () => {
 
         <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-between">
           <div>
+            <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Aset Belum Berlokasi</div>
+            <div className="text-xl font-black text-amber-300 mt-1">{unassignedAssetsCount} Unit</div>
+            <div className="text-[10px] text-slate-500 mt-0.5">Belum terhubung ke ruangan terdaftar</div>
+          </div>
+          <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+            <AlertTriangle className="w-5 h-5" />
+          </div>
+        </div>
+
+        <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-between">
+          <div>
             <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Kondisi Prima</div>
             <div className="text-xl font-black text-purple-300 mt-1">{percentBaik}% Baik</div>
             <div className="text-[10px] text-slate-500 mt-0.5">{totalBaikCount} unit kondisi baik</div>
@@ -230,7 +300,7 @@ export const RoomsView: React.FC = () => {
               type="text"
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
-              placeholder="Cari kode (R-101), nama ruangan, gedung, atau PIC..."
+              placeholder="Cari kode, nama, gedung, atau penanggung jawab..."
               className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
             />
           </div>
@@ -312,6 +382,20 @@ export const RoomsView: React.FC = () => {
             <option value="Arsip & Dokumen">Arsip & Dokumen</option>
           </select>
 
+          <label className="flex items-center gap-2 text-[11px] text-slate-400">
+            Urutkan:
+            <select
+              value={sortBy}
+              onChange={e => setSortBy(e.target.value as typeof sortBy)}
+              className="bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-slate-300 text-xs focus:outline-none focus:border-blue-500"
+            >
+              <option value="code">Kode ruangan</option>
+              <option value="name">Nama ruangan</option>
+              <option value="assets">Jumlah aset terbanyak</option>
+              <option value="value">Nilai BMN tertinggi</option>
+            </select>
+          </label>
+
           {(selectedBuilding !== 'all' || selectedFloor !== 'all' || selectedType !== 'all' || searchTerm) && (
             <button
               onClick={() => {
@@ -329,6 +413,30 @@ export const RoomsView: React.FC = () => {
           <span className="text-[11px] text-slate-500 ml-auto">
             Menampilkan {filteredRooms.length} dari {rooms.length} ruangan
           </span>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-slate-900 border border-slate-800">
+        <label className="flex items-center gap-2 text-xs text-slate-300">
+          <input
+            type="checkbox"
+            checked={areAllVisibleRoomsSelected}
+            onChange={toggleAllRoomSelection}
+            className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-blue-500 focus:ring-blue-500"
+            aria-label="Pilih semua ruangan yang ditampilkan"
+          />
+          Pilih Semua
+        </label>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-slate-400">{selectedRoomIds.size} ruangan dipilih</span>
+          <button
+            onClick={handleBulkDeleteRooms}
+            disabled={selectedRoomIds.size === 0}
+            className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-rose-400 text-xs font-semibold flex items-center gap-1.5 border border-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Trash2 className="w-4 h-4" />
+            Hapus Terpilih
+          </button>
         </div>
       </div>
 
@@ -372,6 +480,13 @@ export const RoomsView: React.FC = () => {
                 <div>
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedRoomIds.has(room.id)}
+                        onChange={() => toggleRoomSelection(room.id)}
+                        className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-blue-500 focus:ring-blue-500"
+                        aria-label={`Pilih ruangan ${room.name}`}
+                      />
                       <span
                         className="w-3 h-3 rounded-full shrink-0 shadow-sm"
                         style={{ backgroundColor: room.color || '#3b82f6' }}
@@ -486,6 +601,15 @@ export const RoomsView: React.FC = () => {
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-slate-950/80 border-b border-slate-800 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                  <th className="py-3 px-3 text-center">
+                    <input
+                      type="checkbox"
+                      checked={areAllVisibleRoomsSelected}
+                      onChange={toggleAllRoomSelection}
+                      className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-blue-500 focus:ring-blue-500"
+                      aria-label="Pilih semua ruangan yang ditampilkan"
+                    />
+                  </th>
                   <th className="py-3 px-4">Kode & Ruangan</th>
                   <th className="py-3 px-4">Gedung & Lantai</th>
                   <th className="py-3 px-4">Tipe Ruang</th>
@@ -502,6 +626,15 @@ export const RoomsView: React.FC = () => {
 
                   return (
                     <tr key={room.id} className="hover:bg-slate-800/40 transition-colors text-slate-200">
+                      <td className="py-3 px-3 text-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedRoomIds.has(room.id)}
+                          onChange={() => toggleRoomSelection(room.id)}
+                          className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-blue-500 focus:ring-blue-500"
+                          aria-label={`Pilih ruangan ${room.name}`}
+                        />
+                      </td>
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-2">
                           <span

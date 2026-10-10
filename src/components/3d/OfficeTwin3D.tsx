@@ -1,15 +1,20 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { useApp } from '../../context/AppContext';
-import { OfficeRoom } from '../../types';
+import { BmnAsset, OfficeRoom } from '../../types';
+import { canAccessView } from '../../utils/rbac';
 import { Building2, Layers, ZoomIn, ZoomOut, RotateCcw, AlertTriangle, CheckCircle2, XCircle, Info, ArrowRight } from 'lucide-react';
 
-export const OfficeTwin3D: React.FC<{ onSelectRoom?: (room: OfficeRoom) => void }> = ({ onSelectRoom }) => {
+export const OfficeTwin3D: React.FC<{ onSelectRoom?: (room: OfficeRoom) => void; assets?: BmnAsset[] }> = ({ onSelectRoom, assets: displayedAssets }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const { rooms, assets, performance3D, setActiveView } = useApp();
+  const { rooms, assets: allAssets, performance3D, setActiveView, updateRoom, currentUser, hasPermission } = useApp();
+  const assets = displayedAssets ?? allAssets;
+  const updateRoomRef = useRef(updateRoom);
+  updateRoomRef.current = updateRoom;
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(rooms[0]?.id || null);
   const [selectedFloor, setSelectedFloor] = useState<number | 'all'>('all');
   const [hoveredRoomName, setHoveredRoomName] = useState<string | null>(null);
+  const canManageRooms = canAccessView('rooms', hasPermission, currentUser);
 
   // References for Three.js instance
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -51,7 +56,7 @@ export const OfficeTwin3D: React.FC<{ onSelectRoom?: (room: OfficeRoom) => void 
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, performance3D === 'low' ? 1 : 2));
     renderer.shadowMap.enabled = performance3D === 'normal';
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
     rendererRef.current = renderer;
 
     container.replaceChildren(renderer.domElement);
@@ -116,12 +121,14 @@ export const OfficeTwin3D: React.FC<{ onSelectRoom?: (room: OfficeRoom) => void 
         wireframe: performance3D === 'low'
       });
 
+      const roomGroup = new THREE.Group();
+      roomGroup.position.set(x, y, z);
       const mesh = new THREE.Mesh(roomGeo, roomMat);
-      mesh.position.set(x, y, z);
+      mesh.position.set(0, 0, 0);
       mesh.userData = { roomId: room.id, roomName: room.name };
       mesh.castShadow = performance3D === 'normal';
       mesh.receiveShadow = performance3D === 'normal';
-      scene.add(mesh);
+      roomGroup.add(mesh);
       roomMeshesRef.current[room.id] = mesh;
 
       // Inner office furniture representation (low-poly desks)
@@ -129,21 +136,27 @@ export const OfficeTwin3D: React.FC<{ onSelectRoom?: (room: OfficeRoom) => void 
         const deskGeo = new THREE.BoxGeometry(w * 0.45, 0.3, d * 0.4);
         const deskMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.9 });
         const desk = new THREE.Mesh(deskGeo, deskMat);
-        desk.position.set(x, y - (h / 2) + 0.25, z);
-        scene.add(desk);
+        desk.position.set(0, -(h / 2) + 0.25, 0);
+        roomGroup.add(desk);
 
         // Status beacon on top of the room
         const beaconGeo = new THREE.SphereGeometry(0.18, 12, 12);
         const beaconColor = hasRusakBerat ? 0xef4444 : hasRusakRingan ? 0xeab308 : 0x10b981;
         const beaconMat = new THREE.MeshBasicMaterial({ color: beaconColor });
         const beacon = new THREE.Mesh(beaconGeo, beaconMat);
-        beacon.position.set(x, y + (h / 2) + 0.25, z);
-        scene.add(beacon);
+        beacon.position.set(0, (h / 2) + 0.25, 0);
+        roomGroup.add(beacon);
       }
+      scene.add(roomGroup);
     });
 
     // 7. Interactive Orbiting & Raycasting
     let isDragging = false;
+    let draggedRoomId: string | null = null;
+    let draggedRoomGroup: THREE.Group | null = null;
+    let dragPlane: THREE.Plane | null = null;
+    let dragOffset: THREE.Vector3 | null = null;
+    let roomDragMoved = false;
     let prevMouseX = 0;
     let prevMouseY = 0;
     let spherical = { radius: 19, theta: 0.8, phi: 1.0 };
@@ -158,8 +171,35 @@ export const OfficeTwin3D: React.FC<{ onSelectRoom?: (room: OfficeRoom) => void 
 
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
+    const dragIntersection = new THREE.Vector3();
 
     const onMouseDown = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      const rect = container.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(mouse, camera);
+      const intersects = raycaster.intersectObjects(Object.values(roomMeshesRef.current));
+      const hit = intersects[0]?.object as THREE.Mesh | undefined;
+      const roomGroup = hit?.parent;
+
+      if (canManageRooms && e.target === renderer.domElement && hit && roomGroup instanceof THREE.Group) {
+        const roomId = hit.userData.roomId as string;
+        const roomPosition = roomGroup.position;
+        const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -roomPosition.y);
+        const hitPoint = raycaster.ray.intersectPlane(plane, dragIntersection);
+        if (hitPoint) {
+          draggedRoomId = roomId;
+          draggedRoomGroup = roomGroup;
+          dragPlane = plane;
+          dragOffset = roomPosition.clone().sub(hitPoint);
+          dragOffset.y = 0;
+          roomDragMoved = false;
+          container.style.cursor = 'grabbing';
+          return;
+        }
+      }
+
       isDragging = true;
       prevMouseX = e.clientX;
       prevMouseY = e.clientY;
@@ -169,6 +209,20 @@ export const OfficeTwin3D: React.FC<{ onSelectRoom?: (room: OfficeRoom) => void 
       const rect = container.getBoundingClientRect();
       mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+      if (draggedRoomId && draggedRoomGroup && dragPlane && dragOffset) {
+        raycaster.setFromCamera(mouse, camera);
+        if (raycaster.ray.intersectPlane(dragPlane, dragIntersection)) {
+          const nextX = dragIntersection.x + dragOffset.x;
+          const nextZ = dragIntersection.z + dragOffset.z;
+          if (Math.abs(nextX - draggedRoomGroup.position.x) > 0.001 || Math.abs(nextZ - draggedRoomGroup.position.z) > 0.001) {
+            roomDragMoved = true;
+          }
+          draggedRoomGroup.position.x = nextX;
+          draggedRoomGroup.position.z = nextZ;
+        }
+        return;
+      }
 
       if (isDragging) {
         const deltaX = e.clientX - prevMouseX;
@@ -187,7 +241,7 @@ export const OfficeTwin3D: React.FC<{ onSelectRoom?: (room: OfficeRoom) => void 
         if (intersects.length > 0) {
           const hit = intersects[0].object;
           setHoveredRoomName(hit.userData.roomName);
-          container.style.cursor = 'pointer';
+          container.style.cursor = canManageRooms ? 'grab' : 'pointer';
         } else {
           setHoveredRoomName(null);
           container.style.cursor = 'default';
@@ -196,6 +250,34 @@ export const OfficeTwin3D: React.FC<{ onSelectRoom?: (room: OfficeRoom) => void 
     };
 
     const onMouseUp = (e: MouseEvent) => {
+      if (draggedRoomId && draggedRoomGroup) {
+        const roomId = draggedRoomId;
+        const roomGroup = draggedRoomGroup;
+        const moved = roomDragMoved;
+        draggedRoomId = null;
+        draggedRoomGroup = null;
+        dragPlane = null;
+        dragOffset = null;
+        roomDragMoved = false;
+        container.style.cursor = canManageRooms ? 'grab' : 'pointer';
+
+        if (moved) {
+          try {
+            updateRoomRef.current(roomId, {
+              position3D: [roomGroup.position.x, roomGroup.position.y, roomGroup.position.z]
+            });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Gagal menyimpan posisi ruangan.';
+            console.error('Gagal menyimpan posisi ruangan 3D:', error);
+            window.alert(message);
+          }
+        }
+
+        setSelectedRoomId(roomId);
+        const roomObj = rooms.find(r => r.id === roomId);
+        if (roomObj && onSelectRoom) onSelectRoom(roomObj);
+        return;
+      }
       if (!isDragging) return;
       isDragging = false;
 
@@ -261,7 +343,7 @@ export const OfficeTwin3D: React.FC<{ onSelectRoom?: (room: OfficeRoom) => void 
       window.removeEventListener('resize', handleResize);
       renderer.dispose();
     };
-  }, [rooms, selectedRoomId, selectedFloor, performance3D, assets]);
+  }, [rooms, selectedRoomId, selectedFloor, performance3D, assets, canManageRooms]);
 
   return (
     <div className="relative w-full h-[540px] rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl flex flex-col md:flex-row">

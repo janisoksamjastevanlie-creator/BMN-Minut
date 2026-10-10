@@ -22,6 +22,7 @@ import {
 export const DocumentsView: React.FC = () => {
   const { documents, deleteDocument } = useApp();
 
+  const [selectedDocumentIds, setSelectedDocumentIds] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
   const [previewDoc, setPreviewDoc] = useState<DocumentItem | null>(null);
@@ -36,6 +37,49 @@ export const DocumentsView: React.FC = () => {
       d.uploader.toLowerCase().includes(search.toLowerCase());
     return matchType && matchSearch;
   });
+
+  const areAllDocumentsSelected =
+    filteredDocs.length > 0 && filteredDocs.every(doc => selectedDocumentIds.has(doc.id));
+
+  const toggleDocumentSelection = (id: string) => {
+    setSelectedDocumentIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllDocumentSelection = () => {
+    setSelectedDocumentIds(areAllDocumentsSelected ? new Set() : new Set(filteredDocs.map(doc => doc.id)));
+  };
+
+  const handleBulkDeleteDocuments = () => {
+    const selectedDocuments = documents.filter(doc => selectedDocumentIds.has(doc.id));
+    if (selectedDocuments.length === 0) {
+      window.alert('Pilih data dokumen yang ingin dihapus terlebih dahulu.');
+      return;
+    }
+    if (!window.confirm('Apakah Anda yakin ingin menghapus data yang dipilih?')) return;
+
+    let deletedCount = 0;
+    const errors: string[] = [];
+    selectedDocuments.forEach(doc => {
+      try {
+        deleteDocument(doc.id);
+        deletedCount += 1;
+      } catch (error) {
+        errors.push(`${doc.judul}: ${error instanceof Error ? error.message : 'terjadi kesalahan saat menghapus.'}`);
+      }
+    });
+    setSelectedDocumentIds(new Set());
+
+    if (errors.length > 0) {
+      window.alert(`${deletedCount} dokumen berhasil dihapus. ${errors.length} dokumen gagal dihapus:\n${errors.join('\n')}`);
+    } else {
+      window.alert(`${deletedCount} dokumen berhasil dihapus.`);
+    }
+  };
 
   const handleDownloadDoc = (doc: DocumentItem) => {
     if (doc.fileDataUrl) {
@@ -124,6 +168,29 @@ export const DocumentsView: React.FC = () => {
       </div>
 
       {/* Document Grid */}
+      <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-slate-900 border border-slate-800">
+        <label className="flex items-center gap-2 text-xs text-slate-300">
+          <input
+            type="checkbox"
+            checked={areAllDocumentsSelected}
+            onChange={toggleAllDocumentSelection}
+            className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-purple-500 focus:ring-purple-500"
+            aria-label="Pilih semua dokumen yang ditampilkan"
+          />
+          Pilih Semua
+        </label>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-slate-400">{selectedDocumentIds.size} dokumen dipilih</span>
+          <button
+            onClick={handleBulkDeleteDocuments}
+            disabled={selectedDocumentIds.size === 0}
+            className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-rose-400 text-xs font-semibold flex items-center gap-1.5 border border-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Trash2 className="w-4 h-4" />
+            Hapus Terpilih
+          </button>
+        </div>
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filteredDocs.map(doc => (
           <div
@@ -132,12 +199,21 @@ export const DocumentsView: React.FC = () => {
           >
             <div>
               <div className="flex items-start justify-between gap-2">
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/10 text-purple-300 border border-purple-500/20 font-bold">
-                  {doc.jenis}
-                </span>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={selectedDocumentIds.has(doc.id)}
+                    onChange={() => toggleDocumentSelection(doc.id)}
+                    className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-purple-500 focus:ring-purple-500"
+                    aria-label={`Pilih dokumen ${doc.judul}`}
+                  />
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/10 text-purple-300 border border-purple-500/20 font-bold">
+                    {doc.jenis}
+                  </span>
+                </div>
                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                  doc.status === 'Sah' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'
-                }`}>
+                    doc.status === 'Sah' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'
+                  }`}>
                   {doc.status}
                 </span>
               </div>

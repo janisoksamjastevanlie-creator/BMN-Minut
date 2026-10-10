@@ -197,6 +197,18 @@ export interface StockInTransaction {
   petugas: string;
   keterangan: string;
   dokumenUrl?: string;
+  status?: 'Menunggu Pemeriksaan' | 'Sudah Diperiksa' | 'Diverifikasi' | 'Ditolak';
+  pemeriksaan?: {
+    kondisi: 'Baik' | 'Rusak Ringan' | 'Rusak Berat';
+    jumlahSesuai: boolean;
+    dokumenSesuai: boolean;
+    barangSesuai: boolean;
+    catatan: string;
+    diperiksaOleh: string;
+    diperiksaPada: string;
+  };
+  diverifikasiOleh?: string;
+  diverifikasiPada?: string;
 }
 
 export interface StockOutTransaction {
@@ -218,6 +230,17 @@ export interface StockOutTransaction {
 
 export type RequestStatus = 'Draft' | 'Diajukan' | 'Diverifikasi' | 'Disetujui' | 'Diproses' | 'Selesai' | 'Ditolak';
 
+export interface InventoryRequestItem {
+  itemId: string;
+  namaBarang: string;
+  kodeBarang?: string;
+  jumlahDiminta: number;
+  jumlahDisetujui?: number;
+  satuan: string;
+  spesifikasi?: string;
+  catatan?: string;
+}
+
 export interface InventoryRequest {
   id: string;
   nomorPermintaan: string;
@@ -233,6 +256,7 @@ export interface InventoryRequest {
   keperluan: string;
   prioritas: 'Rendah' | 'Normal' | 'Tinggi' | 'Mendesak';
   catatan?: string;
+  items?: InventoryRequestItem[];
   status: RequestStatus;
 }
 

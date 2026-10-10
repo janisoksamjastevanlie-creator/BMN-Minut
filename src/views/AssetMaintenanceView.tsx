@@ -12,14 +12,18 @@ import {
   DollarSign,
   User,
   X,
-  Check
+  Check,
+  Trash2
 } from 'lucide-react';
 
 export const AssetMaintenanceView: React.FC = () => {
-  const { maintenances, assets, addAssetMaintenance, updateMaintenanceStatus } = useApp();
+  const { maintenances, assets, addAssetMaintenance, updateMaintenanceStatus, deleteAssetMaintenance, hasPermission } = useApp();
 
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedMaintenanceIds, setSelectedMaintenanceIds] = useState<Set<string>>(new Set());
+  const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
+  const [bulkDeleteNotice, setBulkDeleteNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Form states
   const [selectedAssetId, setSelectedAssetId] = useState(assets[0]?.id || '');
@@ -30,6 +34,56 @@ export const AssetMaintenanceView: React.FC = () => {
   const [keterangan, setKeterangan] = useState('');
 
   const filtered = maintenances.filter(m => filterStatus === 'all' || m.status === filterStatus);
+
+  const areAllFilteredMaintenanceSelected =
+    filtered.length > 0 && filtered.every(item => selectedMaintenanceIds.has(item.id));
+
+  const toggleMaintenanceSelection = (id: string) => {
+    setSelectedMaintenanceIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllMaintenanceSelection = () => {
+    setSelectedMaintenanceIds(prev => {
+      if (areAllFilteredMaintenanceSelected) return new Set();
+      const next = new Set(prev);
+      filtered.forEach(item => next.add(item.id));
+      return next;
+    });
+  };
+
+  const handleBulkDeleteMaintenance = () => {
+    const targets = maintenances.filter(item => selectedMaintenanceIds.has(item.id));
+    if (targets.length === 0) {
+      setBulkDeleteNotice({ type: 'error', message: 'Pilih tiket pemeliharaan yang ingin dihapus terlebih dahulu.' });
+      setIsBulkDeleteConfirmOpen(false);
+      return;
+    }
+
+    let deletedCount = 0;
+    const errors: string[] = [];
+    targets.forEach(item => {
+      try {
+        const result = deleteAssetMaintenance(item.id);
+        if (result.success) deletedCount += 1;
+        else errors.push(result.message);
+      } catch (error) {
+        errors.push(error instanceof Error ? error.message : `Gagal menghapus tiket ${item.nomorTiket}.`);
+      }
+    });
+
+    setSelectedMaintenanceIds(new Set());
+    setIsBulkDeleteConfirmOpen(false);
+    setBulkDeleteNotice(
+      errors.length > 0
+        ? { type: 'error', message: `${deletedCount} tiket berhasil dihapus. ${errors.length} tiket gagal: ${errors.join(' ')}` }
+        : { type: 'success', message: `${deletedCount} tiket pemeliharaan berhasil dihapus.` }
+    );
+  };
 
   const handleCreateTicket = (e: React.FormEvent) => {
     e.preventDefault();
@@ -121,10 +175,51 @@ export const AssetMaintenanceView: React.FC = () => {
 
       {/* Maintenance Table */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+        {hasPermission('manageMaintenance') && (
+          <div className="p-3 border-b border-slate-800 flex items-center justify-between gap-3">
+            <span className="text-xs text-slate-400">{selectedMaintenanceIds.size} data dipilih</span>
+            <button
+              onClick={() => {
+                if (selectedMaintenanceIds.size > 0) {
+                  setBulkDeleteNotice(null);
+                  setIsBulkDeleteConfirmOpen(true);
+                }
+              }}
+              disabled={selectedMaintenanceIds.size === 0}
+              className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-rose-400 text-xs font-semibold flex items-center gap-1.5 border border-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Trash2 className="w-4 h-4" />
+              Hapus Terpilih ({selectedMaintenanceIds.size})
+            </button>
+          </div>
+        )}
+        {bulkDeleteNotice && (
+          <div
+            role="status"
+            className={`mx-3 mt-3 p-3 rounded-xl border text-xs ${
+              bulkDeleteNotice.type === 'success'
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+            }`}
+          >
+            {bulkDeleteNotice.message}
+          </div>
+        )}
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
+                {hasPermission('manageMaintenance') && (
+                  <th className="py-3 px-3 text-center">
+                    <input
+                      type="checkbox"
+                      checked={areAllFilteredMaintenanceSelected}
+                      onChange={toggleAllMaintenanceSelection}
+                      className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-amber-500 focus:ring-amber-500"
+                      aria-label="Pilih semua tiket pemeliharaan yang ditampilkan"
+                    />
+                  </th>
+                )}
                 <th className="py-3 px-3">No Tiket</th>
                 <th className="py-3 px-3">Tanggal</th>
                 <th className="py-3 px-4">Aset BMN</th>
@@ -138,6 +233,17 @@ export const AssetMaintenanceView: React.FC = () => {
             <tbody className="divide-y divide-slate-800/60 text-slate-300">
               {filtered.map(m => (
                 <tr key={m.id} className="hover:bg-slate-800/40 transition-colors">
+                  {hasPermission('manageMaintenance') && (
+                    <td className="py-3 px-3 text-center">
+                      <input
+                        type="checkbox"
+                        checked={selectedMaintenanceIds.has(m.id)}
+                        onChange={() => toggleMaintenanceSelection(m.id)}
+                        className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-amber-500 focus:ring-amber-500"
+                        aria-label={`Pilih tiket pemeliharaan ${m.nomorTiket}`}
+                      />
+                    </td>
+                  )}
                   <td className="py-3 px-3 font-mono font-bold text-slate-300">
                     {m.nomorTiket}
                   </td>
@@ -201,6 +307,39 @@ export const AssetMaintenanceView: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {isBulkDeleteConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="bulk-delete-maintenance-title"
+            className="w-full max-w-md bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl p-5"
+          >
+            <h3 id="bulk-delete-maintenance-title" className="text-sm font-bold text-white">
+              Konfirmasi Hapus Tiket Pemeliharaan
+            </h3>
+            <p className="mt-2 text-xs text-slate-300">
+              Apakah Anda yakin ingin menghapus {selectedMaintenanceIds.size} data yang dipilih?
+            </p>
+            <p className="mt-1 text-xs text-slate-400">Data yang sudah dihapus tidak dapat dikembalikan.</p>
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                onClick={() => setIsBulkDeleteConfirmOpen(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleBulkDeleteMaintenance}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded-xl"
+              >
+                Hapus
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* New Maintenance Ticket Modal */}
       {isModalOpen && (

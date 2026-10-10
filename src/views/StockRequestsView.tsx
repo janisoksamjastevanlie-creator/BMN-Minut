@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
-import { InventoryRequest, RequestStatus } from '../types';
+import { InventoryRequest, InventoryRequestItem, RequestStatus } from '../types';
 import { StockRequestModal } from '../components/inventory/StockRequestModal';
 import { triggerPrint } from '../utils/printHelper';
 import {
@@ -22,15 +22,29 @@ import {
   CheckCheck,
   Send,
   Boxes,
-  Eye
+  Eye,
+  Trash2
 } from 'lucide-react';
 
+const getRequestItems = (request: InventoryRequest): InventoryRequestItem[] => request.items?.length
+  ? request.items
+  : [{
+      itemId: request.itemId,
+      namaBarang: request.namaBarang,
+      jumlahDiminta: request.jumlahDiminta,
+      jumlahDisetujui: request.jumlahDisetujui,
+      satuan: request.satuan
+    }];
+
 export const StockRequestsView: React.FC = () => {
-  const { requests, inventoryItems, updateRequestStatus, currentUser, hasPermission } = useApp();
+  const { requests, inventoryItems, updateRequestStatus, deleteInventoryRequest, currentUser, hasPermission } = useApp();
 
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [isNewRequestOpen, setIsNewRequestOpen] = useState(false);
+  const [selectedRequestIds, setSelectedRequestIds] = useState<Set<string>>(new Set());
+  const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
+  const [bulkDeleteNotice, setBulkDeleteNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Workflow Dialog State
   const [workflowTarget, setWorkflowTarget] = useState<{
@@ -39,6 +53,7 @@ export const StockRequestsView: React.FC = () => {
   } | null>(null);
   const [actionNotes, setActionNotes] = useState('');
   const [approvedQty, setApprovedQty] = useState<number>(1);
+  const [approvedItemQuantities, setApprovedItemQuantities] = useState<Record<string, number>>({});
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Printable Detail Modal State
@@ -52,7 +67,11 @@ export const StockRequestsView: React.FC = () => {
       const matchSearch =
         !term ||
         r.nomorPermintaan.toLowerCase().includes(term) ||
-        r.namaBarang.toLowerCase().includes(term) ||
+        getRequestItems(r).some(item =>
+          item.namaBarang.toLocaleLowerCase('id-ID').includes(term) ||
+          (item.kodeBarang || '').toLocaleLowerCase('id-ID').includes(term) ||
+          (item.spesifikasi || '').toLocaleLowerCase('id-ID').includes(term)
+        ) ||
         r.pemohonNama.toLowerCase().includes(term) ||
         r.unitKerja.toLowerCase().includes(term) ||
         r.keperluan.toLowerCase().includes(term);
@@ -60,6 +79,53 @@ export const StockRequestsView: React.FC = () => {
       return matchStatus && matchSearch;
     });
   }, [requests, filterStatus, searchTerm]);
+
+  const areAllFilteredRequestsSelected =
+    filteredRequests.length > 0 && filteredRequests.every(request => selectedRequestIds.has(request.id));
+
+  const toggleRequestSelection = (id: string) => {
+    setSelectedRequestIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllRequestSelection = () => {
+    setSelectedRequestIds(prev => {
+      if (areAllFilteredRequestsSelected) return new Set();
+      const next = new Set(prev);
+      filteredRequests.forEach(request => next.add(request.id));
+      return next;
+    });
+  };
+
+  const handleBulkDeleteRequests = () => {
+    const selectedRequests = requests.filter(request => selectedRequestIds.has(request.id));
+    const missingCount = selectedRequestIds.size - selectedRequests.length;
+    let deletedCount = 0;
+    const errors: string[] = missingCount > 0
+      ? [`${missingCount} permohonan tidak ditemukan dan tidak dihapus.`]
+      : [];
+
+    selectedRequests.forEach(request => {
+      try {
+        deleteInventoryRequest(request.id);
+        deletedCount += 1;
+      } catch (error) {
+        errors.push(error instanceof Error ? error.message : `Gagal menghapus permohonan ${request.nomorPermintaan}.`);
+      }
+    });
+
+    setSelectedRequestIds(new Set());
+    setIsBulkDeleteConfirmOpen(false);
+    setBulkDeleteNotice(
+      errors.length > 0
+        ? { type: 'error', message: `${deletedCount} permohonan berhasil dihapus. ${errors.join(' ')}` }
+        : { type: 'success', message: `${deletedCount} permohonan berhasil dihapus.` }
+    );
+  };
 
   // Metric stats
   const totalCount = requests.length;
@@ -90,6 +156,10 @@ export const StockRequestsView: React.FC = () => {
     setErrorMessage(null);
     setActionNotes(req.catatan || '');
     setApprovedQty(req.jumlahDisetujui || req.jumlahDiminta);
+    setApprovedItemQuantities(Object.fromEntries(getRequestItems(req).map(item => [
+      item.itemId,
+      item.jumlahDisetujui || item.jumlahDiminta
+    ])));
     setWorkflowTarget({ request: req, action: 'approve' });
   };
 
@@ -103,6 +173,10 @@ export const StockRequestsView: React.FC = () => {
     setErrorMessage(null);
     setActionNotes('');
     setApprovedQty(req.jumlahDisetujui || req.jumlahDiminta);
+    setApprovedItemQuantities(Object.fromEntries(getRequestItems(req).map(item => [
+      item.itemId,
+      item.jumlahDisetujui || item.jumlahDiminta
+    ])));
     setWorkflowTarget({ request: req, action: 'complete' });
   };
 
@@ -111,7 +185,17 @@ export const StockRequestsView: React.FC = () => {
     const { request, action } = workflowTarget;
 
     if (action === 'approve') {
-      const res = updateRequestStatus(request.id, 'Disetujui', actionNotes, approvedQty);
+      const approvedItems = getRequestItems(request).map(item => ({
+        ...item,
+        jumlahDisetujui: approvedItemQuantities[item.itemId] ?? item.jumlahDiminta
+      }));
+      const res = updateRequestStatus(
+        request.id,
+        'Disetujui',
+        actionNotes,
+        approvedItems[0]?.jumlahDisetujui ?? approvedQty,
+        approvedItems
+      );
       if (!res.success) {
         setErrorMessage(res.message);
         return;
@@ -127,7 +211,17 @@ export const StockRequestsView: React.FC = () => {
         return;
       }
     } else if (action === 'complete') {
-      const res = updateRequestStatus(request.id, 'Selesai', actionNotes, approvedQty);
+      const approvedItems = getRequestItems(request).map(item => ({
+        ...item,
+        jumlahDisetujui: approvedItemQuantities[item.itemId] ?? item.jumlahDiminta
+      }));
+      const res = updateRequestStatus(
+        request.id,
+        'Selesai',
+        actionNotes,
+        approvedItems[0]?.jumlahDisetujui ?? approvedQty,
+        approvedItems
+      );
       if (!res.success) {
         setErrorMessage(res.message);
         return;
@@ -235,6 +329,48 @@ export const StockRequestsView: React.FC = () => {
 
       {/* Requests Content: Mobile Card View (md:hidden) & Desktop Table View (hidden md:block) */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+        {hasPermission('manageInventory') && (
+          <div className="p-3 border-b border-slate-800 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <label className="md:hidden flex items-center gap-2 text-xs text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={areAllFilteredRequestsSelected}
+                  onChange={toggleAllRequestSelection}
+                  className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-indigo-500 focus:ring-indigo-500"
+                  aria-label="Pilih semua permohonan yang ditampilkan"
+                />
+                Pilih Semua
+              </label>
+              <span className="text-xs text-slate-400">{selectedRequestIds.size} data dipilih</span>
+            </div>
+            <button
+              onClick={() => {
+                if (selectedRequestIds.size > 0) {
+                  setBulkDeleteNotice(null);
+                  setIsBulkDeleteConfirmOpen(true);
+                }
+              }}
+              disabled={selectedRequestIds.size === 0}
+              className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-rose-400 text-xs font-semibold flex items-center gap-1.5 border border-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Trash2 className="w-4 h-4" />
+              Hapus Terpilih ({selectedRequestIds.size})
+            </button>
+          </div>
+        )}
+        {bulkDeleteNotice && (
+          <div
+            role="status"
+            className={`mx-3 mt-3 p-3 rounded-xl border text-xs ${
+              bulkDeleteNotice.type === 'success'
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+            }`}
+          >
+            {bulkDeleteNotice.message}
+          </div>
+        )}
         {/* MOBILE CARD VIEW */}
         <div className="md:hidden divide-y divide-slate-800/80">
           {filteredRequests.length === 0 ? (
@@ -244,15 +380,27 @@ export const StockRequestsView: React.FC = () => {
             </div>
           ) : (
             filteredRequests.map(req => {
+              const requestItems = getRequestItems(req);
               const item = inventoryItems.find(i => i.id === req.itemId);
               return (
                 <div key={req.id} className="p-4 space-y-3 hover:bg-slate-800/30 transition-colors">
                   <div className="flex items-start justify-between gap-2">
-                    <div>
+                    <div className="flex items-start gap-2">
+                      {hasPermission('manageInventory') && (
+                        <input
+                          type="checkbox"
+                          checked={selectedRequestIds.has(req.id)}
+                          onChange={() => toggleRequestSelection(req.id)}
+                          className="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-950 text-indigo-500 focus:ring-indigo-500"
+                          aria-label={`Pilih permohonan ${req.nomorPermintaan}`}
+                        />
+                      )}
+                      <div>
                       <span className="font-mono font-bold text-xs text-cyan-300">
                         {req.nomorPermintaan}
                       </span>
                       <div className="text-[10px] text-slate-400 mt-0.5">{req.tanggal}</div>
+                      </div>
                     </div>
                     <div className="flex items-center gap-1.5 flex-wrap justify-end">
                       <span
@@ -279,25 +427,32 @@ export const StockRequestsView: React.FC = () => {
                     </div>
                     <div className="border-t border-slate-800/60 pt-1.5 flex items-start justify-between gap-2">
                       <div>
-                        <div className="font-bold text-slate-200">{req.namaBarang}</div>
+                        <div className="font-bold text-slate-200">
+                          {requestItems.slice(0, 2).map(requestItem => requestItem.namaBarang).join(', ')}
+                          {requestItems.length > 2 ? ` + ${requestItems.length - 2} barang lainnya` : ''}
+                        </div>
+                        <div className="text-[10px] text-indigo-300">{requestItems.length} jenis barang</div>
                         <div className="text-[11px] text-slate-400 line-clamp-1">{req.keperluan}</div>
                       </div>
                       <div className="text-right shrink-0">
-                        <div className="font-mono font-bold text-sm text-white">
-                          {req.jumlahDiminta} {req.satuan}
-                        </div>
-                        {req.jumlahDisetujui !== undefined && req.jumlahDisetujui !== req.jumlahDiminta && (
-                          <div className="text-[10px] text-amber-400">
-                            Setuju: {req.jumlahDisetujui}
+                        {requestItems.map(requestItem => (
+                          <div key={requestItem.itemId} className="font-mono font-bold text-sm text-white">
+                            {requestItem.jumlahDiminta} {requestItem.satuan}
+                            {requestItem.jumlahDisetujui !== undefined && requestItem.jumlahDisetujui !== requestItem.jumlahDiminta && (
+                              <span className="block text-[10px] text-amber-400">Setuju: {requestItem.jumlahDisetujui}</span>
+                            )}
+                          </div>
+                        ))}
+                        {requestItems.length > 1 && (
+                          <div className="text-[10px] text-slate-500">{requestItems.length} jenis</div>
+                        )}
+                        {item && requestItems.length === 1 && req.status !== 'Selesai' && (
+                          <div className={`text-[10px] ${item.stokSaatIni < req.jumlahDiminta ? 'text-rose-400' : 'text-slate-400'}`}>
+                            Stok: {item.stokSaatIni} {item.satuan}
                           </div>
                         )}
                       </div>
                     </div>
-                    {item && req.status !== 'Selesai' && (
-                      <div className={`text-[10px] ${item.stokSaatIni < req.jumlahDiminta ? 'text-rose-400' : 'text-slate-400'}`}>
-                        Stok Tersedia di Gudang: {item.stokSaatIni} {item.satuan}
-                      </div>
-                    )}
                     {req.catatan && (
                       <div className="text-[10px] text-amber-300/90 italic">
                         Catatan: {req.catatan}
@@ -405,6 +560,17 @@ export const StockRequestsView: React.FC = () => {
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
+                {hasPermission('manageInventory') && (
+                  <th className="py-3 px-3 text-center">
+                    <input
+                      type="checkbox"
+                      checked={areAllFilteredRequestsSelected}
+                      onChange={toggleAllRequestSelection}
+                      className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-indigo-500 focus:ring-indigo-500"
+                      aria-label="Pilih semua permohonan yang ditampilkan"
+                    />
+                  </th>
+                )}
                 <th className="py-3 px-3">No Permohonan</th>
                 <th className="py-3 px-3">Tanggal</th>
                 <th className="py-3 px-3">Pemohon & Unit</th>
@@ -418,18 +584,32 @@ export const StockRequestsView: React.FC = () => {
             <tbody className="divide-y divide-slate-800/60 text-slate-300">
               {filteredRequests.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400">
+                  <td colSpan={hasPermission('manageInventory') ? 9 : 8} className="py-12 text-center text-slate-400">
                     <ClipboardList className="w-8 h-8 mx-auto text-slate-600 mb-2" />
                     <div>Tidak ada permohonan barang yang sesuai dengan filter.</div>
                   </td>
                 </tr>
               ) : (
                 filteredRequests.map(req => {
-                  const item = inventoryItems.find(i => i.id === req.itemId);
-                  const isStockAvailable = item ? item.stokSaatIni >= req.jumlahDiminta : true;
+                  const requestItems = getRequestItems(req);
+                  const isStockAvailable = requestItems.every(requestItem => {
+                    const stockItem = inventoryItems.find(i => i.id === requestItem.itemId);
+                    return !stockItem || stockItem.stokSaatIni >= (requestItem.jumlahDisetujui || requestItem.jumlahDiminta);
+                  });
 
                   return (
                     <tr key={req.id} className="hover:bg-slate-800/40 transition-colors">
+                      {hasPermission('manageInventory') && (
+                        <td className="py-3 px-3 text-center">
+                          <input
+                            type="checkbox"
+                            checked={selectedRequestIds.has(req.id)}
+                            onChange={() => toggleRequestSelection(req.id)}
+                            className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-indigo-500 focus:ring-indigo-500"
+                            aria-label={`Pilih permohonan ${req.nomorPermintaan}`}
+                          />
+                        </td>
+                      )}
                       <td className="py-3 px-3 font-mono font-bold text-cyan-300">
                         {req.nomorPermintaan}
                       </td>
@@ -441,25 +621,35 @@ export const StockRequestsView: React.FC = () => {
                         <div className="text-[10px] text-slate-400">{req.unitKerja} • {req.ruangan}</div>
                       </td>
                       <td className="py-3 px-4">
-                        <div className="font-medium text-slate-200">{req.namaBarang}</div>
+                        <div className="font-medium text-slate-200">
+                          {requestItems.slice(0, 2).map(requestItem => requestItem.namaBarang).join(', ')}
+                          {requestItems.length > 2 ? ` + ${requestItems.length - 2} barang lainnya` : ''}
+                        </div>
+                        <div className="text-[10px] text-indigo-300">{requestItems.length} jenis barang</div>
                         <div className="text-[10px] text-slate-400 line-clamp-1">{req.keperluan}</div>
                         {req.catatan && (
                           <div className="text-[10px] text-amber-300/80 italic mt-0.5">Catatan: {req.catatan}</div>
                         )}
                       </td>
                       <td className="py-3 px-3 text-right font-mono">
-                        <div className="font-bold text-white">
-                          {req.jumlahDiminta} {req.satuan}
-                        </div>
-                        {req.jumlahDisetujui !== undefined && req.jumlahDisetujui !== req.jumlahDiminta && (
-                          <div className="text-[10px] text-amber-400">
-                            Disetujui: {req.jumlahDisetujui} {req.satuan}
-                          </div>
-                        )}
-                        {item && req.status !== 'Selesai' && (
-                          <div className={`text-[10px] ${item.stokSaatIni < req.jumlahDiminta ? 'text-rose-400' : 'text-slate-400'}`}>
-                            Stok: {item.stokSaatIni}
-                          </div>
+                        {requestItems.map(requestItem => {
+                          const stockItem = inventoryItems.find(i => i.id === requestItem.itemId);
+                          return (
+                            <div key={requestItem.itemId} className="mb-1">
+                              <div className="font-bold text-white">{requestItem.jumlahDiminta} {requestItem.satuan}</div>
+                              {requestItem.jumlahDisetujui !== undefined && requestItem.jumlahDisetujui !== requestItem.jumlahDiminta && (
+                                <div className="text-[10px] text-amber-400">Disetujui: {requestItem.jumlahDisetujui} {requestItem.satuan}</div>
+                              )}
+                              {stockItem && req.status !== 'Selesai' && (
+                                <div className={`text-[10px] ${stockItem.stokSaatIni < requestItem.jumlahDiminta ? 'text-rose-400' : 'text-slate-400'}`}>
+                                  Stok: {stockItem.stokSaatIni}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {!isStockAvailable && req.status === 'Disetujui' && (
+                          <div className="text-[10px] text-rose-400">Stok belum mencukupi</div>
                         )}
                       </td>
                       <td className="py-3 px-3">
@@ -581,6 +771,39 @@ export const StockRequestsView: React.FC = () => {
         </div>
       </div>
 
+      {isBulkDeleteConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="bulk-delete-requests-title"
+            className="w-full max-w-md bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl p-5 space-y-4"
+          >
+            <h3 id="bulk-delete-requests-title" className="text-sm font-bold text-white">
+              Konfirmasi Hapus Permohonan
+            </h3>
+            <p className="text-xs text-slate-300">
+              Apakah Anda yakin ingin menghapus {selectedRequestIds.size} data yang dipilih?
+            </p>
+            <p className="text-xs text-slate-400">Data yang sudah dihapus tidak dapat dikembalikan.</p>
+            <div className="flex items-center justify-end gap-2">
+              <button
+                onClick={() => setIsBulkDeleteConfirmOpen(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleBulkDeleteRequests}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded-xl"
+              >
+                Hapus
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Stock Request Creation Modal */}
       {isNewRequestOpen && (
         <StockRequestModal
@@ -613,12 +836,16 @@ export const StockRequestsView: React.FC = () => {
               <div className="text-slate-400">
                 No: <span className="font-mono text-cyan-400 font-bold">{workflowTarget.request.nomorPermintaan}</span>
               </div>
-              <div className="text-white font-semibold">{workflowTarget.request.namaBarang}</div>
+              <div className="text-white font-semibold">
+                {getRequestItems(workflowTarget.request).map(item => item.namaBarang).join(', ')}
+              </div>
               <div className="text-slate-300">
                 Pemohon: <span className="text-white">{workflowTarget.request.pemohonNama}</span> ({workflowTarget.request.unitKerja})
               </div>
               <div className="text-slate-400">
-                Jumlah Diminta: <span className="font-bold text-white">{workflowTarget.request.jumlahDiminta} {workflowTarget.request.satuan}</span>
+                {getRequestItems(workflowTarget.request).length} jenis barang: <span className="font-bold text-white">
+                  {getRequestItems(workflowTarget.request).map(item => `${item.jumlahDiminta} ${item.satuan} ${item.namaBarang}`).join('; ')}
+                </span>
               </div>
             </div>
 
@@ -629,21 +856,24 @@ export const StockRequestsView: React.FC = () => {
               </div>
             )}
 
-            {workflowTarget.action !== 'reject' && (
-              <div>
+            {workflowTarget.action !== 'reject' && getRequestItems(workflowTarget.request).map((requestItem, index) => (
+              <div key={requestItem.itemId}>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Jumlah Disetujui ({workflowTarget.request.satuan})
+                  {getRequestItems(workflowTarget.request).length > 1 ? `${index + 1}. ` : ''}{requestItem.namaBarang} — jumlah disetujui ({requestItem.satuan})
                 </label>
                 <input
                   type="number"
                   min="1"
-                  max={workflowTarget.request.jumlahDiminta}
-                  value={approvedQty}
-                  onChange={e => setApprovedQty(parseInt(e.target.value, 10) || 1)}
+                  max={requestItem.jumlahDiminta}
+                  value={approvedItemQuantities[requestItem.itemId] ?? requestItem.jumlahDiminta}
+                  onChange={e => setApprovedItemQuantities(current => ({
+                    ...current,
+                    [requestItem.itemId]: Number(e.target.value)
+                  }))}
                   className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white font-mono font-bold focus:outline-none focus:border-indigo-500"
                 />
               </div>
-            )}
+            ))}
 
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">
@@ -743,19 +973,35 @@ export const StockRequestsView: React.FC = () => {
                     <td className="p-2 text-white">{selectedDetail.unitKerja} • {selectedDetail.ruangan}</td>
                   </tr>
                   <tr className="border-b border-slate-800">
-                    <td className="p-2 font-semibold text-slate-400 bg-slate-900">Barang yang Diminta</td>
-                    <td className="p-2 text-white font-semibold">{selectedDetail.namaBarang}</td>
-                  </tr>
-                  <tr className="border-b border-slate-800">
-                    <td className="p-2 font-semibold text-slate-400 bg-slate-900">Jumlah Diminta</td>
-                    <td className="p-2 text-white font-mono font-bold">
-                      {selectedDetail.jumlahDiminta} {selectedDetail.satuan}
-                    </td>
-                  </tr>
-                  <tr className="border-b border-slate-800">
-                    <td className="p-2 font-semibold text-slate-400 bg-slate-900">Jumlah Disetujui</td>
-                    <td className="p-2 text-emerald-400 font-mono font-bold">
-                      {selectedDetail.jumlahDisetujui || selectedDetail.jumlahDiminta} {selectedDetail.satuan}
+                    <td className="p-2 font-semibold text-slate-400 bg-slate-900">Rincian Barang</td>
+                    <td className="p-2">
+                      <table className="w-full text-left">
+                        <thead className="text-[10px] text-slate-400">
+                          <tr>
+                            <th className="py-1 pr-2">Barang / Kode</th>
+                            <th className="py-1 px-2">Diminta</th>
+                            <th className="py-1 px-2">Disetujui</th>
+                            <th className="py-1 px-2">Spesifikasi / Catatan</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {getRequestItems(selectedDetail).map((requestItem, index) => (
+                            <tr key={`${requestItem.itemId}-${index}`} className="border-t border-slate-800">
+                              <td className="py-1.5 pr-2 font-semibold text-white">
+                                {requestItem.namaBarang}
+                                <span className="block text-[10px] font-normal text-slate-400">
+                                  {requestItem.kodeBarang || inventoryItems.find(item => item.id === requestItem.itemId)?.kodeBarang || '—'}
+                                </span>
+                              </td>
+                              <td className="py-1.5 px-2 whitespace-nowrap font-mono text-white">{requestItem.jumlahDiminta} {requestItem.satuan}</td>
+                              <td className="py-1.5 px-2 whitespace-nowrap font-mono text-emerald-400">
+                                {requestItem.jumlahDisetujui ?? selectedDetail.jumlahDisetujui ?? requestItem.jumlahDiminta} {requestItem.satuan}
+                              </td>
+                              <td className="py-1.5 px-2 text-slate-300">{[requestItem.spesifikasi, requestItem.catatan].filter(Boolean).join(' • ') || '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </td>
                   </tr>
                   <tr className="border-b border-slate-800">

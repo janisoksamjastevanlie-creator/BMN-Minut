@@ -1,5 +1,16 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useApp } from '../context/AppContext';
+import { DashboardFilterPanel } from '../components/dashboard/DashboardFilterPanel';
+import {
+  filterDashboardAssets,
+  filterDashboardInventory,
+  hasDashboardAssetCriteria,
+  hasDashboardInventoryCriteria,
+  matchesDashboardAssetAttributes,
+  matchesDashboardInventoryItem,
+  matchesDashboardSearch,
+  matchesDashboardPeriod,
+} from '../utils/dashboardFilters';
 import {
   Crown,
   Box,
@@ -19,14 +30,64 @@ import {
 
 export const ExecutiveDashboardView: React.FC = () => {
   const {
-    assets,
-    inventoryItems,
+    assets: allAssets,
+    inventoryItems: allInventoryItems,
     requests,
     maintenances,
     disposals,
     rooms,
+    dashboardFilters,
+    setDashboardFilters,
     setActiveView
   } = useApp();
+
+  const assets = useMemo(() => filterDashboardAssets(allAssets, dashboardFilters), [allAssets, dashboardFilters]);
+  const inventoryItems = useMemo(() => filterDashboardInventory(allInventoryItems, dashboardFilters), [allInventoryItems, dashboardFilters]);
+  const matchesRequestFilters = (request: typeof requests[number]) => {
+    if (!matchesDashboardPeriod(request.tanggal, dashboardFilters)) return false;
+    const requestItems = request.items?.length ? request.items : [{
+      itemId: request.itemId,
+      namaBarang: request.namaBarang,
+      jumlahDiminta: request.jumlahDiminta,
+      satuan: request.satuan
+    }];
+    if (hasDashboardInventoryCriteria(dashboardFilters)) {
+      const matchingItem = requestItems.some(requestItem => {
+        const linkedItem = allInventoryItems.find(item => item.id === requestItem.itemId);
+        return Boolean(linkedItem && matchesDashboardInventoryItem(linkedItem, dashboardFilters, false));
+      });
+      if (!matchingItem) return false;
+    }
+    return matchesDashboardSearch(dashboardFilters.keyword, [
+      request.nomorPermintaan, request.pemohonNama, request.unitKerja, request.ruangan,
+      request.keperluan, request.status,
+      ...requestItems.flatMap(item => [item.namaBarang, item.kodeBarang, item.spesifikasi, item.catatan])
+    ]);
+  };
+  const filteredRequests = useMemo(() => requests.filter(request =>
+    matchesRequestFilters(request)
+  ), [requests, allInventoryItems, dashboardFilters]);
+  const filteredMaintenances = useMemo(() => maintenances.filter(maintenance =>
+    matchesDashboardPeriod(maintenance.tanggalMulai, dashboardFilters)
+    && (!hasDashboardAssetCriteria(dashboardFilters) || Boolean(
+      allAssets.find(asset => asset.id === maintenance.assetId && matchesDashboardAssetAttributes(asset, dashboardFilters))
+    ))
+    && matchesDashboardSearch(dashboardFilters.keyword, [
+      maintenance.nomorTiket, maintenance.assetName, maintenance.kodeBarang,
+      maintenance.jenisPemeliharaan, maintenance.teknisi, maintenance.vendor,
+      maintenance.status, maintenance.ruanganNama, maintenance.keterangan
+    ])
+  ), [maintenances, allAssets, dashboardFilters]);
+  const filteredDisposals = useMemo(() => disposals.filter(disposal =>
+    matchesDashboardPeriod(disposal.tanggalPengajuan, dashboardFilters)
+    && (!hasDashboardAssetCriteria(dashboardFilters) || Boolean(
+      allAssets.find(asset => asset.id === disposal.assetId && matchesDashboardAssetAttributes(asset, dashboardFilters))
+    ))
+    && matchesDashboardSearch(dashboardFilters.keyword, [
+      disposal.nomorPengajuan, disposal.assetName, disposal.kodeBarang,
+      disposal.alasan, disposal.status, disposal.penyetuju
+    ])
+  ), [disposals, allAssets, dashboardFilters]);
 
   // High level KPIs
   const totalBmnCount = assets.length;
@@ -38,18 +99,19 @@ export const ExecutiveDashboardView: React.FC = () => {
   const totalInventoryValue = inventoryItems.reduce((sum, i) => sum + i.totalNilai, 0);
   const lowStockCount = inventoryItems.filter(i => i.status === 'Menipis' || i.status === 'Habis').length;
 
-  const pendingRequestsCount = requests.filter(r => r.status === 'Diajukan' || r.status === 'Diverifikasi').length;
-  const ongoingMaintenanceCount = maintenances.filter(m => m.status === 'Terjadwal' || m.status === 'Dalam Proses').length;
-  const pendingDisposalsCount = disposals.filter(d => d.status === 'Pengajuan' || d.status === 'Verifikasi' || d.status === 'Persetujuan').length;
+  const pendingRequestsCount = filteredRequests.filter(r => r.status === 'Diajukan' || r.status === 'Diverifikasi').length;
+  const ongoingMaintenanceCount = filteredMaintenances.filter(m => m.status === 'Terjadwal' || m.status === 'Dalam Proses').length;
+  const pendingDisposalsCount = filteredDisposals.filter(d => d.status === 'Pengajuan' || d.status === 'Verifikasi' || d.status === 'Persetujuan').length;
 
   // Category breakdown for chart
-  const categories = [
-    { name: 'Peralatan TI', count: assets.filter(a => a.kategori === 'Peralatan TI').length, color: 'bg-blue-500' },
-    { name: 'Peralatan Kantor', count: assets.filter(a => a.kategori === 'Peralatan Kantor').length, color: 'bg-cyan-500' },
-    { name: 'Mebel / Furnitur', count: assets.filter(a => a.kategori === 'Mebel / Furnitur').length, color: 'bg-purple-500' },
-    { name: 'Kendaraan Bermotor', count: assets.filter(a => a.kategori === 'Kendaraan Bermotor').length, color: 'bg-amber-500' },
-    { name: 'Peralatan Khusus', count: assets.filter(a => a.kategori === 'Peralatan Khusus').length, color: 'bg-emerald-500' }
-  ];
+  const categoryColors = ['bg-blue-500', 'bg-cyan-500', 'bg-purple-500', 'bg-amber-500', 'bg-emerald-500'];
+  const categories = [...new Set(assets.map(asset => asset.kategori).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'id'))
+    .map((name, index) => ({
+      name,
+      count: assets.filter(asset => asset.kategori === name).length,
+      color: categoryColors[index % categoryColors.length]
+    }));
 
   return (
     <div className="space-y-6">
@@ -73,6 +135,16 @@ export const ExecutiveDashboardView: React.FC = () => {
           </span>
         </div>
       </div>
+
+      <DashboardFilterPanel
+        filters={dashboardFilters}
+        onChange={setDashboardFilters}
+        assets={allAssets}
+        inventoryItems={allInventoryItems}
+        rooms={rooms}
+        assetResultCount={assets.length}
+        inventoryResultCount={inventoryItems.length}
+      />
 
       {/* 9 Executive Cards (Section 30 prompt requirement) */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
@@ -159,7 +231,7 @@ export const ExecutiveDashboardView: React.FC = () => {
 
           <div className="space-y-3 pt-2">
             {categories.map(cat => {
-              const pct = ((cat.count / totalBmnCount) * 100).toFixed(1);
+              const pct = (totalBmnCount ? (cat.count / totalBmnCount) * 100 : 0).toFixed(1);
               return (
                 <div key={cat.name} className="space-y-1">
                   <div className="flex items-center justify-between text-xs">

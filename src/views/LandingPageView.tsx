@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 
 export const LandingPageView: React.FC = () => {
-  const { setActiveView, loginAs } = useApp();
+  const { setActiveView } = useApp();
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 selection:bg-blue-600 selection:text-white">
@@ -27,12 +27,7 @@ export const LandingPageView: React.FC = () => {
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-700 to-indigo-800 p-0.5 shadow-md shadow-blue-900/30">
               <div className="w-full h-full rounded-[10px] bg-slate-950 flex items-center justify-center">
-                <div className="flex items-end gap-0.5">
-                  <div className="w-1.5 h-3 bg-blue-500 rounded-sm"></div>
-                  <div className="w-1.5 h-4.5 bg-emerald-400 rounded-sm"></div>
-                  <div className="w-1.5 h-6 bg-cyan-400 rounded-sm"></div>
-                  <div className="w-1.5 h-3.5 bg-amber-400 rounded-sm"></div>
-                </div>
+                <img src="/bps-minut-logo.png" alt="Logo BPS Minahasa Utara" className="w-full h-full object-contain" />
               </div>
             </div>
 

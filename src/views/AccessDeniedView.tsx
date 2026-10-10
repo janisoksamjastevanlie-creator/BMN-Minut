@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 
 export const AccessDeniedView: React.FC = () => {
-  const { activeView, setActiveView, currentUser, roles, loginAs, hasPermission } = useApp();
+  const { activeView, setActiveView, currentUser, roles, hasPermission } = useApp();
 
   const viewConfig = VIEW_ACCESS_CONFIGS[activeView] || {
     label: activeView,
@@ -126,30 +126,6 @@ export const AccessDeniedView: React.FC = () => {
               </div>
             </div>
           )}
-        </div>
-
-        {/* Quick Demo Switch Role (Helper for review / testing) */}
-        <div className="p-3 rounded-2xl bg-slate-950/40 border border-slate-800/80 space-y-2">
-          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
-            <span>Uji Peran Lain (Demo Switch):</span>
-            <span className="text-slate-500 font-normal">Pilih role untuk beralih</span>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-            {roles.slice(0, 4).map(r => (
-              <button
-                key={r.id}
-                onClick={() => loginAs(r.name)}
-                className={`px-2 py-1.5 rounded-xl border text-left text-xs font-semibold transition-colors truncate ${
-                  currentUser?.role === r.name
-                    ? 'bg-blue-600 border-blue-500 text-white'
-                    : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
-                }`}
-              >
-                <div className="truncate">{r.name}</div>
-                <div className="text-[9px] opacity-70 font-mono">[{r.code}]</div>
-              </button>
-            ))}
-          </div>
         </div>
 
         {/* Navigation Buttons */}

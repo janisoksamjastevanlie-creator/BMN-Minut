@@ -19,7 +19,6 @@ import {
 export const Navbar: React.FC = () => {
   const {
     currentUser,
-    loginAs,
     logout,
     notifications,
     markNotificationRead,
@@ -30,7 +29,6 @@ export const Navbar: React.FC = () => {
     performance3D,
     setPerformance3D,
     setActiveView,
-    roles,
     hasPermission,
     isMobileMenuOpen,
     setIsMobileMenuOpen
@@ -43,8 +41,8 @@ export const Navbar: React.FC = () => {
   const unreadCount = notifications.filter(n => !n.read).length;
 
   return (
-    <header className="sticky top-0 z-40 w-full bg-slate-900/90 backdrop-blur-md border-b border-slate-800 transition-all">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+    <header className="sticky top-0 z-40 w-full bg-slate-900/90 backdrop-blur-md border-b border-slate-800 transition-all shadow-[0_1px_0_rgba(15,23,42,0.8)]">
+      <div className="w-full h-16 flex items-center justify-between gap-4 px-4 sm:px-6 lg:px-8 md:pl-64 md:pr-6">
         {/* Left: Branding & Mobile Menu Toggle */}
         <div className="flex items-center gap-2 sm:gap-3">
           {/* Mobile Menu Hamburger Toggle */}
@@ -63,13 +61,7 @@ export const Navbar: React.FC = () => {
           >
             <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-blue-700 via-blue-600 to-indigo-800 p-0.5 shadow-md shadow-blue-900/30 group-hover:scale-105 transition-transform shrink-0">
               <div className="w-full h-full rounded-[10px] bg-slate-950 flex items-center justify-center relative overflow-hidden">
-                {/* Clean geometric BPS statistical badge */}
-                <div className="flex items-end gap-0.5">
-                  <div className="w-1.5 h-3 bg-blue-500 rounded-sm"></div>
-                  <div className="w-1.5 h-4.5 bg-emerald-400 rounded-sm"></div>
-                  <div className="w-1.5 h-6 bg-cyan-400 rounded-sm"></div>
-                  <div className="w-1.5 h-3.5 bg-amber-400 rounded-sm"></div>
-                </div>
+                <img src="/bps-minut-logo.png" alt="Logo BPS Minahasa Utara" className="w-full h-full object-contain" />
               </div>
             </div>
 
@@ -254,28 +246,6 @@ export const Navbar: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="px-2 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                  Beralih Role (Demo Multi-Role RBAC):
-                </div>
-                <div className="grid grid-cols-2 gap-1 mb-2 max-h-36 overflow-y-auto pr-0.5">
-                  {roles.map(r => (
-                    <button
-                      key={r.id}
-                      onClick={() => {
-                        loginAs(r.name);
-                        setIsProfileOpen(false);
-                      }}
-                      className={`px-2 py-1.5 rounded-lg text-left text-[11px] transition-colors truncate ${
-                        currentUser?.role === r.name
-                          ? 'bg-blue-600 text-white font-bold'
-                          : 'bg-slate-800/50 text-slate-300 hover:bg-slate-800'
-                      }`}
-                    >
-                      <span className="truncate">{r.name}</span>
-                    </button>
-                  ))}
-                </div>
-
                 <div className="border-t border-slate-800 pt-1 space-y-1">
                   {(hasPermission('manageUsers') || hasPermission('manageRoles')) && (
                     <button
@@ -292,7 +262,9 @@ export const Navbar: React.FC = () => {
                   <button
                     onClick={() => {
                       setIsProfileOpen(false);
-                      logout();
+                      void logout().catch(error => {
+                        window.alert(error instanceof Error ? error.message : 'Gagal keluar dari sistem.');
+                      });
                     }}
                     className="w-full px-3 py-2 text-rose-400 hover:bg-rose-500/10 rounded-xl flex items-center gap-2 font-medium transition-colors"
                   >

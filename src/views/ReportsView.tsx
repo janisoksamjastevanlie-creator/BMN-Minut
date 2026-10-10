@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { triggerPrint } from '../utils/printHelper';
+import { filterDashboardAssets, filterDashboardInventory } from '../utils/dashboardFilters';
 import {
   FileText,
   Printer,
@@ -16,7 +17,18 @@ import {
 } from 'lucide-react';
 
 export const ReportsView: React.FC = () => {
-  const { assets, inventoryItems, stockInList, stockOutList, movements, maintenances, rooms } = useApp();
+  const {
+    assets: allAssets,
+    inventoryItems: allInventoryItems,
+    stockInList,
+    stockOutList,
+    movements,
+    maintenances,
+    rooms,
+    dashboardFilters
+  } = useApp();
+  const assets = useMemo(() => filterDashboardAssets(allAssets, dashboardFilters), [allAssets, dashboardFilters]);
+  const inventoryItems = useMemo(() => filterDashboardInventory(allInventoryItems, dashboardFilters), [allInventoryItems, dashboardFilters]);
 
   const [activeReport, setActiveReport] = useState<
     | 'DAFTAR_BMN'
@@ -102,6 +114,10 @@ export const ReportsView: React.FC = () => {
           </button>
         </div>
       </div>
+
+      <p className="no-print rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-2.5 text-xs text-slate-300">
+        Laporan dan ekspor mengikuti filter dashboard yang relevan: {assets.length.toLocaleString('id-ID')} aset dan {inventoryItems.length.toLocaleString('id-ID')} jenis persediaan. Periode memfilter tanggal perolehan/aktivitas; saldo persediaan tetap menunjukkan posisi saat ini.
+      </p>
 
       {/* Report Type Selector Tabs (No print) */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 bg-slate-900 p-2 rounded-2xl border border-slate-800 no-print">
