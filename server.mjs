@@ -12,6 +12,7 @@ import { createWhatsAppService } from './whatsapp/service.mjs';
 const root = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(root, '.env') });
 const port = Number(process.env.PORT || 3000);
+const host = process.env.HOST?.trim() || (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1');
 const dataDirectory = path.resolve(root, process.env.DATA_DIRECTORY || 'data');
 const databasePath = path.join(dataDirectory, 'siman.sqlite');
 const adminNip = process.env.ADMIN_NIP?.trim();
@@ -679,6 +680,12 @@ app.use(express.json({ limit: '25mb' }));
 app.use(sameOrigin);
 app.use(whatsapp.api);
 
+app.get('/api/health', (_request, response) => {
+  const result = db.prepare('SELECT 1 AS ready').get();
+  if (result?.ready !== 1) return response.status(503).json({ status: 'unavailable' });
+  response.json({ status: 'ok' });
+});
+
 app.post('/api/auth/login', (request, response) => {
   const nip = String(request.body?.nip || '').trim();
   const password = String(request.body?.password || '');
@@ -1133,7 +1140,7 @@ app.use((error, _request, response, _next) => {
   response.status(500).json({ error: 'Terjadi kesalahan pada server.' });
 });
 
-app.listen(port, '127.0.0.1', () => {
-  console.log(`SIMAN server listening on http://127.0.0.1:${port}`);
+app.listen(port, host, () => {
+  console.log(`SIMAN server listening on http://${host}:${port}`);
   console.log(`SQLite database: ${databasePath}`);
 });
