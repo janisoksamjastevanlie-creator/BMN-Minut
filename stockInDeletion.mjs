@@ -35,12 +35,22 @@ export function planStockInDeletion(ids, stockInList, inventoryItems, canManageI
       continue;
     }
 
-    const isPosted = transaction.status === undefined || transaction.status === 'Diverifikasi';
+    const isHistorical = transaction.status == null || transaction.status === '';
+    const isPosted = isHistorical || transaction.status === 'Diverifikasi';
     if (isPosted) {
       const item = inventoryById.get(transaction.itemId);
       const availableStock = stockByItem.get(transaction.itemId);
-      if (!item || availableStock === undefined) {
-        errors.push({ id, message: 'Barang persediaan terkait tidak ditemukan; transaksi historis tidak dapat dihapus dengan aman.' });
+      if (!item) {
+        if (isHistorical) {
+          deletedIds.push(id);
+          deletedTransactions.push(transaction);
+          continue;
+        }
+        errors.push({ id, message: 'Barang persediaan terkait tidak ditemukan; transaksi terverifikasi tidak dapat dihapus dengan aman.' });
+        continue;
+      }
+      if (availableStock === undefined) {
+        errors.push({ id, message: `Saldo stok ${item.nama} tidak valid sehingga transaksi tidak dapat dihapus dengan aman.` });
         continue;
       }
       if (!Number.isFinite(transaction.jumlah) || transaction.jumlah <= 0) {

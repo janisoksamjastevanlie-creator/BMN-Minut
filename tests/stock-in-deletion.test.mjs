@@ -63,3 +63,18 @@ test('refuses a posted transaction when its stock cannot be corrected', () => {
   assert.equal(result.stockByItem.get('item-1'), 10);
   assert.match(result.errors[0].message, /tidak mencukupi/i);
 });
+
+test('allows deleting an orphaned historical transaction without changing stock', () => {
+  const historical = { ...transaction('sin-old', 5), status: undefined, itemId: 'deleted-item' };
+  const result = planStockInDeletion(['sin-old'], [historical], inventory, true);
+  assert.deepEqual(result.deletedIds, ['sin-old']);
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.stockByItem.get('item-1'), 10);
+});
+
+test('still refuses a verified transaction whose inventory item is missing', () => {
+  const verified = { ...transaction('sin-verified', 5), itemId: 'deleted-item' };
+  const result = planStockInDeletion(['sin-verified'], [verified], inventory, true);
+  assert.deepEqual(result.deletedIds, []);
+  assert.match(result.errors[0].message, /barang persediaan terkait tidak ditemukan/i);
+});

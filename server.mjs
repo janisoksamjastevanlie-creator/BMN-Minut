@@ -779,7 +779,7 @@ function validateStockInWorkflow(previousState, nextState) {
         return 'Barang persediaan untuk transaksi Barang Masuk tidak ditemukan.';
       }
       touchedItems.add(incoming.itemId);
-    } else if (old && isPosted(old)) {
+    } else if (old && isPosted(old) && nextState.inventoryItems.some(item => item.id === old.itemId)) {
       touchedItems.add(old.itemId);
     }
   }
@@ -798,7 +798,9 @@ function validateStockInWorkflow(previousState, nextState) {
   for (const [id, old] of previousById) {
     if (nextById.has(id) || !isPosted(old)) continue;
     const item = nextState.inventoryItems.find(entry => entry.id === old.itemId);
-    if (!item) return 'Transaksi Barang Masuk terverifikasi tidak dapat dihapus karena master barang terkait tidak ditemukan.';
+    if (!item && old.status) {
+      return 'Transaksi Barang Masuk terverifikasi tidak dapat dihapus karena master barang terkait tidak ditemukan.';
+    }
   }
 
   if (stockEffects.size > 0 && JSON.stringify(previousState.opnames || []) === JSON.stringify(nextState.opnames || [])) {

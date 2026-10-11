@@ -1270,7 +1270,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (result.deletedIds.length > 0) {
       const affectedItems = new Set(
         result.deletedTransactions
-          .filter(tx => tx.status === undefined || tx.status === 'Diverifikasi')
+          .filter(tx =>
+            (tx.status == null || tx.status === '' || tx.status === 'Diverifikasi')
+            && result.stockByItem.has(tx.itemId)
+          )
           .map(tx => tx.itemId)
       );
       setInventoryItems(previous => previous.map(item => {
@@ -1283,11 +1286,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }));
       setStockInList(previous => previous.filter(tx => !result.deletedIds.includes(tx.id)));
       for (const transaction of result.deletedTransactions) {
-        const isPosted = transaction.status === undefined || transaction.status === 'Diverifikasi';
+        const isPosted = (transaction.status == null || transaction.status === 'Diverifikasi')
+          && result.stockByItem.has(transaction.itemId);
         logAudit(
           'Penghapusan Barang Masuk',
           'PERSEDIAAN',
-          `Transaksi ${transaction.nomorTransaksi} dihapus${isPosted ? ' dan jumlah stoknya dikoreksi' : ''}.`
+          `Transaksi ${transaction.nomorTransaksi} dihapus${
+            isPosted
+              ? ' dan jumlah stoknya dikoreksi'
+              : transaction.status == null || transaction.status === ''
+                ? ' tanpa koreksi stok karena barang master terkait sudah tidak tersedia'
+                : ''
+          }.`
         );
       }
     }

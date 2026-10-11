@@ -256,3 +256,33 @@ test('deleting a verified stock-in removes its rows and reverses its stock ledge
   assert.equal(executor.statements.some(({ sql, params }) =>
     sql.includes('UPDATE stock_card_ledger SET saldo') && params[0] === 5), true);
 });
+
+test('deleting orphaned historical stock-in does not create a stock correction', async () => {
+  const previous = state({
+    stockInList: [{
+      id: 'sin-orphan',
+      nomorTransaksi: 'BM-2026-ORPHAN',
+      tanggal: '2026-10-11',
+      nomorDokumen: 'BA-ORPHAN',
+      sumber: 'Historis',
+      itemId: 'deleted-item',
+      jumlah: 2,
+      hargaSatuan: 10,
+      totalHarga: 20,
+      lokasiRak: '',
+      petugas: 'Operator',
+      keterangan: ''
+    }]
+  });
+  const next = state();
+  const executor = createExecutor();
+
+  await writeOperationalState(executor, previous, next, { name: 'Operator' }, 3);
+
+  assert.ok(executor.statements.some(({ sql, params }) =>
+    sql.includes('DELETE FROM `stock_in_items`') && params[0] === 'sin-orphan'));
+  assert.ok(executor.statements.some(({ sql, params }) =>
+    sql.includes('DELETE FROM `stock_in`') && params[0] === 'sin-orphan'));
+  assert.equal(executor.statements.some(({ sql }) =>
+    sql.includes('INSERT INTO `stock_card_ledger`')), false);
+});

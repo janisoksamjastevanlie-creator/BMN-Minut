@@ -228,7 +228,11 @@ function collectLedgerEvents(previous, next, actor, revision) {
     const newQty = after && postedStockIn(after) ? assertNumber(after.jumlah, 'Stock-in quantity', true, 0) : 0;
     const itemId = after?.itemId || before?.itemId;
     if (oldQty !== newQty || before?.itemId !== after?.itemId) {
-      if (before && oldQty) add(before.itemId, 'stock-in', id, before.tanggal, -oldQty, `Pembalikan penerimaan ${before.nomorTransaksi}.`, 'KELUAR');
+      const isOrphanedHistorical = before && (before.status == null || before.status === '') &&
+        !next.inventoryItems.some(item => item.id === before.itemId);
+      if (before && oldQty && !isOrphanedHistorical) {
+        add(before.itemId, 'stock-in', id, before.tanggal, -oldQty, `Pembalikan penerimaan ${before.nomorTransaksi}.`, 'KELUAR');
+      }
       if (after && newQty) add(after.itemId, 'stock-in', id, after.tanggal, newQty, `Penerimaan ${after.nomorTransaksi}.`, 'MASUK');
     }
   }
