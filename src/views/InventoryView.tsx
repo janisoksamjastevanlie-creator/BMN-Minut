@@ -744,7 +744,7 @@ export const InventoryView: React.FC = () => {
                 setActiveTab('ALL');
                 setCurrentPage(1);
               }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap flex-shrink-0 ${
                 activeTab === 'ALL' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white hover:bg-slate-800'
               }`}
             >
@@ -755,7 +755,7 @@ export const InventoryView: React.FC = () => {
                 setActiveTab('ATK');
                 setCurrentPage(1);
               }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap flex-shrink-0 ${
                 activeTab === 'ATK' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white hover:bg-slate-800'
               }`}
             >
@@ -766,7 +766,7 @@ export const InventoryView: React.FC = () => {
                 setActiveTab('ARK');
                 setCurrentPage(1);
               }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap flex-shrink-0 ${
                 activeTab === 'ARK' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white hover:bg-slate-800'
               }`}
             >
@@ -777,7 +777,7 @@ export const InventoryView: React.FC = () => {
                 setActiveTab('LOW');
                 setCurrentPage(1);
               }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 ${
                 activeTab === 'LOW' ? 'bg-amber-600 text-white shadow' : 'text-amber-400 hover:bg-amber-500/10'
               }`}
             >
@@ -789,7 +789,7 @@ export const InventoryView: React.FC = () => {
                 setActiveTab('EMPTY');
                 setCurrentPage(1);
               }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 ${
                 activeTab === 'EMPTY' ? 'bg-rose-600 text-white shadow' : 'text-rose-400 hover:bg-rose-500/10'
               }`}
             >
