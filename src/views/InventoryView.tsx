@@ -30,7 +30,8 @@ import {
   ClipboardCheck,
   FileText,
   Check,
-  X
+  X,
+  ArrowUpDown
 } from 'lucide-react';
 
 export const InventoryView: React.FC = () => {
@@ -46,6 +47,11 @@ export const InventoryView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'ALL' | 'ATK' | 'ARK' | 'LOW' | 'EMPTY'>('ALL');
   const [activeInventorySection, setActiveInventorySection] = useState<'STOCK' | 'STOCK_IN'>('STOCK');
   const [searchQuery, setSearchQuery] = useState('');
+  const [filterKategori, setFilterKategori] = useState('all');
+  const [filterLokasi, setFilterLokasi] = useState('all');
+  const [filterSatuan, setFilterSatuan] = useState('all');
+  const [sortBy, setSortBy] = useState<'nama' | 'kode' | 'stok' | 'lokasi'>('nama');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const masterListRef = useRef<HTMLDivElement>(null);
@@ -72,34 +78,62 @@ export const InventoryView: React.FC = () => {
   const [inspectionItemOk, setInspectionItemOk] = useState(true);
   const [inspectionNotes, setInspectionNotes] = useState('');
 
+  const inventoryCategories = useMemo(
+    () => Array.from(new Set(inventoryItems.map(item => item.kategori).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'id-ID')),
+    [inventoryItems]
+  );
+  const inventoryLocations = useMemo(
+    () => Array.from(new Set(inventoryItems.map(item => item.lokasiGudang).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'id-ID')),
+    [inventoryItems]
+  );
+  const inventoryUnits = useMemo(
+    () => Array.from(new Set(inventoryItems.map(item => item.satuan).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'id-ID')),
+    [inventoryItems]
+  );
+
   // Filtered Items
   const filteredItems = useMemo(() => {
     return inventoryItems.filter(item => {
       // Tab filter
       if (activeTab === 'ATK' && item.jenis !== 'ATK') return false;
       if (activeTab === 'ARK' && item.jenis !== 'ARK') return false;
-      if (activeTab === 'LOW' && item.status !== 'Menipis' && item.status !== 'Habis') return false;
-      if (activeTab === 'EMPTY' && item.status !== 'Habis') return false;
+      if (activeTab === 'LOW' && !(item.stokSaatIni > 0 && item.stokSaatIni <= item.stokMinimum)) return false;
+      if (activeTab === 'EMPTY' && item.stokSaatIni !== 0) return false;
+      if (filterKategori !== 'all' && item.kategori !== filterKategori) return false;
+      if (filterLokasi !== 'all' && item.lokasiGudang !== filterLokasi) return false;
+      if (filterSatuan !== 'all' && item.satuan !== filterSatuan) return false;
 
       // Search query
-      if (!searchQuery.trim()) return true;
-      const q = searchQuery.toLowerCase();
-      return (
+      const q = searchQuery.trim().toLocaleLowerCase('id-ID');
+      return !q || (
         item.nama.toLowerCase().includes(q) ||
         item.kodeBarang.toLowerCase().includes(q) ||
+        item.kategori.toLocaleLowerCase('id-ID').includes(q) ||
+        item.jenis.toLocaleLowerCase('id-ID').includes(q) ||
+        item.satuan.toLocaleLowerCase('id-ID').includes(q) ||
+        item.lokasiGudang.toLocaleLowerCase('id-ID').includes(q) ||
         item.binCode.toLowerCase().includes(q) ||
         item.rak.toLowerCase().includes(q) ||
         item.subkategori.toLowerCase().includes(q)
       );
     });
-  }, [inventoryItems, activeTab, searchQuery]);
+  }, [inventoryItems, activeTab, filterKategori, filterLokasi, filterSatuan, searchQuery]);
 
-  const itemsPerPage = resolvePageSize(pageSize, filteredItems.length);
+  const sortedItems = useMemo(() => [...filteredItems].sort((a, b) => {
+    let comparison = 0;
+    if (sortBy === 'nama') comparison = a.nama.localeCompare(b.nama, 'id-ID');
+    else if (sortBy === 'kode') comparison = a.kodeBarang.localeCompare(b.kodeBarang, 'id-ID');
+    else if (sortBy === 'stok') comparison = a.stokSaatIni - b.stokSaatIni;
+    else comparison = a.lokasiGudang.localeCompare(b.lokasiGudang, 'id-ID');
+    return sortOrder === 'asc' ? comparison : -comparison;
+  }), [filteredItems, sortBy, sortOrder]);
+
+  const itemsPerPage = resolvePageSize(pageSize, sortedItems.length);
   const totalPages = Math.ceil(filteredItems.length / itemsPerPage) || 1;
   const paginatedItems = useMemo(() => {
     const start = (currentPage - 1) * itemsPerPage;
-    return filteredItems.slice(start, start + itemsPerPage);
-  }, [filteredItems, currentPage, itemsPerPage]);
+    return sortedItems.slice(start, start + itemsPerPage);
+  }, [sortedItems, currentPage, itemsPerPage]);
 
   useEffect(() => {
     if (currentPage > totalPages) setCurrentPage(totalPages);
@@ -173,7 +207,19 @@ export const InventoryView: React.FC = () => {
     );
   };
 
-  const lowStockItems = inventoryItems.filter(i => i.status === 'Menipis' || i.status === 'Habis');
+  const lowStockItems = inventoryItems.filter(i => i.stokSaatIni > 0 && i.stokSaatIni <= i.stokMinimum);
+  const emptyStockItems = inventoryItems.filter(i => i.stokSaatIni === 0);
+  const anomalousStockCount = inventoryItems.filter(i => i.stokSaatIni < 0).length;
+  const hasInventoryFilters = activeTab !== 'ALL' || searchQuery !== '' ||
+    filterKategori !== 'all' || filterLokasi !== 'all' || filterSatuan !== 'all';
+  const resetInventoryFilters = () => {
+    setActiveTab('ALL');
+    setSearchQuery('');
+    setFilterKategori('all');
+    setFilterLokasi('all');
+    setFilterSatuan('all');
+    setCurrentPage(1);
+  };
 
   // Filter daftar berada jauh di bawah banner, sehingga perlu direset dan digulir agar hasilnya terlihat.
   const handleReviewLowStock = () => {
@@ -738,6 +784,18 @@ export const InventoryView: React.FC = () => {
               <AlertTriangle className="w-3 h-3" />
               <span>Stok Menipis ({lowStockItems.length})</span>
             </button>
+            <button
+              onClick={() => {
+                setActiveTab('EMPTY');
+                setCurrentPage(1);
+              }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+                activeTab === 'EMPTY' ? 'bg-rose-600 text-white shadow' : 'text-rose-400 hover:bg-rose-500/10'
+              }`}
+            >
+              <AlertCircle className="w-3 h-3" />
+              <span>Stok Habis ({emptyStockItems.length})</span>
+            </button>
           </div>
 
           {/* Search Box */}
@@ -754,6 +812,78 @@ export const InventoryView: React.FC = () => {
               className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
             />
           </div>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+          <select
+            value={filterKategori}
+            onChange={event => {
+              setFilterKategori(event.target.value);
+              setCurrentPage(1);
+            }}
+            aria-label="Filter kategori persediaan"
+            className="w-full sm:w-auto bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
+          >
+            <option value="all">Semua Kategori</option>
+            {inventoryCategories.map(category => <option key={category} value={category}>{category}</option>)}
+          </select>
+          <select
+            value={filterLokasi}
+            onChange={event => {
+              setFilterLokasi(event.target.value);
+              setCurrentPage(1);
+            }}
+            aria-label="Filter lokasi persediaan"
+            className="w-full sm:w-auto bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
+          >
+            <option value="all">Semua Lokasi Gudang</option>
+            {inventoryLocations.map(location => <option key={location} value={location}>{location}</option>)}
+          </select>
+          <select
+            value={filterSatuan}
+            onChange={event => {
+              setFilterSatuan(event.target.value);
+              setCurrentPage(1);
+            }}
+            aria-label="Filter satuan persediaan"
+            className="w-full sm:w-auto bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
+          >
+            <option value="all">Semua Satuan</option>
+            {inventoryUnits.map(unit => <option key={unit} value={unit}>{unit}</option>)}
+          </select>
+          <select
+            value={sortBy}
+            onChange={event => setSortBy(event.target.value as typeof sortBy)}
+            aria-label="Urutkan daftar persediaan berdasarkan"
+            className="w-full sm:w-auto bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
+          >
+            <option value="nama">Urutkan: Nama</option>
+            <option value="kode">Urutkan: Kode</option>
+            <option value="stok">Urutkan: Stok</option>
+            <option value="lokasi">Urutkan: Lokasi</option>
+          </select>
+          <button
+            type="button"
+            onClick={() => setSortOrder(order => order === 'asc' ? 'desc' : 'asc')}
+            title={`Urutan ${sortOrder === 'asc' ? 'menaik' : 'menurun'}`}
+            aria-label={`Ubah urutan ${sortOrder === 'asc' ? 'menaik' : 'menurun'}`}
+            className="self-start rounded-xl border border-slate-800 bg-slate-950 p-2 text-slate-300 hover:text-white"
+          >
+            <ArrowUpDown className="h-4 w-4" />
+          </button>
+          {hasInventoryFilters && (
+            <button
+              type="button"
+              onClick={resetInventoryFilters}
+              className="rounded-xl border border-slate-700 px-3 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-800 hover:text-white"
+            >
+              Reset Filter
+            </button>
+          )}
+          {anomalousStockCount > 0 && (
+            <span role="status" className="text-[10px] font-semibold text-rose-300">
+              Anomali stok negatif: {anomalousStockCount} barang (tidak dihitung sebagai stok habis).
+            </span>
+          )}
         </div>
       </div>
 
@@ -806,7 +936,9 @@ export const InventoryView: React.FC = () => {
         <div className="md:hidden divide-y divide-slate-800/80">
           {paginatedItems.length === 0 ? (
             <div className="py-12 px-4 text-center text-slate-400 text-xs">
-              Tidak ada persediaan barang yang sesuai dengan filter.
+              {activeTab === 'EMPTY'
+                ? 'Tidak ada barang dengan stok habis'
+                : 'Tidak ada persediaan barang yang sesuai dengan filter.'}
             </div>
           ) : (
             paginatedItems.map(item => (
@@ -837,17 +969,31 @@ export const InventoryView: React.FC = () => {
                   </div>
                   <span
                     className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold ${
-                      item.status === 'Aman'
-                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                        : item.status === 'Menipis'
-                        ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                        : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                      item.stokSaatIni < 0
+                        ? 'bg-rose-500/10 text-rose-300 border border-rose-500/30'
+                        : item.stokSaatIni === 0
+                          ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                          : item.stokSaatIni <= item.stokMinimum
+                            ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                            : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                     }`}
                   >
-                    {item.status === 'Aman' && <CheckCircle2 className="w-3 h-3" />}
-                    {item.status === 'Menipis' && <AlertTriangle className="w-3 h-3" />}
-                    {item.status === 'Habis' && <AlertCircle className="w-3 h-3" />}
-                    <span>{item.status}</span>
+                    {item.stokSaatIni < 0
+                      ? <AlertTriangle className="w-3 h-3" />
+                      : item.stokSaatIni === 0
+                        ? <AlertCircle className="w-3 h-3" />
+                        : item.stokSaatIni <= item.stokMinimum
+                          ? <AlertTriangle className="w-3 h-3" />
+                          : <CheckCircle2 className="w-3 h-3" />}
+                    <span>
+                      {item.stokSaatIni < 0
+                        ? 'Anomali Stok'
+                        : item.stokSaatIni === 0
+                          ? 'Habis'
+                          : item.stokSaatIni <= item.stokMinimum
+                            ? 'Menipis'
+                            : 'Aman'}
+                    </span>
                   </span>
                 </div>
 
@@ -1066,14 +1212,27 @@ export const InventoryView: React.FC = () => {
                   {/* Status */}
                   <td className="py-3 px-3 text-center">
                     <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-bold ${
-                      item.status === 'Aman' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
-                      item.status === 'Menipis' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
-                      'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                      item.stokSaatIni < 0 ? 'bg-rose-500/10 text-rose-300 border border-rose-500/30' :
+                      item.stokSaatIni === 0 ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' :
+                      item.stokSaatIni <= item.stokMinimum ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
+                      'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                     }`}>
-                      {item.status === 'Aman' && <CheckCircle2 className="w-3 h-3" />}
-                      {item.status === 'Menipis' && <AlertTriangle className="w-3 h-3" />}
-                      {item.status === 'Habis' && <AlertCircle className="w-3 h-3" />}
-                      <span>{item.status}</span>
+                      {item.stokSaatIni < 0
+                        ? <AlertTriangle className="w-3 h-3" />
+                        : item.stokSaatIni === 0
+                          ? <AlertCircle className="w-3 h-3" />
+                          : item.stokSaatIni <= item.stokMinimum
+                            ? <AlertTriangle className="w-3 h-3" />
+                            : <CheckCircle2 className="w-3 h-3" />}
+                      <span>
+                        {item.stokSaatIni < 0
+                          ? 'Anomali Stok'
+                          : item.stokSaatIni === 0
+                            ? 'Habis'
+                            : item.stokSaatIni <= item.stokMinimum
+                              ? 'Menipis'
+                              : 'Aman'}
+                      </span>
                     </span>
                   </td>
 
