@@ -31,6 +31,21 @@ export function getRequestableStock(itemId, inventoryItems, requests) {
   return Math.max(0, item.stokSaatIni - committed);
 }
 
+/**
+ * @template {{ nama: string; kodeBarang: string }} T
+ * @param {T[]} inventoryItems
+ * @param {string} query
+ * @returns {T[]}
+ */
+export function searchInventoryItems(inventoryItems, query) {
+  const normalizedQuery = query.trim().toLocaleLowerCase('id-ID');
+  if (!normalizedQuery) return inventoryItems;
+  return inventoryItems.filter(item =>
+    item.nama.toLocaleLowerCase('id-ID').includes(normalizedQuery) ||
+    item.kodeBarang.toLocaleLowerCase('id-ID').includes(normalizedQuery)
+  );
+}
+
 export function validateNewRequestStock(previousState, nextState) {
   if (!Array.isArray(previousState?.requests) || !Array.isArray(previousState?.inventoryItems) ||
       !Array.isArray(nextState?.requests)) {

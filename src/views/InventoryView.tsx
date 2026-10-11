@@ -44,6 +44,7 @@ export const InventoryView: React.FC = () => {
   const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
   const [bulkDeleteNotice, setBulkDeleteNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [activeTab, setActiveTab] = useState<'ALL' | 'ATK' | 'ARK' | 'LOW' | 'EMPTY'>('ALL');
+  const [activeInventorySection, setActiveInventorySection] = useState<'STOCK' | 'STOCK_IN'>('STOCK');
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -292,19 +293,25 @@ export const InventoryView: React.FC = () => {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-xl font-extrabold text-white">Master Persediaan ATK & ARK</h1>
+            <h1 className="text-xl font-extrabold text-white">
+              {activeInventorySection === 'STOCK' ? 'Daftar Persediaan ATK & ARK' : 'Transaksi Barang Masuk'}
+            </h1>
             <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-bold font-mono">
-              {inventoryItems.length} Jenis Barang
+              {activeInventorySection === 'STOCK'
+                ? `${inventoryItems.length} Jenis Barang`
+                : `${stockInList.length} Transaksi`}
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Pengelolaan stok barang habis pakai, alat tulis kantor, dan perbekalan rumah tangga dinas
+            {activeInventorySection === 'STOCK'
+              ? 'Saldo terkini dari master persediaan, diperbarui oleh penerimaan terverifikasi dan transaksi stok yang sah.'
+              : 'Riwayat penerimaan barang beserta pencatatan, pemeriksaan, verifikasi, dan koreksi transaksi.'}
           </p>
         </div>
 
         {/* Action Buttons */}
         <div className="flex items-center gap-2 flex-wrap">
-          {hasPermission('manageInventory') && (
+          {activeInventorySection === 'STOCK' && hasPermission('manageInventory') && (
             <button
               onClick={() => setIsFormOpen(true)}
               className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors shadow-md shadow-indigo-600/20"
@@ -322,15 +329,17 @@ export const InventoryView: React.FC = () => {
             <span>Gudang 3D</span>
           </button>
 
-          <button
-            onClick={handleExportCSV}
-            className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition-colors border border-slate-700"
-          >
-            <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-            <span>Export CSV</span>
-          </button>
+          {activeInventorySection === 'STOCK' && (
+            <button
+              onClick={handleExportCSV}
+              className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition-colors border border-slate-700"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+              <span>Export CSV</span>
+            </button>
+          )}
 
-          {hasPermission('manageInventory') && (
+          {activeInventorySection === 'STOCK' && hasPermission('manageInventory') && (
             <>
               <button
                 onClick={() => setIsImportModalOpen(true)}
@@ -368,8 +377,43 @@ export const InventoryView: React.FC = () => {
         </div>
       </div>
 
+      <div role="group" aria-label="Tampilan persediaan" className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <button
+          type="button"
+          aria-pressed={activeInventorySection === 'STOCK'}
+          onClick={() => setActiveInventorySection('STOCK')}
+          className={`flex items-start gap-3 rounded-xl border p-3 text-left transition-colors ${
+            activeInventorySection === 'STOCK'
+              ? 'border-blue-500/50 bg-blue-500/10 text-white'
+              : 'border-slate-800 bg-slate-900/60 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+          }`}
+        >
+          <Boxes className="mt-0.5 h-4 w-4 shrink-0 text-blue-400" />
+          <span>
+            <span className="block text-xs font-bold">Daftar Persediaan</span>
+            <span className="mt-0.5 block text-[10px] font-normal text-slate-400">Saldo stok terkini per barang</span>
+          </span>
+        </button>
+        <button
+          type="button"
+          aria-pressed={activeInventorySection === 'STOCK_IN'}
+          onClick={() => setActiveInventorySection('STOCK_IN')}
+          className={`flex items-start gap-3 rounded-xl border p-3 text-left transition-colors ${
+            activeInventorySection === 'STOCK_IN'
+              ? 'border-emerald-500/50 bg-emerald-500/10 text-white'
+              : 'border-slate-800 bg-slate-900/60 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+          }`}
+        >
+          <Inbox className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+          <span>
+            <span className="block text-xs font-bold">Transaksi Barang Masuk</span>
+            <span className="mt-0.5 block text-[10px] font-normal text-slate-400">Riwayat penerimaan, pemeriksaan, dan verifikasi</span>
+          </span>
+        </button>
+      </div>
+
       {/* Rekomendasi Pengadaan Banner (Prompt #26) */}
-      {lowStockItems.length > 0 && (
+      {activeInventorySection === 'STOCK' && lowStockItems.length > 0 && (
         <div className="bg-gradient-to-r from-amber-950/40 via-amber-900/20 to-slate-900 border border-amber-500/30 p-4 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-start gap-3">
             <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0 mt-0.5">
@@ -396,6 +440,7 @@ export const InventoryView: React.FC = () => {
       )}
 
       {/* Barang Masuk ledger and workflow */}
+      {activeInventorySection === 'STOCK_IN' && (
       <section className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
         <div className="p-4 border-b border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div>
@@ -603,6 +648,7 @@ export const InventoryView: React.FC = () => {
           Menampilkan {filteredStockIn.length} dari {stockInList.length} transaksi. Data historis tanpa status dipertahankan dan tidak otomatis mengubah stok.
         </div>
       </section>
+      )}
 
       {isStockInBulkDeleteConfirmOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md">
@@ -640,6 +686,8 @@ export const InventoryView: React.FC = () => {
         </div>
       )}
 
+      {activeInventorySection === 'STOCK' && (
+      <>
       {/* Tabs & Search Bar */}
       <div ref={masterListRef} className="bg-slate-900 border border-slate-800 p-4 rounded-2xl space-y-3 scroll-mt-4">
         <div className="flex flex-col md:flex-row items-center justify-between gap-3">
@@ -1115,6 +1163,8 @@ export const InventoryView: React.FC = () => {
           </div>
         </div>
       </div>
+      </>
+      )}
 
       {/* DITAMBAHKAN: dialog konfirmasi bulk delete. */}
       {isBulkDeleteConfirmOpen && (

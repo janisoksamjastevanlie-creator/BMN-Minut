@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { InventoryRequestItem } from '../../types';
-import { getRequestableStock } from '../../../requestStockValidation.mjs';
+import { getRequestableStock, searchInventoryItems } from '../../../requestStockValidation.mjs';
 import confetti from 'canvas-confetti';
 import {
   ClipboardList,
@@ -296,12 +296,7 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
                 {requestItems.map((line, index) => {
                   const item = inventoryItems.find(candidate => candidate.id === line.itemId);
                   const availableStock = line.itemId ? getRequestableStock(line.itemId, inventoryItems, requests) : 0;
-                  const searchQuery = line.itemSearch.trim().toLocaleLowerCase('id-ID');
-                  const matchingItems = inventoryItems.filter(candidate =>
-                    !searchQuery ||
-                    candidate.nama.toLocaleLowerCase('id-ID').includes(searchQuery) ||
-                    candidate.kodeBarang.toLocaleLowerCase('id-ID').includes(searchQuery)
-                  );
+                  const matchingItems = searchInventoryItems(inventoryItems, line.itemSearch);
                   const isSearching = searchingLineKey === line.key;
                   const isDuplicate = Boolean(line.itemId && requestItems.some((candidate, candidateIndex) => candidateIndex !== index && candidate.itemId === line.itemId));
                   const hasInvalidQuantity = line.jumlahDiminta !== '' && (!Number.isSafeInteger(Number(line.jumlahDiminta)) || Number(line.jumlahDiminta) <= 0);

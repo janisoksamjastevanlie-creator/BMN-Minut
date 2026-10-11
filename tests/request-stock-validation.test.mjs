@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { getRequestableStock, validateNewRequestStock } from '../requestStockValidation.mjs';
+import { getRequestableStock, searchInventoryItems, validateNewRequestStock } from '../requestStockValidation.mjs';
 
 const item = (id, stock) => ({ id, nama: `Barang ${id}`, satuan: 'Buah', stokSaatIni: stock });
 const request = (id, itemId, quantity, status = 'Diajukan') => ({
@@ -79,4 +79,14 @@ test('available request stock updates when physical stock or active requests cha
 test('closed requests no longer reserve stock and initialization is unaffected', () => {
   assert.equal(getRequestableStock('item-1', [item('item-1', 5)], [request('old', 'item-1', 5, 'Ditolak')]), 5);
   assert.equal(validateNewRequestStock({ requests: null }, state([item('item-1', 0)], [])), null);
+});
+
+test('searches inventory by partial name or item code and reports no unmatched rows', () => {
+  const inventory = [
+    { ...item('item-1', 5), nama: 'Kertas HVS A4', kodeBarang: 'ATK-001' },
+    { ...item('item-2', 0), nama: 'Pulpen Biru', kodeBarang: 'ATK-002' }
+  ];
+  assert.deepEqual(searchInventoryItems(inventory, 'hvs'), [inventory[0]]);
+  assert.deepEqual(searchInventoryItems(inventory, 'atk-002'), [inventory[1]]);
+  assert.deepEqual(searchInventoryItems(inventory, 'tidak ada'), []);
 });
