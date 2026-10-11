@@ -40,6 +40,11 @@ import { getAssetPhotoUrl, getInventoryPhotoUrl } from '../utils/assetImages';
 import { DashboardFilters, DEFAULT_DASHBOARD_FILTERS } from '../utils/dashboardFilters';
 import { getHomeView, isPimpinanUser } from '../utils/rbac';
 import { planStockInDeletion } from '../../stockInDeletion.mjs';
+import { mergeStateAfterConflict } from '../../stateConflict.mjs';
+
+const cloneSharedState = <T,>(state: T): T => JSON.parse(JSON.stringify(state)) as T;
+const sameSharedState = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
+const MAX_STATE_CONFLICT_RETRIES = 3;
 
 export type ActiveView =
   | 'landing'
@@ -273,6 +278,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [dataReady, setDataReady] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const revisionRef = useRef(0);
+  const lastSyncedStateRef = useRef<Record<string, unknown> | null>(null);
   const syncBlockedRef = useRef(false);
   const syncQueueRef = useRef<Promise<void>>(Promise.resolve());
   const pendingRequestWhatsAppEventsRef = useRef<Array<{
@@ -504,8 +510,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const saveResult = await saveResponse.json();
       if (!saveResponse.ok) throw new Error(saveResult.error || 'Gagal menginisialisasi data terpusat.');
       revisionRef.current = saveResult.revision;
+      lastSyncedStateRef.current = cloneSharedState(initialState);
       applySharedState(initialState);
     } else {
+      lastSyncedStateRef.current = cloneSharedState(result.state);
       applySharedState(result.state);
       const storedUser = (result.state.users as User[] | null)?.find(user => user.id === authenticatedUser.id);
       if (storedUser) setCurrentUser(storedUser);
@@ -546,21 +554,59 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const timer = window.setTimeout(async () => {
       syncQueueRef.current = syncQueueRef.current.then(async () => {
         if (syncBlockedRef.current) return;
-        const response = await fetch('/api/state', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ state: sharedState, revision: revisionRef.current })
-        });
-        const result = await response.json();
-        if (response.status === 409) {
+        let stateToSave = cloneSharedState(sharedState);
+        if (lastSyncedStateRef.current && sameSharedState(stateToSave, lastSyncedStateRef.current)) return;
+        let saveResult: { revision?: number } | null = null;
+        for (let attempt = 0; attempt < MAX_STATE_CONFLICT_RETRIES; attempt += 1) {
+          const response = await fetch('/api/state', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ state: stateToSave, revision: revisionRef.current })
+          });
+          const result = await response.json();
+          if (response.status !== 409) {
+            if (!response.ok) throw new Error(result.error || 'Perubahan tidak tersimpan ke server.');
+            saveResult = result;
+            break;
+          }
+
+          const latestResponse = await fetch('/api/state');
+          const latest = await latestResponse.json();
+          if (!latestResponse.ok || !latest.state || !Number.isInteger(latest.revision)) {
+            syncBlockedRef.current = true;
+            setSyncError(latest.error || 'Konflik data terjadi dan data terbaru dari server tidak dapat dimuat. Muat ulang halaman sebelum melanjutkan.');
+            return;
+          }
+          const baseState = lastSyncedStateRef.current;
+          if (!baseState) {
+            syncBlockedRef.current = true;
+            setSyncError('Konflik data terjadi tanpa salinan perubahan terakhir. Muat ulang halaman sebelum melanjutkan.');
+            return;
+          }
+          const { mergedState, conflicts } = mergeStateAfterConflict(baseState, stateToSave, latest.state);
+          if (conflicts.length > 0) {
+            syncBlockedRef.current = true;
+            setSyncError(`Data yang sama berubah di perangkat lain (${conflicts.slice(0, 3).join(', ')}). Muat ulang halaman untuk memeriksa perubahan sebelum mencoba lagi.`);
+            return;
+          }
+          revisionRef.current = latest.revision;
+          lastSyncedStateRef.current = cloneSharedState(latest.state);
+          stateToSave = mergedState;
+          applySharedState(mergedState);
+          if (sameSharedState(mergedState, latest.state)) return;
+        }
+        if (!saveResult) {
           syncBlockedRef.current = true;
-          setSyncError(result.error || 'Data berubah di perangkat lain. Muat ulang halaman sebelum menyimpan lagi.');
+          setSyncError('Data terus berubah di perangkat lain. Perubahan lokal belum tersimpan; muat ulang halaman sebelum melanjutkan.');
           return;
         }
-        if (!response.ok) throw new Error(result.error || 'Perubahan tidak tersimpan ke server.');
-        revisionRef.current = result.revision;
+        if (!Number.isInteger(saveResult.revision)) {
+          throw new Error('Server menyimpan perubahan dengan respons revisi yang tidak valid.');
+        }
+        revisionRef.current = saveResult.revision as number;
+        lastSyncedStateRef.current = cloneSharedState(stateToSave);
         setSyncError(null);
-        const persistedRequests = (sharedState.requests as InventoryRequest[]) || [];
+        const persistedRequests = (stateToSave.requests as InventoryRequest[]) || [];
         const pendingEvents = pendingRequestWhatsAppEventsRef.current;
         const readyEvents = pendingEvents.filter(event =>
           persistedRequests.some(request => request.id === event.requestId && request.status === event.status)
@@ -634,6 +680,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setDataReady(false);
     syncBlockedRef.current = false;
     revisionRef.current = 0;
+    lastSyncedStateRef.current = null;
     setCurrentUser(result.user);
     try {
       await loadSessionData(result.user);
@@ -644,6 +691,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setCurrentUser(null);
       setDataReady(false);
       syncBlockedRef.current = false;
+      lastSyncedStateRef.current = null;
       throw error;
     }
   };
@@ -654,6 +702,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!response.ok) throw new Error(result.error || 'Gagal keluar dari sistem.');
     setDataReady(false);
     syncBlockedRef.current = false;
+    lastSyncedStateRef.current = null;
     setCurrentUser(null);
     setSyncError(null);
     setActiveView('login');
