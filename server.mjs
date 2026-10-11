@@ -1053,7 +1053,14 @@ app.put('/api/state', requireUser, asyncRoute(async (request, response) => {
       if (relationError) return { status: 400, body: { error: relationError } };
       const requestError = validateInventoryRequests(currentState, state);
       if (requestError) return { status: 400, body: { error: requestError } };
-      const requestAuthError = validateRequestAuthorization(request.user, currentState.requests, state.requests, (u, p) => userHasPermission(u, p, currentState));
+      const requestAuthError = validateRequestAuthorization(
+        request.user,
+        currentState.requests,
+        state.requests,
+        (u, p) => userHasPermission(u, p, currentState),
+        currentState.auditLogs,
+        state.auditLogs
+      );
       if (requestAuthError) return { status: 403, body: { error: requestAuthError } };
       const stockInError = validateStockInWorkflow(currentState, state);
       if (stockInError) return { status: 400, body: { error: stockInError } };

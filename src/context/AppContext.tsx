@@ -162,7 +162,7 @@ interface AppContextType {
   
   addInventoryRequest: (req: Omit<InventoryRequest, 'id' | 'nomorPermintaan' | 'tanggal' | 'status'>) => InventoryRequest;
   updateRequestStatus: (id: string, status: InventoryRequest['status'], catatan?: string, jumlahDisetujui?: number, itemsDisetujui?: InventoryRequestItem[]) => { success: boolean; message: string };
-  deleteInventoryRequest: (id: string) => void;
+  deleteInventoryRequest: (id: string, reason?: string) => { success: boolean; message: string };
   
   addAssetMovement: (mov: Omit<AssetMovement, 'id' | 'nomorTransaksi' | 'status' | 'createdAt' | 'updatedAt'>) => void;
   updateMovementStatus: (id: string, status: AssetMovement['status'], catatan?: string) => void;
@@ -1496,12 +1496,46 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { success: true, message: `Status permohonan berhasil diperbarui menjadi ${status}.` };
   };
 
-  const deleteInventoryRequest = (id: string) => {
+  const deleteInventoryRequest = (id: string, reason?: string) => {
     const target = requests.find(r => r.id === id);
-    if (!target) return;
+    if (!target) return { success: false, message: 'Permohonan tidak ditemukan.' };
+    const canApprove = hasPermission('approveRequests') && !isPimpinanUser(currentUser);
+    const canManage = hasPermission('manageInventory');
+    const isOwnRequest = String(target.pemohonNama || '').trim().toLocaleLowerCase('id-ID')
+      === String(currentUser?.name || '').trim().toLocaleLowerCase('id-ID');
+    const isRequesterCancellation = hasPermission('requestSupplies')
+      && !canApprove
+      && !canManage
+      && !isPimpinanUser(currentUser);
+    if (isRequesterCancellation) {
+      if (!isOwnRequest || target.status !== 'Diajukan') {
+        return { success: false, message: 'Anda hanya dapat membatalkan permohonan sendiri yang masih berstatus Diajukan.' };
+      }
+      const cancellationReason = reason?.trim() || '';
+      if (cancellationReason.length < 5 || cancellationReason.length > 500) {
+        return { success: false, message: 'Alasan pembatalan wajib diisi antara 5 sampai 500 karakter.' };
+      }
+      logAudit(
+        'Pembatalan Permohonan Barang',
+        'PERSEDIAAN',
+        `Permohonan ${target.id} dibatalkan. Alasan: ${cancellationReason}`
+      );
+    } else if (!canApprove && !canManage) {
+      return { success: false, message: 'Anda tidak berwenang menghapus permohonan barang.' };
+    }
     setRequests(prev => prev.filter(r => r.id !== id));
-    logAudit('Hapus Permohonan Barang', 'PERSEDIAAN', `Permohonan ${target.nomorPermintaan} (${target.namaBarang}) dihapus.`);
-    pushNotification('TRANSAKSI', '🗑️ Permohonan Dihapus', `Permohonan ${target.nomorPermintaan} telah dihapus dari sistem.`, 'requests');
+    if (!isRequesterCancellation) {
+      logAudit('Hapus Permohonan Barang', 'PERSEDIAAN', `Permohonan ${target.nomorPermintaan} (${target.namaBarang}) dihapus.`);
+    }
+    pushNotification(
+      'TRANSAKSI',
+      isRequesterCancellation ? 'Permohonan Dibatalkan' : '🗑️ Permohonan Dihapus',
+      isRequesterCancellation
+        ? `Permohonan ${target.nomorPermintaan} dibatalkan oleh pemohon. Alasan: ${reason?.trim()}`
+        : `Permohonan ${target.nomorPermintaan} telah dihapus dari sistem.`,
+      'requests'
+    );
+    return { success: true, message: isRequesterCancellation ? 'Permohonan berhasil dibatalkan dan dihapus.' : 'Permohonan berhasil dihapus.' };
   };
 
   // Asset Movement Workflow (SETELAH SELESAI LOKASI ASET OTOMATIS BERUBAH)

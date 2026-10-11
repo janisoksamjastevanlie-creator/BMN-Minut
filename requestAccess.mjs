@@ -6,12 +6,20 @@ const TRANSITIONS = {
   Diproses: { Selesai: 'manage' }
 };
 
-export function validateRequestAuthorization(user, previousRequests, nextRequests, hasPermission) {
+export function validateRequestAuthorization(
+  user,
+  previousRequests,
+  nextRequests,
+  hasPermission,
+  previousAuditLogs = [],
+  nextAuditLogs = []
+) {
   if (!Array.isArray(previousRequests) || !Array.isArray(nextRequests)) return null;
   const can = permission => hasPermission(user, permission);
   const isPimpinan = String(user?.role ?? '').trim().toLowerCase() === 'pimpinan';
   const canApprove = can('approveRequests') && !isPimpinan;
   const canManage = can('manageInventory');
+  const canRequest = can('requestSupplies');
   const allowedBy = {
     review: canApprove || canManage,
     approve: canApprove,
@@ -20,10 +28,27 @@ export function validateRequestAuthorization(user, previousRequests, nextRequest
 
   const previousById = new Map(previousRequests.map(item => [item.id, item]));
   const nextIds = new Set(nextRequests.map(item => item.id));
+  const previousAuditLogIds = new Set((previousAuditLogs || []).map(log => log.id));
 
   for (const old of previousRequests) {
     if (!nextIds.has(old.id) && !(canApprove || canManage)) {
-      return 'Anda tidak berwenang menghapus permohonan barang.';
+      const isOwnRequest = String(old.pemohonNama || '').trim().toLocaleLowerCase('id-ID')
+        === String(user?.name || '').trim().toLocaleLowerCase('id-ID');
+      const canCancelOwnRequest = canRequest && !canApprove && !canManage && !isPimpinan
+        && isOwnRequest && old.status === 'Diajukan';
+      if (!canCancelOwnRequest) return 'Anda tidak berwenang menghapus permohonan barang.';
+
+      const requiredPrefix = `Permohonan ${old.id} dibatalkan. Alasan: `;
+      const cancellationHasReason = (nextAuditLogs || []).some(log => {
+        if (previousAuditLogIds.has(log.id) || log.userId !== user?.id ||
+            log.aktivitas !== 'Pembatalan Permohonan Barang' ||
+            typeof log.detail !== 'string' || !log.detail.startsWith(requiredPrefix)) {
+          return false;
+        }
+        const reason = log.detail.slice(requiredPrefix.length).trim();
+        return reason.length >= 5 && reason.length <= 500;
+      });
+      if (!cancellationHasReason) return 'Alasan pembatalan wajib diisi (minimal 5 karakter).';
     }
   }
 

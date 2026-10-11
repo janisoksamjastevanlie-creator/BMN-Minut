@@ -45,6 +45,10 @@ export const StockRequestsView: React.FC = () => {
   // Pimpinan hanya memantau; Pemohon tidak memiliki kewenangan keputusan.
   const canApproveRequests = hasPermission('approveRequests') && !isPimpinanUser(currentUser);
   const canReviewRequests = canApproveRequests || hasPermission('manageInventory');
+  const canCancelOwnRequest = hasPermission('requestSupplies')
+    && !hasPermission('manageInventory')
+    && !canApproveRequests
+    && !isPimpinanUser(currentUser);
 
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -52,6 +56,9 @@ export const StockRequestsView: React.FC = () => {
   const [selectedRequestIds, setSelectedRequestIds] = useState<Set<string>>(new Set());
   const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
   const [bulkDeleteNotice, setBulkDeleteNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<InventoryRequest | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelError, setCancelError] = useState<string | null>(null);
 
   // Workflow Dialog State
   const [workflowTarget, setWorkflowTarget] = useState<{
@@ -90,6 +97,9 @@ export const StockRequestsView: React.FC = () => {
 
   const areAllFilteredRequestsSelected =
     filteredRequests.length > 0 && filteredRequests.every(request => selectedRequestIds.has(request.id));
+  const isOwnRequest = (request: InventoryRequest) =>
+    String(request.pemohonNama || '').trim().toLocaleLowerCase('id-ID')
+      === String(currentUser?.name || '').trim().toLocaleLowerCase('id-ID');
 
   const toggleRequestSelection = (id: string) => {
     setSelectedRequestIds(prev => {
@@ -119,8 +129,9 @@ export const StockRequestsView: React.FC = () => {
 
     selectedRequests.forEach(request => {
       try {
-        deleteInventoryRequest(request.id);
-        deletedCount += 1;
+        const result = deleteInventoryRequest(request.id);
+        if (result.success) deletedCount += 1;
+        else errors.push(`${request.nomorPermintaan}: ${result.message}`);
       } catch (error) {
         errors.push(error instanceof Error ? error.message : `Gagal menghapus permohonan ${request.nomorPermintaan}.`);
       }
@@ -133,6 +144,24 @@ export const StockRequestsView: React.FC = () => {
         ? { type: 'error', message: `${deletedCount} permohonan berhasil dihapus. ${errors.join(' ')}` }
         : { type: 'success', message: `${deletedCount} permohonan berhasil dihapus.` }
     );
+  };
+
+  const handleCancelOwnRequest = () => {
+    if (!cancelTarget) return;
+    const reason = cancelReason.trim();
+    if (reason.length < 5 || reason.length > 500) {
+      setCancelError('Alasan pembatalan wajib diisi antara 5 sampai 500 karakter.');
+      return;
+    }
+    const result = deleteInventoryRequest(cancelTarget.id, reason);
+    if (!result.success) {
+      setCancelError(result.message);
+      return;
+    }
+    setCancelTarget(null);
+    setCancelReason('');
+    setCancelError(null);
+    setBulkDeleteNotice({ type: 'success', message: result.message });
   };
 
   // Metric stats
@@ -479,6 +508,19 @@ export const StockRequestsView: React.FC = () => {
                     </button>
 
                     <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                      {req.status === 'Diajukan' && canCancelOwnRequest && isOwnRequest(req) && (
+                        <button
+                          onClick={() => {
+                            setCancelTarget(req);
+                            setCancelReason('');
+                            setCancelError(null);
+                          }}
+                          className="px-3 py-1.5 rounded-xl bg-rose-600/20 text-rose-300 hover:bg-rose-600 hover:text-white text-xs font-bold transition-colors min-h-[36px]"
+                          title="Batalkan permohonan sendiri"
+                        >
+                          Batal
+                        </button>
+                      )}
                       {req.status === 'Diajukan' && canReviewRequests && (
                         <>
                           <button
@@ -689,6 +731,20 @@ export const StockRequestsView: React.FC = () => {
                             <Eye className="w-3.5 h-3.5" />
                           </button>
 
+                          {req.status === 'Diajukan' && canCancelOwnRequest && isOwnRequest(req) && (
+                            <button
+                              onClick={() => {
+                                setCancelTarget(req);
+                                setCancelReason('');
+                                setCancelError(null);
+                              }}
+                              className="px-2 py-1 rounded-lg bg-rose-600/20 text-rose-300 hover:bg-rose-600 hover:text-white text-[10px] font-bold transition-colors"
+                              title="Batalkan permohonan sendiri"
+                            >
+                              Batal
+                            </button>
+                          )}
+
                           {/* Workflow progression */}
                           {req.status === 'Diajukan' && canReviewRequests && (
                             <>
@@ -815,6 +871,63 @@ export const StockRequestsView: React.FC = () => {
                 className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded-xl"
               >
                 Hapus
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {cancelTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cancel-request-title"
+            className="w-full max-w-md bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl p-5 space-y-4"
+          >
+            <h3 id="cancel-request-title" className="text-sm font-bold text-white">
+              Batalkan Permohonan
+            </h3>
+            <p className="text-xs text-slate-300">
+              Permohonan {cancelTarget.nomorPermintaan} akan dihapus permanen. Isi alasan pembatalan untuk melanjutkan.
+            </p>
+            <div>
+              <label htmlFor="request-cancellation-reason" className="block text-xs font-semibold text-slate-300 mb-1">
+                Alasan pembatalan (wajib)
+              </label>
+              <textarea
+                id="request-cancellation-reason"
+                value={cancelReason}
+                onChange={event => setCancelReason(event.target.value)}
+                rows={3}
+                maxLength={500}
+                autoFocus
+                className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500"
+                placeholder="Tuliskan alasan pembatalan, minimal 5 karakter..."
+              />
+              <div className="mt-1 text-right text-[10px] text-slate-500">{cancelReason.trim().length}/500</div>
+            </div>
+            {cancelError && (
+              <div role="alert" className="text-xs text-rose-300">{cancelError}</div>
+            )}
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setCancelTarget(null);
+                  setCancelReason('');
+                  setCancelError(null);
+                }}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl"
+              >
+                Kembali
+              </button>
+              <button
+                type="button"
+                onClick={handleCancelOwnRequest}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded-xl"
+              >
+                Batalkan & Hapus
               </button>
             </div>
           </div>
