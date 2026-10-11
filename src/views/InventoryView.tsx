@@ -736,154 +736,155 @@ export const InventoryView: React.FC = () => {
       <>
       {/* Tabs & Search Bar */}
       <div ref={masterListRef} className="bg-slate-900 border border-slate-800 p-4 rounded-2xl space-y-3 scroll-mt-4">
-        <div className="flex flex-col md:flex-row items-center justify-between gap-3">
-          {/* Tabs */}
-          <div className="flex items-center gap-1.5 overflow-x-auto w-full md:w-auto pb-1 md:pb-0">
-            <button
-              onClick={() => {
-                setActiveTab('ALL');
-                setCurrentPage(1);
-              }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap flex-shrink-0 ${
-                activeTab === 'ALL' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white hover:bg-slate-800'
-              }`}
-            >
-              Semua ({inventoryItems.length})
-            </button>
-            <button
-              onClick={() => {
-                setActiveTab('ATK');
-                setCurrentPage(1);
-              }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap flex-shrink-0 ${
-                activeTab === 'ATK' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white hover:bg-slate-800'
-              }`}
-            >
-              ATK (Alat Tulis Kantor)
-            </button>
-            <button
-              onClick={() => {
-                setActiveTab('ARK');
-                setCurrentPage(1);
-              }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap flex-shrink-0 ${
-                activeTab === 'ARK' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white hover:bg-slate-800'
-              }`}
-            >
-              ARK (Rumah Tangga Kantor)
-            </button>
-            <button
-              onClick={() => {
-                setActiveTab('LOW');
-                setCurrentPage(1);
-              }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 ${
-                activeTab === 'LOW' ? 'bg-amber-600 text-white shadow' : 'text-amber-400 hover:bg-amber-500/10'
-              }`}
-            >
-              <AlertTriangle className="w-3 h-3" />
-              <span>Stok Menipis ({lowStockItems.length})</span>
-            </button>
-            <button
-              onClick={() => {
-                setActiveTab('EMPTY');
-                setCurrentPage(1);
-              }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 ${
-                activeTab === 'EMPTY' ? 'bg-rose-600 text-white shadow' : 'text-rose-400 hover:bg-rose-500/10'
-              }`}
-            >
-              <AlertCircle className="w-3 h-3" />
-              <span>Stok Habis ({emptyStockItems.length})</span>
-            </button>
-          </div>
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col xl:flex-row items-center gap-3">
+            {/* Search box */}
+            <div className="relative flex-1 w-full">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => {
+                  setSearchQuery(e.target.value);
+                  setCurrentPage(1);
+                }}
+                placeholder="Cari persediaan, kode, rak, bin..."
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
+              />
+            </div>
 
-          {/* Search Box */}
-          <div className="relative w-full md:w-72">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={e => {
-                setSearchQuery(e.target.value);
+            {/* Inventory quick filters */}
+            <div className="flex items-center gap-1.5 overflow-x-auto w-full xl:w-auto pb-1 xl:pb-0">
+              <button
+                onClick={() => {
+                  setActiveTab('ALL');
+                  setCurrentPage(1);
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap flex-shrink-0 ${
+                  activeTab === 'ALL' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                }`}
+              >
+                Semua ({inventoryItems.length})
+              </button>
+              <button
+                onClick={() => {
+                  setActiveTab('ATK');
+                  setCurrentPage(1);
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap flex-shrink-0 ${
+                  activeTab === 'ATK' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                }`}
+              >
+                ATK (Alat Tulis Kantor)
+              </button>
+              <button
+                onClick={() => {
+                  setActiveTab('ARK');
+                  setCurrentPage(1);
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap flex-shrink-0 ${
+                  activeTab === 'ARK' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                }`}
+              >
+                ARK (Rumah Tangga Kantor)
+              </button>
+              <button
+                onClick={() => {
+                  setActiveTab('LOW');
+                  setCurrentPage(1);
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 ${
+                  activeTab === 'LOW' ? 'bg-amber-600 text-white shadow' : 'text-amber-400 hover:bg-amber-500/10'
+                }`}
+              >
+                <AlertTriangle className="w-3 h-3" />
+                <span>Stok Menipis ({lowStockItems.length})</span>
+              </button>
+              <button
+                onClick={() => {
+                  setActiveTab('EMPTY');
+                  setCurrentPage(1);
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 ${
+                  activeTab === 'EMPTY' ? 'bg-rose-600 text-white shadow' : 'text-rose-400 hover:bg-rose-500/10'
+                }`}
+              >
+                <AlertCircle className="w-3 h-3" />
+                <span>Stok Habis ({emptyStockItems.length})</span>
+              </button>
+            </div>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <select
+              value={filterKategori}
+              onChange={event => {
+                setFilterKategori(event.target.value);
                 setCurrentPage(1);
               }}
-              placeholder="Cari persediaan, kode, rak, bin..."
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
-            />
-          </div>
-        </div>
-        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-          <select
-            value={filterKategori}
-            onChange={event => {
-              setFilterKategori(event.target.value);
-              setCurrentPage(1);
-            }}
-            aria-label="Filter kategori persediaan"
-            className="w-full sm:w-auto bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
-          >
-            <option value="all">Semua Kategori</option>
-            {inventoryCategories.map(category => <option key={category} value={category}>{category}</option>)}
-          </select>
-          <select
-            value={filterLokasi}
-            onChange={event => {
-              setFilterLokasi(event.target.value);
-              setCurrentPage(1);
-            }}
-            aria-label="Filter lokasi persediaan"
-            className="w-full sm:w-auto bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
-          >
-            <option value="all">Semua Lokasi Gudang</option>
-            {inventoryLocations.map(location => <option key={location} value={location}>{location}</option>)}
-          </select>
-          <select
-            value={filterSatuan}
-            onChange={event => {
-              setFilterSatuan(event.target.value);
-              setCurrentPage(1);
-            }}
-            aria-label="Filter satuan persediaan"
-            className="w-full sm:w-auto bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
-          >
-            <option value="all">Semua Satuan</option>
-            {inventoryUnits.map(unit => <option key={unit} value={unit}>{unit}</option>)}
-          </select>
-          <select
-            value={sortBy}
-            onChange={event => setSortBy(event.target.value as typeof sortBy)}
-            aria-label="Urutkan daftar persediaan berdasarkan"
-            className="w-full sm:w-auto bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
-          >
-            <option value="nama">Urutkan: Nama</option>
-            <option value="kode">Urutkan: Kode</option>
-            <option value="stok">Urutkan: Stok</option>
-            <option value="lokasi">Urutkan: Lokasi</option>
-          </select>
-          <button
-            type="button"
-            onClick={() => setSortOrder(order => order === 'asc' ? 'desc' : 'asc')}
-            title={`Urutan ${sortOrder === 'asc' ? 'menaik' : 'menurun'}`}
-            aria-label={`Ubah urutan ${sortOrder === 'asc' ? 'menaik' : 'menurun'}`}
-            className="self-start rounded-xl border border-slate-800 bg-slate-950 p-2 text-slate-300 hover:text-white"
-          >
-            <ArrowUpDown className="h-4 w-4" />
-          </button>
-          {hasInventoryFilters && (
-            <button
-              type="button"
-              onClick={resetInventoryFilters}
-              className="rounded-xl border border-slate-700 px-3 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-800 hover:text-white"
+              aria-label="Filter kategori persediaan"
+              className="w-full sm:w-auto bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
             >
-              Reset Filter
+              <option value="all">Semua Kategori</option>
+              {inventoryCategories.map(category => <option key={category} value={category}>{category}</option>)}
+            </select>
+            <select
+              value={filterLokasi}
+              onChange={event => {
+                setFilterLokasi(event.target.value);
+                setCurrentPage(1);
+              }}
+              aria-label="Filter lokasi persediaan"
+              className="w-full sm:w-auto bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
+            >
+              <option value="all">Semua Lokasi Gudang</option>
+              {inventoryLocations.map(location => <option key={location} value={location}>{location}</option>)}
+            </select>
+            <select
+              value={filterSatuan}
+              onChange={event => {
+                setFilterSatuan(event.target.value);
+                setCurrentPage(1);
+              }}
+              aria-label="Filter satuan persediaan"
+              className="w-full sm:w-auto bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
+            >
+              <option value="all">Semua Satuan</option>
+              {inventoryUnits.map(unit => <option key={unit} value={unit}>{unit}</option>)}
+            </select>
+            <select
+              value={sortBy}
+              onChange={event => setSortBy(event.target.value as typeof sortBy)}
+              aria-label="Urutkan daftar persediaan berdasarkan"
+              className="w-full sm:w-auto bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
+            >
+              <option value="nama">Urutkan: Nama</option>
+              <option value="kode">Urutkan: Kode</option>
+              <option value="stok">Urutkan: Stok</option>
+              <option value="lokasi">Urutkan: Lokasi</option>
+            </select>
+            <button
+              onClick={() => setSortOrder(order => order === 'asc' ? 'desc' : 'asc')}
+              title={`Urutan ${sortOrder === 'asc' ? 'menaik' : 'menurun'}`}
+              aria-label={`Ubah urutan ${sortOrder === 'asc' ? 'menaik' : 'menurun'}`}
+              className="p-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-300 hover:text-white"
+            >
+              <ArrowUpDown className="h-4 w-4" />
             </button>
-          )}
-          {anomalousStockCount > 0 && (
-            <span role="status" className="text-[10px] font-semibold text-rose-300">
-              Anomali stok negatif: {anomalousStockCount} barang (tidak dihitung sebagai stok habis).
-            </span>
-          )}
+            {hasInventoryFilters && (
+              <button
+                type="button"
+                onClick={resetInventoryFilters}
+                className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-300 text-xs font-semibold hover:text-white"
+              >
+                Reset Filter
+              </button>
+            )}
+            {anomalousStockCount > 0 && (
+              <span role="status" className="text-[10px] font-semibold text-rose-300">
+                Anomali stok negatif: {anomalousStockCount} barang (tidak dihitung sebagai stok habis).
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
