@@ -496,6 +496,10 @@ export const StockRequestsView: React.FC = () => {
                         </>
                       )}
 
+                      {req.status === 'Diajukan' && !canReviewRequests && (
+                        <span className="text-cyan-400 text-xs font-medium">Menunggu Verifikasi</span>
+                      )}
+
                       {req.status === 'Diverifikasi' && (
                         canApproveRequests ? (
                           <>
@@ -703,6 +707,10 @@ export const StockRequestsView: React.FC = () => {
                                 Tolak
                               </button>
                             </>
+                          )}
+
+                          {req.status === 'Diajukan' && !canReviewRequests && (
+                            <span className="text-cyan-400 text-[10px] font-medium">Menunggu Verifikasi</span>
                           )}
 
                           {req.status === 'Diverifikasi' && (
