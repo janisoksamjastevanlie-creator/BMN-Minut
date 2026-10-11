@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { AssetMaintenance, MaintenanceStatus } from '../types';
+import { ListPager, usePagedList } from '../components/common/ListPager';
 import {
   Wrench,
   Plus,
@@ -34,6 +35,7 @@ export const AssetMaintenanceView: React.FC = () => {
   const [keterangan, setKeterangan] = useState('');
 
   const filtered = maintenances.filter(m => filterStatus === 'all' || m.status === filterStatus);
+  const pager = usePagedList(filtered);
 
   const areAllFilteredMaintenanceSelected =
     filtered.length > 0 && filtered.every(item => selectedMaintenanceIds.has(item.id));
@@ -231,7 +233,7 @@ export const AssetMaintenanceView: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60 text-slate-300">
-              {filtered.map(m => (
+              {pager.pageItems.map(m => (
                 <tr key={m.id} className="hover:bg-slate-800/40 transition-colors">
                   {hasPermission('manageMaintenance') && (
                     <td className="py-3 px-3 text-center">
@@ -306,6 +308,7 @@ export const AssetMaintenanceView: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <ListPager {...pager} onPageChange={pager.setPage} onPageSizeChange={pager.setPageSize} label="data pemeliharaan" />
       </div>
 
       {isBulkDeleteConfirmOpen && (

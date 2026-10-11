@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { InventoryRequest, InventoryRequestItem, RequestStatus } from '../types';
+import { ListPager, usePagedList } from '../components/common/ListPager';
 import { StockRequestModal } from '../components/inventory/StockRequestModal';
 import { OfficialLetterhead } from '../components/common/OfficialLetterhead';
 import { ReportSignatureBlock } from '../components/common/ReportSignatureBlock';
@@ -81,6 +82,7 @@ export const StockRequestsView: React.FC = () => {
       return matchStatus && matchSearch;
     });
   }, [requests, filterStatus, searchTerm]);
+  const pager = usePagedList(filteredRequests);
 
   const areAllFilteredRequestsSelected =
     filteredRequests.length > 0 && filteredRequests.every(request => selectedRequestIds.has(request.id));
@@ -381,7 +383,7 @@ export const StockRequestsView: React.FC = () => {
               <div>Tidak ada permohonan barang yang sesuai dengan filter.</div>
             </div>
           ) : (
-            filteredRequests.map(req => {
+            pager.pageItems.map(req => {
               const requestItems = getRequestItems(req);
               const item = inventoryItems.find(i => i.id === req.itemId);
               return (
@@ -592,7 +594,7 @@ export const StockRequestsView: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                filteredRequests.map(req => {
+                pager.pageItems.map(req => {
                   const requestItems = getRequestItems(req);
                   const isStockAvailable = requestItems.every(requestItem => {
                     const stockItem = inventoryItems.find(i => i.id === requestItem.itemId);
@@ -771,6 +773,7 @@ export const StockRequestsView: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <ListPager {...pager} onPageChange={pager.setPage} onPageSizeChange={pager.setPageSize} label="permohonan" />
       </div>
 
       {isBulkDeleteConfirmOpen && (

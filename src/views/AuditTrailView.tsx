@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { History, Search, ShieldCheck, Terminal, Filter, Calendar } from 'lucide-react';
+import { ListPager, usePagedList } from '../components/common/ListPager';
 
 export const AuditTrailView: React.FC = () => {
   const { auditLogs } = useApp();
@@ -16,6 +17,7 @@ export const AuditTrailView: React.FC = () => {
       l.detail.toLowerCase().includes(search.toLowerCase());
     return matchModul && matchSearch;
   });
+  const pager = usePagedList(filteredLogs);
 
   return (
     <div className="space-y-6">
@@ -86,7 +88,7 @@ export const AuditTrailView: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60 text-slate-300">
-              {filteredLogs.map(log => (
+              {pager.pageItems.map(log => (
                 <tr key={log.id} className="hover:bg-slate-800/40 transition-colors">
                   <td className="py-3 px-3 whitespace-nowrap">
                     <div className="font-semibold text-white">{log.waktu}</div>
@@ -127,6 +129,7 @@ export const AuditTrailView: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <ListPager {...pager} onPageChange={pager.setPage} onPageSizeChange={pager.setPageSize} label="entri log" />
       </div>
     </div>
   );

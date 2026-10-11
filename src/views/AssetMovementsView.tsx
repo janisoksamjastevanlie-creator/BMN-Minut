@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { AssetMovement, MovementStatus } from '../types';
+import { ListPager, usePagedList } from '../components/common/ListPager';
 import { BastMovementPrintModal } from '../components/bmn/BastMovementPrintModal';
 import {
   ArrowRightLeft,
@@ -38,6 +39,7 @@ export const AssetMovementsView: React.FC = () => {
   const filteredMovements = movements.filter(m => {
     return filterStatus === 'all' || m.status === filterStatus;
   });
+  const pager = usePagedList(filteredMovements);
 
   const areAllFilteredMovementsSelected =
     filteredMovements.length > 0 && filteredMovements.every(movement => selectedMovementIds.has(movement.id));
@@ -248,7 +250,7 @@ export const AssetMovementsView: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60 text-slate-300">
-              {filteredMovements.map(mov => (
+              {pager.pageItems.map(mov => (
                 <tr key={mov.id} className="hover:bg-slate-800/40 transition-colors">
                   {hasPermission('manageMovements') && (
                     <td className="py-3 px-3 text-center">
@@ -349,6 +351,7 @@ export const AssetMovementsView: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <ListPager {...pager} onPageChange={pager.setPage} onPageSizeChange={pager.setPageSize} label="data mutasi" />
       </div>
 
       {isBulkDeleteConfirmOpen && (

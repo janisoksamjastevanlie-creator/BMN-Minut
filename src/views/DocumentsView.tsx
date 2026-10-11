@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { DocumentItem } from '../types';
 import { UploadDocumentModal } from '../components/documents/UploadDocumentModal';
+import { ListPager, usePagedList } from '../components/common/ListPager';
 import {
   FileText,
   Search,
@@ -37,6 +38,7 @@ export const DocumentsView: React.FC = () => {
       d.uploader.toLowerCase().includes(search.toLowerCase());
     return matchType && matchSearch;
   });
+  const pager = usePagedList(filteredDocs);
 
   const areAllDocumentsSelected =
     filteredDocs.length > 0 && filteredDocs.every(doc => selectedDocumentIds.has(doc.id));
@@ -192,7 +194,7 @@ export const DocumentsView: React.FC = () => {
         </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredDocs.map(doc => (
+        {pager.pageItems.map(doc => (
           <div
             key={doc.id}
             className="p-4 rounded-2xl bg-slate-900 border border-slate-800 hover:border-slate-700 transition-all flex flex-col justify-between"
@@ -264,6 +266,9 @@ export const DocumentsView: React.FC = () => {
             </div>
           </div>
         ))}
+      </div>
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+        <ListPager {...pager} onPageChange={pager.setPage} onPageSizeChange={pager.setPageSize} label="dokumen" />
       </div>
 
       {/* Document Preview Modal */}

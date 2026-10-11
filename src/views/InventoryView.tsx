@@ -7,6 +7,7 @@ import { StockCardModal } from '../components/inventory/StockCardModal';
 import { ImportInventoryModal } from '../components/inventory/ImportInventoryModal';
 import { InventoryFormModal } from '../components/inventory/InventoryFormModal';
 import { getInventoryPhotoUrl } from '../utils/assetImages';
+import { PageSizeSelect, DEFAULT_PAGE_SIZE, resolvePageSize } from '../components/common/ListPager';
 import {
   Boxes,
   Search,
@@ -45,7 +46,7 @@ export const InventoryView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'ALL' | 'ATK' | 'ARK' | 'LOW' | 'EMPTY'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 12;
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const masterListRef = useRef<HTMLDivElement>(null);
 
   // Modals
@@ -90,11 +91,16 @@ export const InventoryView: React.FC = () => {
     });
   }, [inventoryItems, activeTab, searchQuery]);
 
+  const itemsPerPage = resolvePageSize(pageSize, filteredItems.length);
   const totalPages = Math.ceil(filteredItems.length / itemsPerPage) || 1;
   const paginatedItems = useMemo(() => {
     const start = (currentPage - 1) * itemsPerPage;
     return filteredItems.slice(start, start + itemsPerPage);
-  }, [filteredItems, currentPage]);
+  }, [filteredItems, currentPage, itemsPerPage]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [currentPage, totalPages]);
 
   // DITAMBAHKAN: buang pilihan yang sudah tidak ada setelah refresh, import, atau penghapusan.
   useEffect(() => {
@@ -939,10 +945,13 @@ export const InventoryView: React.FC = () => {
 
         {/* Pagination Bar */}
         <div className="p-4 border-t border-slate-800 bg-slate-950/50 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-400">
-          <div>
-            Menampilkan <span className="font-bold text-white">{(currentPage - 1) * itemsPerPage + 1}</span> -{' '}
-            <span className="font-bold text-white">{Math.min(currentPage * itemsPerPage, filteredItems.length)}</span> dari{' '}
-            <span className="font-bold text-white">{filteredItems.length}</span> jenis persediaan
+          <div className="flex flex-wrap items-center gap-3">
+            <PageSizeSelect value={pageSize} onChange={size => { setPageSize(size); setCurrentPage(1); }} />
+            <span>
+              Menampilkan <span className="font-bold text-white">{filteredItems.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1}</span> -{' '}
+              <span className="font-bold text-white">{Math.min(currentPage * itemsPerPage, filteredItems.length)}</span> dari{' '}
+              <span className="font-bold text-white">{filteredItems.length}</span> jenis persediaan
+            </span>
           </div>
 
           <div className="flex items-center gap-1.5">

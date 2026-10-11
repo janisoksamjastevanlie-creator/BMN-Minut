@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { BmnAsset, AssetCondition } from '../types';
 import { AssetDetailModal } from '../components/bmn/AssetDetailModal';
@@ -9,6 +9,7 @@ import { OfficialLetterhead } from '../components/common/OfficialLetterhead';
 import { ReportSignatureBlock } from '../components/common/ReportSignatureBlock';
 import { getAssetPhotoUrl } from '../utils/assetImages';
 import { triggerPrint } from '../utils/printHelper';
+import { PageSizeSelect, DEFAULT_PAGE_SIZE, resolvePageSize } from '../components/common/ListPager';
 import {
   Search,
   Filter,
@@ -44,7 +45,7 @@ export const AssetsView: React.FC = () => {
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 12;
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
   // Modals
   const [detailModalAsset, setDetailModalAsset] = useState<BmnAsset | null>(null);
@@ -85,11 +86,16 @@ export const AssetsView: React.FC = () => {
     });
   }, [assets, searchTerm, filterKategori, filterKondisi, filterRuangan, sortBy, sortOrder]);
 
+  const itemsPerPage = resolvePageSize(pageSize, filteredAssets.length);
   const totalPages = Math.ceil(filteredAssets.length / itemsPerPage) || 1;
   const paginatedAssets = useMemo(() => {
     const start = (currentPage - 1) * itemsPerPage;
     return filteredAssets.slice(start, start + itemsPerPage);
-  }, [filteredAssets, currentPage]);
+  }, [filteredAssets, currentPage, itemsPerPage]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [currentPage, totalPages]);
 
   const areVisibleAssetsSelected =
     paginatedAssets.length > 0 && paginatedAssets.every(asset => selectedAssetIds.has(asset.id));
@@ -638,10 +644,13 @@ export const AssetsView: React.FC = () => {
 
         {/* Pagination Bar */}
         <div className="p-4 border-t border-slate-800 bg-slate-950/50 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-400">
-          <div>
-            Menampilkan <span className="font-bold text-white">{(currentPage - 1) * itemsPerPage + 1}</span> -{' '}
-            <span className="font-bold text-white">{Math.min(currentPage * itemsPerPage, filteredAssets.length)}</span> dari{' '}
-            <span className="font-bold text-white">{filteredAssets.length}</span> aset BMN
+          <div className="flex flex-wrap items-center gap-3">
+            <PageSizeSelect value={pageSize} onChange={size => { setPageSize(size); setCurrentPage(1); }} />
+            <span>
+              Menampilkan <span className="font-bold text-white">{filteredAssets.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1}</span> -{' '}
+              <span className="font-bold text-white">{Math.min(currentPage * itemsPerPage, filteredAssets.length)}</span> dari{' '}
+              <span className="font-bold text-white">{filteredAssets.length}</span> aset BMN
+            </span>
           </div>
 
           <div className="flex items-center gap-1.5">

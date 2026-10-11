@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { AssetDisposal, DisposalStatus } from '../types';
 import { DisposalPrintModal } from '../components/bmn/DisposalPrintModal';
+import { ListPager, usePagedList } from '../components/common/ListPager';
 import {
   Trash2,
   Plus,
@@ -22,6 +23,8 @@ export const AssetDisposalView: React.FC = () => {
   const [selectedAssetId, setSelectedAssetId] = useState(assets.find(a => a.kondisi === 'Rusak Berat')?.id || assets[0]?.id || '');
   const [alasan, setAlasan] = useState('Kerusakan berat tidak ekonomis untuk diperbaiki dan teknologi usang');
   const [dokumen, setDokumen] = useState('Surat Usulan Penghapusan BMN Kemenkeu');
+
+  const pager = usePagedList(disposals);
 
   const handleCreateDisposal = (e: React.FormEvent) => {
     e.preventDefault();
@@ -87,7 +90,7 @@ export const AssetDisposalView: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60 text-slate-300">
-              {disposals.map(dsp => (
+              {pager.pageItems.map(dsp => (
                 <tr key={dsp.id} className="hover:bg-slate-800/40 transition-colors">
                   <td className="py-3 px-3 font-mono font-bold text-slate-300">
                     {dsp.nomorPengajuan}
@@ -173,6 +176,7 @@ export const AssetDisposalView: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <ListPager {...pager} onPageChange={pager.setPage} onPageSizeChange={pager.setPageSize} label="berkas usulan" />
       </div>
 
       {/* New Disposal Modal */}

@@ -1709,7 +1709,7 @@ export const UsersView: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-3xl bg-slate-900 border border-slate-800 p-6 shadow-2xl space-y-5">
             {/* Modal Header */}
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+            <div className="sticky top-0 z-10 -mx-6 -mt-6 px-6 pt-6 bg-slate-900 flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2.5">
                 <div className="w-10 h-10 rounded-2xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
                   <UserPlus className="w-5 h-5" />
@@ -1725,7 +1725,9 @@ export const UsersView: React.FC = () => {
               </div>
               <button
                 onClick={() => setIsFormModalOpen(false)}
-                className="text-slate-500 hover:text-white p-1 rounded-lg"
+                aria-label="Tutup"
+                title="Tutup"
+                className="text-slate-500 hover:text-white p-1 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1974,7 +1976,7 @@ export const UsersView: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="w-full max-w-2xl max-h-[92vh] overflow-y-auto rounded-3xl bg-slate-900 border border-slate-800 p-6 shadow-2xl space-y-5">
             {/* Modal Header */}
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+            <div className="sticky top-0 z-10 -mx-6 -mt-6 px-6 pt-6 bg-slate-900 flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2.5">
                 <div className="w-10 h-10 rounded-2xl bg-purple-600/20 border border-purple-500/30 flex items-center justify-center text-purple-400">
                   <ShieldCheck className="w-5 h-5" />
@@ -1990,7 +1992,9 @@ export const UsersView: React.FC = () => {
               </div>
               <button
                 onClick={() => setIsRoleModalOpen(false)}
-                className="text-slate-500 hover:text-white p-1 rounded-lg"
+                aria-label="Tutup"
+                title="Tutup"
+                className="text-slate-500 hover:text-white p-1 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <X className="w-5 h-5" />
               </button>

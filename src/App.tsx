@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { AppProvider, useApp, ActiveView } from './context/AppContext';
 import { Navbar } from './components/layout/Navbar';
 import { Sidebar } from './components/layout/Sidebar';
@@ -12,6 +12,7 @@ import { GlobalSearchModal } from './components/layout/GlobalSearchModal';
 import { QuickActionFab } from './components/layout/QuickActionFab';
 import { QrScannerModal } from './components/common/QrScannerModal';
 import { AiAssistantModal } from './components/ai/AiAssistantModal';
+import { BackToTopButton } from './components/common/BackToTopButton';
 
 // Modals
 import { StockInModal } from './components/inventory/StockInModal';
@@ -50,6 +51,7 @@ const MainLayout: React.FC = () => {
   const [isStockOutModalOpen, setIsStockOutModalOpen] = useState(false);
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
   const [isAddAssetModalOpen, setIsAddAssetModalOpen] = useState(false);
+  const mainRef = useRef<HTMLElement>(null);
 
   // Arahkan ke dashboard yang sesuai role jika view dashboard yang dibuka bukan miliknya
   useEffect(() => {
@@ -91,7 +93,7 @@ const MainLayout: React.FC = () => {
         </div>
 
         {/* Main View Port */}
-        <main className="flex-1 overflow-y-auto p-3 sm:p-6 lg:p-8 pb-28 md:pb-8 w-full print:p-0 print:m-0 print:max-w-none print:overflow-visible">
+        <main ref={mainRef} className="flex-1 overflow-y-auto p-3 sm:p-6 lg:p-8 pb-28 md:pb-8 w-full print:p-0 print:m-0 print:max-w-none print:overflow-visible">
           {syncError && (
             <div role="alert" className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-200">
               Sinkronisasi server gagal: {syncError}
@@ -160,6 +162,8 @@ const MainLayout: React.FC = () => {
           onOpenAddAsset={() => setIsAddAssetModalOpen(true)}
         />
       </div>
+
+      <BackToTopButton containerRef={mainRef} />
 
       {/* Mobile Bottom Navigation Bar (Phone & Tablet) */}
       <div className="no-print">
