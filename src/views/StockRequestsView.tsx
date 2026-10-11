@@ -6,6 +6,7 @@ import { StockRequestModal } from '../components/inventory/StockRequestModal';
 import { OfficialLetterhead } from '../components/common/OfficialLetterhead';
 import { ReportSignatureBlock } from '../components/common/ReportSignatureBlock';
 import { triggerPrint } from '../utils/printHelper';
+import { isPimpinanUser } from '../utils/rbac';
 import {
   ClipboardList,
   Plus,
@@ -41,6 +42,9 @@ const getRequestItems = (request: InventoryRequest): InventoryRequestItem[] => r
 
 export const StockRequestsView: React.FC = () => {
   const { requests, inventoryItems, updateRequestStatus, deleteInventoryRequest, currentUser, hasPermission } = useApp();
+  // Pimpinan hanya memantau; Pemohon tidak memiliki kewenangan keputusan.
+  const canApproveRequests = hasPermission('approveRequests') && !isPimpinanUser(currentUser);
+  const canReviewRequests = canApproveRequests || hasPermission('manageInventory');
 
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -475,7 +479,7 @@ export const StockRequestsView: React.FC = () => {
                     </button>
 
                     <div className="flex items-center gap-1.5 flex-wrap justify-end">
-                      {req.status === 'Diajukan' && (
+                      {req.status === 'Diajukan' && canReviewRequests && (
                         <>
                           <button
                             onClick={() => updateRequestStatus(req.id, 'Diverifikasi')}
@@ -493,7 +497,7 @@ export const StockRequestsView: React.FC = () => {
                       )}
 
                       {req.status === 'Diverifikasi' && (
-                        hasPermission('approveRequests') ? (
+                        canApproveRequests ? (
                           <>
                             <button
                               onClick={() => handleOpenApproveDialog(req)}
@@ -682,7 +686,7 @@ export const StockRequestsView: React.FC = () => {
                           </button>
 
                           {/* Workflow progression */}
-                          {req.status === 'Diajukan' && (
+                          {req.status === 'Diajukan' && canReviewRequests && (
                             <>
                               <button
                                 onClick={() => updateRequestStatus(req.id, 'Diverifikasi')}
@@ -702,7 +706,7 @@ export const StockRequestsView: React.FC = () => {
                           )}
 
                           {req.status === 'Diverifikasi' && (
-                            hasPermission('approveRequests') ? (
+                            canApproveRequests ? (
                               <>
                                 <button
                                   onClick={() => handleOpenApproveDialog(req)}

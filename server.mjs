@@ -9,6 +9,7 @@ import { createCloudflareAccessMiddleware, createCloudflareAccessVerifier } from
 import { assertOperationalSchema, readOperationalState } from './operationalStore.mjs';
 import { writeOperationalState } from './operationalWrites.mjs';
 import { sendWhatsAppMessage } from './whatsappService.mjs';
+import { validateRequestAuthorization } from './requestAccess.mjs';
 import { sendTwilioWhatsAppMessage } from './twilioWhatsAppService.mjs';
 import { createWhatsAppService } from './whatsapp/service.mjs';
 import { getWhatsAppConfig } from './whatsapp/config.mjs';
@@ -1052,6 +1053,8 @@ app.put('/api/state', requireUser, asyncRoute(async (request, response) => {
       if (relationError) return { status: 400, body: { error: relationError } };
       const requestError = validateInventoryRequests(currentState, state);
       if (requestError) return { status: 400, body: { error: requestError } };
+      const requestAuthError = validateRequestAuthorization(request.user, currentState.requests, state.requests, (u, p) => userHasPermission(u, p, currentState));
+      if (requestAuthError) return { status: 403, body: { error: requestAuthError } };
       const stockInError = validateStockInWorkflow(currentState, state);
       if (stockInError) return { status: 400, body: { error: stockInError } };
       for (const key of collections) {

@@ -38,7 +38,7 @@ import {
 } from '../data/initialData';
 import { getAssetPhotoUrl, getInventoryPhotoUrl } from '../utils/assetImages';
 import { DashboardFilters, DEFAULT_DASHBOARD_FILTERS } from '../utils/dashboardFilters';
-import { getHomeView } from '../utils/rbac';
+import { getHomeView, isPimpinanUser } from '../utils/rbac';
 
 export type ActiveView =
   | 'landing'
@@ -1392,6 +1392,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   ) => {
     const target = requests.find(r => r.id === id);
     if (!target) return { success: false, message: 'Permohonan tidak ditemukan' };
+    const canApprove = hasPermission('approveRequests') && !isPimpinanUser(currentUser);
+    const canManage = hasPermission('manageInventory');
+    const allowed = status === 'Disetujui' || (status === 'Ditolak' && target.status === 'Diverifikasi')
+      ? canApprove
+      : canApprove || canManage;
+    if (!allowed) return { success: false, message: 'Anda tidak berwenang mengubah status permohonan ini.' };
 
     const approvedQty = jumlahDisetujui !== undefined
       ? jumlahDisetujui
