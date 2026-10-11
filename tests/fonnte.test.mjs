@@ -238,6 +238,27 @@ test('Fonnte webhook checks its shared secret and processes an inbox message onl
   });
   assert.equal(denied.status, 401);
 
+  const { secret: _omitted, ...payloadWithoutSecret } = payload;
+  const deniedQuery = await fetch(`${url}?secret=wrong-secret`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payloadWithoutSecret)
+  });
+  assert.equal(deniedQuery.status, 401);
+
+  const acceptedQuery = await fetch(`${url}?secret=${encodeURIComponent(process.env.FONNTE_WEBHOOK_SECRET)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...payloadWithoutSecret, inboxid: 'inbox-test-query' })
+  });
+  assert.equal(acceptedQuery.status, 200);
+  for (let attempt = 0; attempt < 50 && outboundCount === 0; attempt += 1) {
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  assert.equal(outboundCount, 1);
+  outboundCount = 0;
+  processed.clear();
+
   const accepted = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

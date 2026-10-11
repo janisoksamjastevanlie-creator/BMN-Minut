@@ -201,7 +201,9 @@ export async function createWhatsAppService({
       if (!request.is('application/json')) return response.sendStatus(415);
       let payload;
       try { payload = JSON.parse(raw.toString('utf8')); } catch { return response.sendStatus(400); }
-      if (typeof payload?.secret !== 'string' || !safeEqual(payload.secret, config.fonnte.webhookSecret)) {
+      const providedSecret = typeof payload?.secret === 'string' ? payload.secret
+        : typeof request.query?.secret === 'string' ? request.query.secret : null;
+      if (providedSecret === null || !safeEqual(providedSecret, config.fonnte.webhookSecret)) {
         return response.sendStatus(401);
       }
       const message = parseFonnteWebhookMessage(payload);
