@@ -474,7 +474,7 @@ export const InventoryView: React.FC = () => {
           </div>
         )}
 
-        <div className="max-h-[65vh] overflow-auto overscroll-contain">
+        <div className="h-[min(65vh,720px)] overflow-auto overscroll-contain">
           <table className="w-full min-w-[900px] text-left">
             <thead className="sticky top-0 z-10 bg-slate-950 text-[10px] uppercase tracking-wider text-slate-400">
               <tr>
