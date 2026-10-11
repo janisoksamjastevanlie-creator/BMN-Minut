@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AppProvider, useApp, ActiveView } from './context/AppContext';
 import { Navbar } from './components/layout/Navbar';
 import { Sidebar } from './components/layout/Sidebar';
@@ -40,7 +40,7 @@ import { AuditTrailView } from './views/AuditTrailView';
 import { UsersView } from './views/UsersView';
 import { SettingsView } from './views/SettingsView';
 import { AccessDeniedView } from './views/AccessDeniedView';
-import { canAccessView } from './utils/rbac';
+import { canAccessView, getHomeView } from './utils/rbac';
 
 const MainLayout: React.FC = () => {
   const { activeView, currentUser, setActiveView, hasPermission, isInitializing, syncError } = useApp();
@@ -50,6 +50,14 @@ const MainLayout: React.FC = () => {
   const [isStockOutModalOpen, setIsStockOutModalOpen] = useState(false);
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
   const [isAddAssetModalOpen, setIsAddAssetModalOpen] = useState(false);
+
+  // Arahkan ke dashboard yang sesuai role jika view dashboard yang dibuka bukan miliknya
+  useEffect(() => {
+    if (!currentUser) return;
+    if ((activeView === 'dashboard' || activeView === 'executive') && !canAccessView(activeView, hasPermission, currentUser)) {
+      setActiveView(getHomeView(currentUser));
+    }
+  }, [activeView, currentUser, hasPermission, setActiveView]);
 
   if (isInitializing) {
     return (

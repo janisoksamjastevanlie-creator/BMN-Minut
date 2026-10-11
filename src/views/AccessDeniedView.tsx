@@ -1,6 +1,6 @@
 import React from 'react';
 import { useApp } from '../context/AppContext';
-import { VIEW_ACCESS_CONFIGS, getFirstAllowedView } from '../utils/rbac';
+import { VIEW_ACCESS_CONFIGS, getFirstAllowedView, getHomeView } from '../utils/rbac';
 import {
   ShieldAlert,
   Lock,
@@ -139,7 +139,7 @@ export const AccessDeniedView: React.FC = () => {
           </button>
 
           <button
-            onClick={() => setActiveView('dashboard')}
+            onClick={() => setActiveView(getHomeView(currentUser))}
             className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition-colors"
           >
             Buka Dashboard

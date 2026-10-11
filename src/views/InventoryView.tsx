@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { InventoryItem, StockInTransaction } from '../types';
 import { StockInModal } from '../components/inventory/StockInModal';
@@ -46,6 +46,7 @@ export const InventoryView: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 12;
+  const masterListRef = useRef<HTMLDivElement>(null);
 
   // Modals
   const [isStockInOpen, setIsStockInOpen] = useState(false);
@@ -164,6 +165,16 @@ export const InventoryView: React.FC = () => {
   };
 
   const lowStockItems = inventoryItems.filter(i => i.status === 'Menipis' || i.status === 'Habis');
+
+  // Filter daftar berada jauh di bawah banner, sehingga perlu direset dan digulir agar hasilnya terlihat.
+  const handleReviewLowStock = () => {
+    setSearchQuery('');
+    setActiveTab('LOW');
+    setCurrentPage(1);
+    window.setTimeout(() => {
+      masterListRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 0);
+  };
   const filteredStockIn = stockInList.filter(tx => {
     const status = tx.status || 'HISTORICAL';
     if (stockInStatusFilter !== 'ALL' && status !== stockInStatusFilter) return false;
@@ -234,7 +245,7 @@ export const InventoryView: React.FC = () => {
               className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors shadow-md shadow-indigo-600/20"
             >
               <Plus className="w-4 h-4" />
-              <span>+ Tambah Barang</span>
+              <span>Tambah Barang</span>
             </button>
           )}
 
@@ -310,7 +321,7 @@ export const InventoryView: React.FC = () => {
           </div>
 
           <button
-            onClick={() => setActiveTab('LOW')}
+            onClick={handleReviewLowStock}
             className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded-xl whitespace-nowrap transition-colors flex items-center gap-1.5 self-start md:self-auto"
           >
             <span>Tinjau Barang Menipis</span>
@@ -486,7 +497,7 @@ export const InventoryView: React.FC = () => {
       </section>
 
       {/* Tabs & Search Bar */}
-      <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl space-y-3">
+      <div ref={masterListRef} className="bg-slate-900 border border-slate-800 p-4 rounded-2xl space-y-3 scroll-mt-4">
         <div className="flex flex-col md:flex-row items-center justify-between gap-3">
           {/* Tabs */}
           <div className="flex items-center gap-1.5 overflow-x-auto w-full md:w-auto pb-1 md:pb-0">

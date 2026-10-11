@@ -131,7 +131,7 @@ export const QuickActionFab: React.FC<{
         className="px-4 py-3 rounded-full bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white font-bold text-xs shadow-xl shadow-blue-600/30 flex items-center gap-2 transition-all hover:scale-105"
       >
         {isQuickActionOpen ? <X className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
-        <span>+ TRANSAKSI</span>
+        <span>TRANSAKSI</span>
       </button>
     </div>
   );

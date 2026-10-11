@@ -38,6 +38,7 @@ import {
 } from '../data/initialData';
 import { getAssetPhotoUrl, getInventoryPhotoUrl } from '../utils/assetImages';
 import { DashboardFilters, DEFAULT_DASHBOARD_FILTERS } from '../utils/dashboardFilters';
+import { getHomeView } from '../utils/rbac';
 
 export type ActiveView =
   | 'landing'
@@ -635,7 +636,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       await loadSessionData(result.user);
       setSyncError(null);
-      setActiveView('dashboard');
+      setActiveView(getHomeView(result.user));
     } catch (error) {
       await fetch('/api/auth/logout', { method: 'POST' });
       setCurrentUser(null);

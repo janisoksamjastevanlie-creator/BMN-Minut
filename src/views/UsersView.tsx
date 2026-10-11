@@ -838,7 +838,7 @@ export const UsersView: React.FC = () => {
               className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-all shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2 min-h-[40px]"
             >
               <UserPlus className="w-4 h-4" />
-              <span>+ Tambah Pengguna Baru</span>
+              <span>Tambah Pengguna Baru</span>
             </button>
           ) : (
             <button
@@ -1422,7 +1422,7 @@ export const UsersView: React.FC = () => {
                 className="px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-all shadow-lg shadow-purple-600/30 flex items-center gap-2 shrink-0"
               >
                 <Plus className="w-4 h-4" />
-                <span>+ Buat Role Baru</span>
+                <span>Buat Role Baru</span>
               </button>
             </div>
           </div>

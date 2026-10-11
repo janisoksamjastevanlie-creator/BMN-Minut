@@ -256,7 +256,7 @@ export const StockRequestsView: React.FC = () => {
             className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-2 transition-colors shadow-lg shadow-indigo-600/20 w-fit"
           >
             <Plus className="w-4 h-4" />
-            <span>+ Buat Permohonan ATK/ARK</span>
+            <span>Buat Permohonan ATK/ARK</span>
           </button>
         )}
       </div>

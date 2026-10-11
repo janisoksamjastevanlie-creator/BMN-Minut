@@ -1,6 +1,6 @@
 import React from 'react';
 import { useApp, ActiveView } from '../../context/AppContext';
-import { canAccessView } from '../../utils/rbac';
+import { canAccessView, getHomeView } from '../../utils/rbac';
 import {
   LayoutDashboard,
   Boxes,
@@ -31,7 +31,8 @@ export const MobileBottomNav: React.FC = () => {
   const isHomeActive = activeView === 'dashboard' || activeView === 'executive';
 
   // Check permissions
-  const canSeeDashboard = canAccessView('dashboard', hasPermission, currentUser);
+  const homeView = getHomeView(currentUser);
+  const canSeeDashboard = canAccessView(homeView, hasPermission, currentUser);
   const canSeeBmn = canAccessView('assets', hasPermission, currentUser);
   const canSeeInv = canAccessView('inventory', hasPermission, currentUser);
   const canSeeReq = canAccessView('requests', hasPermission, currentUser);
@@ -46,7 +47,7 @@ export const MobileBottomNav: React.FC = () => {
         {canSeeDashboard && (
           <button
             onClick={() => {
-              setActiveView('dashboard');
+              setActiveView(homeView);
               if (isMobileMenuOpen) setIsMobileMenuOpen(false);
             }}
             className={`flex flex-col items-center justify-center h-full min-h-[44px] transition-colors relative py-1 ${
@@ -54,7 +55,7 @@ export const MobileBottomNav: React.FC = () => {
             }`}
           >
             <div className={`p-1 rounded-xl transition-all ${isHomeActive ? 'bg-blue-500/20 shadow-sm' : ''}`}>
-              <LayoutDashboard className="w-5 h-5 shrink-0" />
+              {homeView === 'executive' ? <Crown className="w-5 h-5 shrink-0" /> : <LayoutDashboard className="w-5 h-5 shrink-0" />}
             </div>
             <span className="text-[10px] tracking-tight mt-0.5 font-medium truncate max-w-full px-1">
               Beranda
@@ -140,24 +141,7 @@ export const MobileBottomNav: React.FC = () => {
               <span className="absolute top-1 w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
             )}
           </button>
-        ) : (
-          <button
-            onClick={() => {
-              setActiveView('executive');
-              if (isMobileMenuOpen) setIsMobileMenuOpen(false);
-            }}
-            className={`flex flex-col items-center justify-center h-full min-h-[44px] transition-colors relative py-1 ${
-              activeView === 'executive' ? 'text-purple-400 font-bold' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <div className={`p-1 rounded-xl transition-all ${activeView === 'executive' ? 'bg-purple-500/20 shadow-sm' : ''}`}>
-              <Crown className="w-5 h-5 shrink-0" />
-            </div>
-            <span className="text-[10px] tracking-tight mt-0.5 font-medium truncate max-w-full px-1">
-              Pimpinan
-            </span>
-          </button>
-        )}
+        ) : null}
 
         {/* 5. Menu Drawer Trigger */}
         <button

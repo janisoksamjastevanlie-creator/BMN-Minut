@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { getHomeView } from '../../utils/rbac';
 import {
   Search,
   Bell,
@@ -56,7 +57,7 @@ export const Navbar: React.FC = () => {
 
           {/* Official Emblem Placeholder for BPS Kabupaten Minahasa Utara */}
           <div
-            onClick={() => setActiveView('dashboard')}
+            onClick={() => setActiveView(getHomeView(currentUser))}
             className="cursor-pointer flex items-center gap-2.5 sm:gap-3 group"
           >
             <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-blue-700 via-blue-600 to-indigo-800 p-0.5 shadow-md shadow-blue-900/30 group-hover:scale-105 transition-transform shrink-0">

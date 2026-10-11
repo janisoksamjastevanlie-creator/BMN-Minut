@@ -173,6 +173,12 @@ export const VIEW_ACCESS_CONFIGS: Record<ActiveView, ViewAccessConfig> = {
   }
 };
 
+export const isPimpinanUser = (user?: User | null): boolean =>
+  String(user?.role ?? '').trim().toLowerCase() === 'pimpinan';
+
+export const getHomeView = (user?: User | null): ActiveView =>
+  isPimpinanUser(user) ? 'executive' : 'dashboard';
+
 export const canAccessView = (
   view: ActiveView,
   hasPermission: (perm: keyof RolePermissions) => boolean,
@@ -180,6 +186,10 @@ export const canAccessView = (
 ): boolean => {
   if (view === 'landing' || view === 'login') return true;
   if (!currentUser) return false;
+
+  // Dashboard Pimpinan hanya untuk Pimpinan, Dashboard Utama untuk selain Pimpinan
+  if (view === 'executive' && !isPimpinanUser(currentUser)) return false;
+  if (view === 'dashboard' && isPimpinanUser(currentUser)) return false;
 
   // Administrator has absolute access to every view
   if (currentUser.role === 'Administrator') return true;
@@ -205,8 +215,7 @@ export const getFirstAllowedView = (
   currentUser?: User | null
 ): ActiveView => {
   const priorityOrder: ActiveView[] = [
-    'dashboard',
-    'executive',
+    getHomeView(currentUser),
     'assets',
     'inventory',
     'requests',
@@ -219,5 +228,5 @@ export const getFirstAllowedView = (
       return v;
     }
   }
-  return 'dashboard';
+  return getHomeView(currentUser);
 };

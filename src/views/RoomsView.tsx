@@ -225,7 +225,7 @@ export const RoomsView: React.FC = () => {
             className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-2 transition-all shadow-lg shadow-blue-600/30"
           >
             <Plus className="w-4 h-4" />
-            <span>+ Buat Ruangan Baru</span>
+            <span>Buat Ruangan Baru</span>
           </button>
         </div>
       </div>

@@ -55,7 +55,7 @@ export const AssetMapping3DView: React.FC = () => {
                 className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-md shadow-blue-600/30"
               >
                 <Plus className="w-4 h-4" />
-                <span>+ Buat Ruangan</span>
+                <span>Buat Ruangan</span>
               </button>
             </>
           )}

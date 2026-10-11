@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { BmnAsset, InventoryItem } from '../../types';
 import {
@@ -30,43 +30,135 @@ export const QrScannerModal: React.FC = () => {
     type: 'BMN' | 'PERSEDIAAN';
     item: BmnAsset | InventoryItem;
   } | null>(null);
+  const [isCameraOn, setIsCameraOn] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [notFoundCode, setNotFoundCode] = useState<string | null>(null);
 
-  if (!isQrScannerOpen) return null;
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const controlsRef = useRef<{ stop: () => void } | null>(null);
+  const sessionRef = useRef(0);
+  const handledRef = useRef(false);
 
-  const handleSimulateScan = (codeToScan?: string) => {
-    const code = (codeToScan || simulatedCode).trim();
+  const stopCamera = () => {
+    sessionRef.current += 1;
+    controlsRef.current?.stop();
+    controlsRef.current = null;
+    const video = videoRef.current;
+    const stream = video?.srcObject as MediaStream | null | undefined;
+    stream?.getTracks().forEach(track => track.stop());
+    if (video) video.srcObject = null;
+    setIsCameraOn(false);
+  };
+
+  useEffect(() => {
+    if (!isQrScannerOpen) {
+      stopCamera();
+      setScannedResult(null);
+      setNotFoundCode(null);
+      setCameraError(null);
+      setSimulatedCode('');
+    }
+  }, [isQrScannerOpen]);
+
+  useEffect(() => () => stopCamera(), []);
+
+  const lookupCode = (rawCode: string) => {
+    const code = rawCode.trim();
     if (!code) return;
+    const lower = code.toLowerCase();
 
-    // Check if matching BMN Asset by barcode, NUP, or id
     const foundAsset = assets.find(
       a =>
         a.barcode === code ||
         a.kodeBarang === code ||
         String(a.nup) === code ||
-        a.id.toLowerCase() === code.toLowerCase()
+        a.id.toLowerCase() === lower
     );
-
     if (foundAsset) {
+      setNotFoundCode(null);
       setScannedResult({ type: 'BMN', item: foundAsset });
       return;
     }
 
-    // Check if matching Inventory item by barcode or binCode
     const foundInv = inventoryItems.find(
       i =>
         i.barcode === code ||
-        i.binCode.toLowerCase() === code.toLowerCase() ||
+        i.binCode.toLowerCase() === lower ||
         i.kodeBarang === code
     );
-
     if (foundInv) {
+      setNotFoundCode(null);
       setScannedResult({ type: 'PERSEDIAAN', item: foundInv });
       return;
     }
 
-    // Fallback: pick first sample asset if custom query doesn't match
-    setScannedResult({ type: 'BMN', item: assets[0] });
+    setScannedResult(null);
+    setNotFoundCode(code);
   };
+
+  const startCamera = async () => {
+    setCameraError(null);
+    setScannedResult(null);
+    setNotFoundCode(null);
+    handledRef.current = false;
+
+    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+      setCameraError('Kamera tidak tersedia. Browser tidak mendukung akses kamera atau halaman tidak dibuka melalui HTTPS. Gunakan input kode manual.');
+      return;
+    }
+
+    stopCamera();
+    const session = ++sessionRef.current;
+    setIsCameraOn(true);
+
+    try {
+      const { BrowserMultiFormatReader } = await import('@zxing/browser');
+      if (session !== sessionRef.current || !videoRef.current) return;
+
+      const reader = new BrowserMultiFormatReader();
+      const controls = await reader.decodeFromConstraints(
+        { audio: false, video: { facingMode: { ideal: 'environment' } } },
+        videoRef.current,
+        (result, _error, ctrl) => {
+          if (!result || handledRef.current || session !== sessionRef.current) return;
+          handledRef.current = true;
+          ctrl.stop();
+          stopCamera();
+          lookupCode(result.getText());
+        }
+      );
+
+      if (session !== sessionRef.current) {
+        controls.stop();
+        return;
+      }
+      controlsRef.current = controls;
+    } catch (error) {
+      if (session !== sessionRef.current) return;
+      stopCamera();
+      const name = error instanceof DOMException ? error.name : '';
+      if (name === 'NotAllowedError' || name === 'SecurityError') {
+        setCameraError('Izin kamera ditolak. Izinkan akses kamera pada pengaturan browser lalu coba lagi.');
+      } else if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+        setCameraError('Kamera tidak ditemukan pada perangkat ini. Gunakan input kode manual.');
+      } else if (name === 'NotReadableError') {
+        setCameraError('Kamera sedang digunakan aplikasi lain. Tutup aplikasi tersebut lalu coba lagi.');
+      } else {
+        setCameraError('Pemindaian gagal dimulai. Coba lagi atau gunakan input kode manual.');
+      }
+    }
+  };
+
+  const closeScanner = () => {
+    stopCamera();
+    setIsQrScannerOpen(false);
+    setScannedResult(null);
+    setNotFoundCode(null);
+  };
+
+  if (!isQrScannerOpen) return null;
+
+  const handleSimulateScan = () => lookupCode(simulatedCode);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-150">
@@ -83,10 +175,8 @@ export const QrScannerModal: React.FC = () => {
             </div>
           </div>
           <button
-            onClick={() => {
-              setIsQrScannerOpen(false);
-              setScannedResult(null);
-            }}
+            onClick={closeScanner}
+            aria-label="Tutup pemindai"
             className="text-slate-400 hover:text-white"
           >
             <X className="w-5 h-5" />
@@ -96,19 +186,65 @@ export const QrScannerModal: React.FC = () => {
         {/* Camera Viewfinder View */}
         <div className="p-4 space-y-4">
           <div className="relative aspect-video w-full rounded-xl bg-slate-950 border-2 border-dashed border-slate-700 overflow-hidden flex flex-col items-center justify-center">
-            {/* Viewfinder crosshairs */}
-            <div className="w-48 h-48 border-2 border-cyan-400/80 rounded-2xl relative flex items-center justify-center shadow-lg shadow-cyan-500/10 animate-pulse">
-              <div className="w-full h-0.5 bg-cyan-400/80 absolute shadow-sm shadow-cyan-400 animate-bounce"></div>
-              <Camera className="w-10 h-10 text-cyan-400/40" />
-            </div>
-
-            <div className="absolute bottom-2 text-center text-[11px] text-slate-400 bg-slate-900/80 backdrop-blur-sm px-3 py-1 rounded-full">
-              Kamera aktif • Arahkan sensor ke QR Code atau Barcode
-            </div>
+            <video
+              ref={videoRef}
+              muted
+              playsInline
+              className={`absolute inset-0 w-full h-full object-cover ${isCameraOn ? '' : 'hidden'}`}
+            />
+            {isCameraOn ? (
+              <>
+                <div className="w-48 h-32 border-2 border-cyan-400/80 rounded-2xl relative z-10 pointer-events-none">
+                  <div className="w-full h-0.5 bg-cyan-400/80 absolute top-1/2 shadow-sm shadow-cyan-400"></div>
+                </div>
+                <div className="absolute bottom-2 z-10 text-center text-[11px] text-slate-200 bg-slate-900/80 backdrop-blur-sm px-3 py-1 rounded-full">
+                  Kamera aktif • Arahkan ke QR Code atau Barcode
+                </div>
+              </>
+            ) : (
+              <div className="flex flex-col items-center gap-3 px-4 text-center">
+                <Camera className="w-10 h-10 text-cyan-400/50" />
+                <button
+                  onClick={startCamera}
+                  className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold rounded-xl transition-colors flex items-center gap-1.5"
+                >
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>{scannedResult || notFoundCode ? 'Pindai Ulang' : 'Buka Kamera'}</span>
+                </button>
+              </div>
+            )}
           </div>
 
-          {/* Quick Simulation Input */}
-          <div className="flex items-center gap-2">
+          {isCameraOn && (
+            <button
+              onClick={stopCamera}
+              className="w-full py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition-colors"
+            >
+              Tutup Kamera
+            </button>
+          )}
+
+          {cameraError && (
+            <div role="alert" className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs text-rose-300 flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{cameraError}</span>
+            </div>
+          )}
+
+          {notFoundCode && (
+            <div role="alert" className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-200">
+              Kode <span className="font-mono font-bold">{notFoundCode}</span> tidak ditemukan pada data aset maupun persediaan. Silakan pindai ulang atau periksa kodenya.
+            </div>
+          )}
+
+          {/* Manual Input */}
+          <form
+            onSubmit={event => {
+              event.preventDefault();
+              handleSimulateScan();
+            }}
+            className="flex items-center gap-2"
+          >
             <input
               type="text"
               value={simulatedCode}
@@ -117,35 +253,12 @@ export const QrScannerModal: React.FC = () => {
               className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500"
             />
             <button
-              onClick={() => handleSimulateScan()}
+              type="submit"
               className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold rounded-xl transition-colors"
             >
               Cari
             </button>
-          </div>
-
-          {/* Quick Pick Samples */}
-          <div className="flex items-center gap-1.5 flex-wrap text-[11px]">
-            <span className="text-slate-400">Contoh Cepat:</span>
-            <button
-              onClick={() => handleSimulateScan(assets[0].barcode)}
-              className="px-2 py-0.5 rounded bg-slate-800 text-cyan-300 hover:bg-slate-700 font-mono"
-            >
-              Laptop NUP 1
-            </button>
-            <button
-              onClick={() => handleSimulateScan(assets[13].barcode)}
-              className="px-2 py-0.5 rounded bg-slate-800 text-cyan-300 hover:bg-slate-700 font-mono"
-            >
-              AC Daikin
-            </button>
-            <button
-              onClick={() => handleSimulateScan('WH-B-01-01')}
-              className="px-2 py-0.5 rounded bg-slate-800 text-amber-300 hover:bg-slate-700 font-mono"
-            >
-              Kertas A4 (Rak A)
-            </button>
-          </div>
+          </form>
 
           {/* Scanned Result Card */}
           {scannedResult && (
