@@ -28,7 +28,10 @@ export function validateRequestAuthorization(
 
   const previousById = new Map(previousRequests.map(item => [item.id, item]));
   const nextIds = new Set(nextRequests.map(item => item.id));
-  const previousAuditLogIds = new Set((previousAuditLogs || []).map(log => log.id));
+  const previousAuditLogIds = new Set(
+    (Array.isArray(previousAuditLogs) ? previousAuditLogs : []).map(log => log.id)
+  );
+  const auditLogs = Array.isArray(nextAuditLogs) ? nextAuditLogs : [];
 
   for (const old of previousRequests) {
     if (!nextIds.has(old.id) && !(canApprove || canManage)) {
@@ -39,7 +42,7 @@ export function validateRequestAuthorization(
       if (!canCancelOwnRequest) return 'Anda tidak berwenang menghapus permohonan barang.';
 
       const requiredPrefix = `Permohonan ${old.id} dibatalkan. Alasan: `;
-      const cancellationHasReason = (nextAuditLogs || []).some(log => {
+      const cancellationHasReason = auditLogs.some(log => {
         if (previousAuditLogIds.has(log.id) || log.userId !== user?.id ||
             log.aktivitas !== 'Pembatalan Permohonan Barang' ||
             typeof log.detail !== 'string' || !log.detail.startsWith(requiredPrefix)) {
