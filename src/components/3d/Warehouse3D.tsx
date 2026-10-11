@@ -6,7 +6,7 @@ import { Package, Layers, AlertTriangle, AlertCircle, CheckCircle2, ArrowRight, 
 
 export const Warehouse3D: React.FC<{ onSelectItem?: (item: InventoryItem) => void }> = ({ onSelectItem }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const { warehouseRacks, inventoryItems, performance3D, setActiveView, setIsQuickActionOpen, setSelectedInventoryItem } = useApp();
+  const { warehouseRacks, inventoryItems, performance3D, setActiveView, setIsQuickActionOpen, setSelectedInventoryItem, hasPermission } = useApp();
   const [selectedRackId, setSelectedRackId] = useState<string>('rack-a');
   const [hoveredRackName, setHoveredRackName] = useState<string | null>(null);
 
@@ -427,13 +427,15 @@ export const Warehouse3D: React.FC<{ onSelectItem?: (item: InventoryItem) => voi
             <span>Lihat Persediaan</span>
           </button>
 
-          <button
-            onClick={() => setIsQuickActionOpen(true)}
-            className="flex-1 py-2 px-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 shadow-lg shadow-amber-600/20"
-          >
-            <PlusCircle className="w-3.5 h-3.5" />
-            <span>Barang Masuk</span>
-          </button>
+          {hasPermission('manageInventory') && (
+            <button
+              onClick={() => setIsQuickActionOpen(true)}
+              className="flex-1 py-2 px-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 shadow-lg shadow-amber-600/20"
+            >
+              <PlusCircle className="w-3.5 h-3.5" />
+              <span>Barang Masuk</span>
+            </button>
+          )}
         </div>
       </div>
     </div>
