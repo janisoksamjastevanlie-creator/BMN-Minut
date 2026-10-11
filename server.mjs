@@ -11,6 +11,8 @@ import { writeOperationalState } from './operationalWrites.mjs';
 import { sendWhatsAppMessage } from './whatsappService.mjs';
 import { sendTwilioWhatsAppMessage } from './twilioWhatsAppService.mjs';
 import { createWhatsAppService } from './whatsapp/service.mjs';
+import { getWhatsAppConfig } from './whatsapp/config.mjs';
+import { createWebChat, WEB_CHAT_ERRORS } from './ai/webchat.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(root, '.env') });
@@ -975,6 +977,28 @@ app.get('/api/state', requireUser, asyncRoute(async (_request, response) => {
   const revisionRow = await queryOne(db, "SELECT value FROM app_meta WHERE `key` = 'revision'");
   const revision = Number(revisionRow?.value || 0);
   response.json({ state, initialized: state.users !== null, revision, dataBackend });
+}));
+
+const webChat = createWebChat({
+  config: getWhatsAppConfig(),
+  getCollection,
+  userHasPermission
+});
+const webChatHits = new Map();
+
+app.post('/api/ai/chat', requireUser, asyncRoute(async (request, response) => {
+  const now = Date.now();
+  const recent = (webChatHits.get(request.user.id) || []).filter(time => now - time < 60000);
+  if (recent.length >= 15) {
+    return response.status(429).json({ error: 'Terlalu banyak pertanyaan dalam waktu singkat. Tunggu sebentar lalu coba lagi.' });
+  }
+  recent.push(now);
+  webChatHits.set(request.user.id, recent);
+
+  const result = await webChat.answer(request.user, request.body?.messages);
+  if (result.reply) return response.json({ reply: result.reply });
+  const [status, message] = WEB_CHAT_ERRORS[result.error] || WEB_CHAT_ERRORS.upstream;
+  return response.status(status).json({ error: message, code: result.error });
 }));
 
 app.get('/api/inventory/:id/stock-card', requireUser, asyncRoute(async (request, response) => {

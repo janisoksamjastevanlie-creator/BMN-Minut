@@ -30,6 +30,7 @@ export const AiAssistantModal: React.FC = () => {
     }
   ]);
   const [isTyping, setIsTyping] = useState(false);
+  const [failedQuery, setFailedQuery] = useState<string | null>(null);
 
   if (!isAiAssistantOpen) return null;
 
@@ -108,10 +109,46 @@ export const AiAssistantModal: React.FC = () => {
     return `Berdasarkan database SIMAN-BMN per hari ini:\n- Total BMN: **${assets.length} unit** (Nilai Buku: Rp ${assets.reduce((sum, a) => sum + a.nilaiBuku, 0).toLocaleString('id-ID')})\n- Jenis Persediaan: **${inventoryItems.length} item** (ATK & ARK)\n- Transaksi Barang Keluar: **${stockOutList.length} kali**\n\nSilakan ajukan pertanyaan spesifik seperti "Berapa stok kertas A4?" atau "Ruangan mana yang asetnya paling banyak?".`;
   };
 
-  const handleSendMessage = () => {
-    if (!inputQuery.trim()) return;
+  const sendToAi = async (userText: string, history: ChatMessage[]) => {
+    setIsTyping(true);
+    setFailedQuery(null);
+    const conversation = history
+      .filter(m => m.id !== 'm-1')
+      .map(m => ({ role: m.sender === 'user' ? 'user' : 'assistant', content: m.text }));
 
-    const userText = inputQuery;
+    const pushAi = (text: string) => setMessages(prev => [
+      ...prev,
+      { id: `ai-${Date.now()}`, sender: 'ai', text, timestamp: 'Baru saja' }
+    ]);
+
+    try {
+      const response = await fetch('/api/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: conversation })
+      });
+      const body = await response.json().catch(() => ({}));
+      if (response.ok && typeof body.reply === 'string' && body.reply.trim()) {
+        pushAi(body.reply);
+      } else if (response.status === 503 || response.status === 401) {
+        // AI belum dikonfigurasi atau sesi berakhir: gunakan jawaban data lokal sebagai cadangan.
+        pushAi(`${answerQueryWithDatabase(userText)}\n\n_(Mode data dasar: ${body.error || 'layanan AI tidak tersedia.'})_`);
+      } else {
+        pushAi(`⚠️ ${body.error || 'Terjadi kesalahan saat memproses pertanyaan.'}`);
+        setFailedQuery(userText);
+      }
+    } catch {
+      pushAi('⚠️ Tidak dapat terhubung ke server. Periksa koneksi internet lalu coba lagi.');
+      setFailedQuery(userText);
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
+  const handleSendMessage = () => {
+    if (!inputQuery.trim() || isTyping) return;
+
+    const userText = inputQuery.trim();
     setInputQuery('');
 
     const newMsg: ChatMessage = {
@@ -122,19 +159,12 @@ export const AiAssistantModal: React.FC = () => {
     };
 
     setMessages(prev => [...prev, newMsg]);
-    setIsTyping(true);
+    void sendToAi(userText, [...messages, newMsg]);
+  };
 
-    setTimeout(() => {
-      const reply = answerQueryWithDatabase(userText);
-      const aiMsg: ChatMessage = {
-        id: `ai-${Date.now()}`,
-        sender: 'ai',
-        text: reply,
-        timestamp: 'Baru saja'
-      };
-      setMessages(prev => [...prev, aiMsg]);
-      setIsTyping(false);
-    }, 600);
+  const handleRetry = () => {
+    if (!failedQuery || isTyping) return;
+    void sendToAi(failedQuery, messages.filter(m => !m.text.startsWith('⚠️')));
   };
 
   return (
@@ -205,8 +235,17 @@ export const AiAssistantModal: React.FC = () => {
           {isTyping && (
             <div className="flex items-center gap-2 text-xs text-slate-400 italic">
               <Bot className="w-4 h-4 text-cyan-400 animate-spin" />
-              <span>Menghubungi database & menganalisis data...</span>
+              <span>Menganalisis data dan menyusun jawaban...</span>
             </div>
+          )}
+          {failedQuery && !isTyping && (
+            <button
+              onClick={handleRetry}
+              className="flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Coba Lagi</span>
+            </button>
           )}
         </div>
 
