@@ -45,6 +45,12 @@ test('WhatsApp store initializes InnoDB schema with MySQL keys and indexes', asy
   assert.doesNotMatch(ddl, /ON CONFLICT|INSERT OR IGNORE|AUTOINCREMENT/);
 });
 
+test('WhatsApp operational mode skips schema DDL', async () => {
+  const db = mockDatabase();
+  await createWhatsAppStore(db, { initializeSchema: false });
+  assert.equal(db.statements.length, 0);
+});
+
 test('WhatsApp store awaits idempotency writes and uses MySQL transactions for token redemption', async () => {
   const db = mockDatabase();
   const store = await createWhatsAppStore(db);

@@ -1,14 +1,20 @@
 # SIMAN BMN BPS Minut
 
+> **Status integrasi:** backend kini memiliki mode operasional yang menolak legacy mode di production, memvalidasi skema tanpa startup DDL/seeding, membaca tabel relasional, dan mengarahkan penyimpanan state melalui adapter transaksional. Namun integrasi itu belum lulus validasi menyeluruh di staging. Snapshot yang tersedia hanya skema tanpa data; akun, role, dan transaksi nyata belum dapat diuji. Cloudflare Access, domain HTTPS, Tunnel, dan URL publik juga belum dikonfigurasi atau diverifikasi. **Belum siap deploy.** Lihat [laporan kesiapan database operasional](./OPERATIONAL-DATABASE-READINESS.md) dan [deployment readiness checklist](./DEPLOYMENT-CHECKLIST.md).
+
 ## Menjalankan server dan menyimpan data bersama
 
-Backend memerlukan Node.js 22.5 atau lebih baru dan MySQL yang dapat dijangkau. Salin `.env.example` menjadi `.env`, atur koneksi MySQL (`DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`) beserta `ADMIN_NIP` dan kata sandi administrator unik minimal 12 karakter. Jangan membagikan atau memasukkan `.env` ke Git. Database dan tabel InnoDB dibuat saat server mulai; administrator bootstrap dibuat hanya jika belum ada.
+Mode server legacy hanya untuk pengembangan terisolasi. Backend memerlukan Node.js 22.5 atau lebih baru dan MySQL non-operasional yang dapat dijangkau. Mode ini membuat tabel `auth_users`, `sessions`, `app_data`, dan `app_meta`, serta dapat membuat akun bootstrap dari `ADMIN_NIP`/`ADMIN_PASSWORD`. Jangan gunakan kredensial atau database operasional. Jangan membagikan atau memasukkan `.env` ke Git.
+
+Untuk development lokal, `DB_PASSWORD` boleh kosong hanya jika akun MariaDB lokal memang telah diverifikasi menerima koneksi tanpa password; production selalu memerlukan password non-kosong.
 
 Jalankan `npm install`, `npm run dev`, lalu buka `http://localhost:3000`. Pilih administrator, lalu gunakan **Manajemen Pengguna** untuk menetapkan kata sandi minimal 12 karakter bagi tiap pegawai. Data aplikasi, sesi, dan catatan WhatsApp disimpan di MySQL, bukan di file lokal.
 
 ## Deployment Node.js ke Hostinger
 
-Project ini adalah aplikasi React/Vite dengan backend Node.js/Express dan MySQL melalui driver `mysql2/promise`. Backend memerlukan Node.js 22.5 atau lebih baru. `src/db/schema.sql` adalah skema rancangan PostgreSQL dan **bukan** skema aplikasi yang berjalan; server membuat skema MySQL yang dibutuhkannya sendiri. Pilih preset Express, branch `main`, Node.js `22.x`, dan root `./` pada layar deploy.
+> **Deployment belum diaktifkan.** Catatan Hostinger di bawah hanya menjelaskan bentuk runtime; jangan gunakan langkah lama yang membuat database kosong atau bootstrap akun. Production wajib memakai `DATA_BACKEND=operational`, skema operasional yang sudah disetujui, akun yang diprovisikan untuk pengguna nyata, Cloudflare Access, dan origin HTTPS yang diverifikasi. Jangan menghubungkan instance ini ke produksi atau mengaktifkan DNS/cutover sebelum ada persetujuan eksplisit.
+
+Project ini adalah aplikasi React/Vite dengan backend Node.js/Express dan MySQL melalui driver `mysql2/promise`. Backend memerlukan Node.js 22.5 atau lebih baru. `src/db/schema.sql` adalah skema rancangan PostgreSQL dan **bukan** skema aplikasi yang berjalan. Production memakai skema operasional yang sudah disiapkan manual; server tidak membuat atau memigrasikan skema saat startup.
 
 Hostinger menyebut Node.js web app tersedia untuk paket Business dan Cloud; fitur/limitasi dapat berubah. Verifikasi paket aktif, kemampuan menjalankan proses Express berkelanjutan, port yang disediakan, konektivitas ke MySQL Hostinger, kuota koneksi, dan opsi backup. Aplikasi tidak memerlukan penyimpanan disk persisten untuk database. Lihat [panduan Node.js app Hostinger](https://www.hostinger.com/support/how-to-deploy-a-nodejs-website-in-hostinger/) dan [versi Node.js yang didukung](https://www.hostinger.com/support/how-to-select-the-node-js-version-for-your-application/).
 
@@ -24,27 +30,35 @@ Server membaca `PORT` dari environment hosting dan, saat `NODE_ENV=production`, 
 
 ### Siapkan database dan rahasia sebelum deploy
 
-1. Buat database MySQL produksi kosong di hPanel serta database user dengan izin atas database tersebut. Gunakan host, port, nama database, username, dan password persis seperti yang ditampilkan Hostinger; jangan mengasumsikan host selalu `localhost`.
-2. **Deployment ini sengaja tidak memindahkan data lokal.** Jangan mengunggah file SQLite, menyalin dump/data lokal, atau mengimpor data contoh. Skema kosong dibuat otomatis pada startup. Untuk mencegah state browser lokal dikirim saat bootstrap pertama, lakukan login pertama dari profil browser bersih/private dan mulai dari database kosong.
+1. Jangan membuat database produksi kosong atau menunjuk aplikasi ke database produksi sebagai bagian dari runbook ini. Pastikan target staging/prod, host, port, nama database, dan akun koneksi telah diperiksa terpisah.
+2. Terapkan ekstensi skema hanya melalui prosedur migrasi manual yang disetujui dan diuji di staging. Jangan mengimpor data contoh. Backup yang tersedia saat ini schema-only, jadi pengujian data nyata tetap belum dapat dilakukan. Akun awal harus berasal dari pengguna operasional aktif dan diprovisikan secara eksplisit; startup tidak membuat akun.
 3. Isi environment variables di hPanel/secret manager, bukan di source code:
-   - `NODE_ENV=production`
-   - `DB_HOST`, `DB_PORT` (umumnya `3306`), `DB_USER`, `DB_PASSWORD`, dan `DB_NAME` dari konfigurasi MySQL Hostinger. `DB_CONNECTION_LIMIT` opsional (default `10`, maksimum `100`).
-   - `ADMIN_NIP` dan `ADMIN_PASSWORD` yang kuat (minimal 12 karakter). Kredensial bootstrap ditambahkan hanya jika belum ada; mengubah environment variable tidak akan mereset password database.
+   - `NODE_ENV=production` dan `DATA_BACKEND=operational`.
+   - `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, dan `DB_NAME` dari target database yang disetujui. `DB_CONNECTION_LIMIT` opsional (default `10`, maksimum `100`). Jangan gunakan `ADMIN_NIP`/`ADMIN_PASSWORD` untuk bootstrap production.
+   - `CLOUDFLARE_ACCESS_TEAM_DOMAIN` dan `CLOUDFLARE_ACCESS_AUD` dari administrator Cloudflare. Production gagal startup bila keduanya belum diisi.
    - `APP_PUBLIC_URL=https://<domain-anda>` agar tautan notifikasi tidak menunjuk ke localhost.
-   - `WHATSAPP_PROVIDER=fonnte`, `FONNTE_TOKEN`, `FONNTE_API_URL=https://api.fonnte.com/send`, serta `FONNTE_WEBHOOK_SECRET` (minimal 32 karakter acak) jika mengaktifkan Fonnte. Jangan menaruh nilai rahasia pada command build atau variable berawalan `VITE_`.
+   - Variabel WhatsApp provider yang telah dipilih hanya jika integrasi dikonfigurasi dan diuji. Jangan kirim pesan nyata selama pengujian tanpa persetujuan terpisah; jangan menaruh rahasia pada command build atau variable berawalan `VITE_`.
    - `PORT` biasanya disediakan hosting. Jangan override kecuali petunjuk Hostinger pada aplikasi Anda meminta nilai tertentu. `HOST` biasanya tidak perlu diisi karena production default ke `0.0.0.0`.
-4. Pastikan Hostinger mengizinkan koneksi aplikasi ke database MySQL dan kuota koneksi cukup untuk instance aplikasi. InnoDB transactions menjaga penulisan state, sesi, dan deduplikasi notifikasi tetap atomik.
+4. Pastikan host mendukung proses Node.js persisten, database dapat dijangkau secara privat, backup dapat dipulihkan, dan koneksi cukup. Uji transaksi InnoDB pada staging sebelum deployment.
 
 ### Deploy, uji, dan rollback
 
-1. Konfirmasi paket hPanel mendukung Node.js web app dan MySQL; buat backup database produksi kosong sebelum cutover dan verifikasi pemulihan melalui prosedur Hostinger.
+1. Konfirmasi paket hPanel mendukung Node.js web app persisten dan konektivitas database privat; siapkan backup produksi yang dapat dipulihkan tanpa menimpanya.
 2. Sambungkan GitHub `janisoksamjastevanlie-creator/BMN-Minut`, pilih `main`, preset Express, Node `22.x`, dan root `./`. Masukkan environment production pada pengaturan app sebelum start.
-3. Jalankan `npm run build`, lalu `npm start`. Periksa log startup dan `https://<domain-anda>/api/health`; respons sehat tidak membuktikan seluruh transaksi sudah berfungsi.
-4. Aktifkan SSL/HTTPS di hPanel. Uji login/logout, buat data produksi hanya secara sengaja, tambah/edit melalui akun uji yang diizinkan, reload, session cookie, dokumen/gambar, endpoint webhook, dan restart kemudian pastikan data tetap ada di MySQL. Uji dahulu pada staging; jangan melakukan transaksi percobaan pada data resmi.
-5. Daftarkan URL webhook Fonnte `https://<domain-anda>/api/whatsapp/webhook` hanya setelah HTTPS aktif dan `FONNTE_WEBHOOK_SECRET` cocok. Kirim pesan uji ke nomor yang diizinkan lalu periksa status provider dan log tanpa mencatat token.
+3. Setelah seluruh kriteria di [checklist deployment](./DEPLOYMENT-CHECKLIST.md) lulus, lakukan deployment hanya dengan persetujuan cutover terpisah. Uji `GET /api/health`; respons sehat hanya membuktikan reachability proses/database.
+4. Verifikasi HTTPS dan Cloudflare Access pada URL final, kemudian uji fitur terlebih dahulu pada staging. Jangan jalankan transaksi uji, ubah data produksi, atau mengaktifkan DNS tanpa persetujuan eksplisit.
+5. Daftarkan webhook provider hanya setelah HTTPS, secret webhook, dan kebijakan Access untuk endpoint webhook diuji. Jangan kirim pesan nyata tanpa persetujuan.
 6. Untuk rollback, hentikan app, pertahankan backup MySQL terkini, deploy ulang commit stabil sebelumnya melalui hPanel/Git, dan pulihkan backup yang sesuai hanya setelah aplikasi berhenti. Jangan restore backup lama di atas database yang lebih baru tanpa menilai kehilangan transaksi.
 
 Deployment/cutover online belum dilakukan atau diverifikasi oleh panduan ini. Verifikasi akses MySQL, koneksi/kuota, port reverse proxy, secret manager, dan opsi backup pada paket Hostinger aktual terlebih dahulu.
+
+### Menggunakan Groq untuk chatbot WhatsApp
+
+Atur `WHATSAPP_AI_PROVIDER=groq`, `GROQ_API_KEY`, `GROQ_MODEL`, dan `WHATSAPP_AI_ENABLED=true` pada `.env` lokal atau secret manager hosting. Gunakan API key dari Groq Console dan pastikan `GROQ_MODEL` masih tersedia pada akun Groq tersebut. Jangan menaruh API key pada frontend, Git, atau chat.
+
+Groq hanya menerima teks pertanyaan masuk (maksimal 500 karakter) untuk mengubahnya menjadi intent dan filter yang dibatasi allowlist. Groq tidak menerima isi koleksi/database BMN. Backend memuat ulang koleksi dari database yang dikonfigurasi sebelum memproses webhook, lalu mencari dan memformat jawaban melalui tool aplikasi yang memeriksa izin pengguna. Karena itu data jawaban mengikuti backend MySQL yang benar-benar dikonfigurasi; mode development `legacy` bukan database operasional. Tinjau kebijakan privasi Groq untuk pemrosesan teks pertanyaan sebelum mengaktifkan chatbot bagi pengguna nyata.
+
+Jika `WHATSAPP_AI_PROVIDER` tidak diisi, konfigurasi otomatis memilih Groq saat `GROQ_API_KEY` tersedia; selain itu tetap memakai Gemini untuk kompatibilitas lama. API key yang belum dikonfigurasi membuat status AI nonaktif dan tidak memicu panggilan eksternal.
 
 ### Catatan audit yang perlu ditangani
 

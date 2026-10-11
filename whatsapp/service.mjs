@@ -26,9 +26,16 @@ function localDateAndHour(date = new Date()) {
   return { date: `${get('year')}-${get('month')}-${get('day')}`, hour: Number(get('hour')) % 24 };
 }
 
-export async function createWhatsAppService({ db, getCollection, userHasPermission, requireUser, refreshCollections }) {
+export async function createWhatsAppService({
+  db,
+  getCollection,
+  userHasPermission,
+  requireUser,
+  refreshCollections,
+  initializeSchema = true
+}) {
   const config = getWhatsAppConfig();
-  const store = await createWhatsAppStore(db);
+  const store = await createWhatsAppStore(db, { initializeSchema });
   const provider = createProvider(config);
   const tools = createTools({ getCollection, userHasPermission });
   const classifyIntent = createIntentClassifier(config);
@@ -86,6 +93,7 @@ export async function createWhatsAppService({ db, getCollection, userHasPermissi
     const message = formatter.notification(title, lines, config.appBaseUrl);
     let sentCount = 0;
     let failedCount = 0;
+    let lastSendError;
     for (const account of await store.listAccounts()) {
       if (!account.notify_enabled) continue;
       const { user } = await resolveUser(account.user_id);
@@ -101,7 +109,8 @@ export async function createWhatsAppService({ db, getCollection, userHasPermissi
         await store.logMessage({ phone: account.phone, userId: user.id, direction: 'out', message: title, intent: 'REQUEST_NOTIFICATION', status: 'sent' });
         sentCount += 1;
       } catch (error) {
-        await store.finishNotification(eventKey, user.id, 'failed', error instanceof Error ? error.message : 'gagal');
+        lastSendError = error instanceof Error ? error.message.slice(0, 250) : 'Pengiriman WhatsApp gagal.';
+        await store.finishNotification(eventKey, user.id, 'failed', lastSendError);
         await store.logMessage({ phone: account.phone, userId: user.id, direction: 'out', message: title, intent: 'REQUEST_NOTIFICATION', status: 'failed' });
         await recordFailure(error);
         failedCount += 1;
@@ -110,7 +119,11 @@ export async function createWhatsAppService({ db, getCollection, userHasPermissi
     return {
       success: sentCount > 0 && failedCount === 0,
       sentCount,
-      error: sentCount === 0 ? 'Tidak ada penerima WhatsApp yang tertaut dan berwenang.' : undefined
+      error: failedCount > 0
+        ? lastSendError || 'Provider WhatsApp gagal mengirim pesan.'
+        : sentCount === 0
+          ? 'Tidak ada penerima WhatsApp yang tertaut dan berwenang.'
+          : undefined
     };
   }
 
@@ -290,7 +303,7 @@ export async function createWhatsAppService({ db, getCollection, userHasPermissi
       webhookPath: WEBHOOK_PATH,
       webhookStatus: config.inboundConfigured ? 'Siap menerima' : 'Belum dikonfigurasi',
       botNumber: config.botNumber ? maskPhone(config.botNumber) : null,
-      aiEnabled: config.aiEnabled && Boolean(config.geminiApiKey),
+      aiEnabled: config.aiConfigured,
       lastWebhookAt: await store.getMeta('whatsapp_last_webhook_at'),
       lastSuccessAt: lastSuccess,
       lastFailureAt: lastFailure,

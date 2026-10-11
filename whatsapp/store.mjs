@@ -17,7 +17,7 @@ export function extractLinkCode(text) {
   return match ? `BMN-${match[1]}` : null;
 }
 
-export async function createWhatsAppStore(db) {
+export async function createWhatsAppStore(db, { initializeSchema = true } = {}) {
   const schema = [
     `CREATE TABLE IF NOT EXISTS whatsapp_accounts (
       user_id VARCHAR(191) NOT NULL PRIMARY KEY,
@@ -70,7 +70,9 @@ export async function createWhatsAppStore(db) {
       INDEX idx_whatsapp_notifications_created (created_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
   ];
-  for (const statement of schema) await db.query(statement);
+  if (initializeSchema) {
+    for (const statement of schema) await db.query(statement);
+  }
 
   const queryRows = async (executor, sql, params = []) => {
     const [rows] = await executor.execute(sql, params);

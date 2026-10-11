@@ -57,6 +57,14 @@ export function getWhatsAppConfig(env = process.env) {
     : provider === 'twilio'
       ? Boolean(twilio.authToken)
       : fonnte.webhookSecret.length >= 32;
+  const groqApiKey = clean(env.GROQ_API_KEY);
+  const geminiApiKey = clean(env.GEMINI_API_KEY);
+  const aiProvider = clean(env.WHATSAPP_AI_PROVIDER).toLowerCase() || (groqApiKey ? 'groq' : 'gemini');
+  const aiEnabled = clean(env.WHATSAPP_AI_ENABLED).toLowerCase() !== 'false';
+  const aiConfigured = aiEnabled && (
+    (aiProvider === 'groq' && Boolean(groqApiKey)) ||
+    (aiProvider === 'gemini' && Boolean(geminiApiKey))
+  );
 
   return {
     provider,
@@ -72,9 +80,13 @@ export function getWhatsAppConfig(env = process.env) {
     appBaseUrl: (clean(env.APP_PUBLIC_URL) || `http://127.0.0.1:${env.PORT || 3000}`).replace(/\/+$/, ''),
     rateLimitMax: positiveInt(env.WHATSAPP_RATE_LIMIT_MAX, 15),
     rateLimitWindowMs: positiveInt(env.WHATSAPP_RATE_LIMIT_WINDOW_SECONDS, 60) * 1000,
-    geminiApiKey: clean(env.GEMINI_API_KEY),
+    aiProvider,
+    aiEnabled,
+    aiConfigured,
+    groqApiKey,
+    groqModel: clean(env.GROQ_MODEL) || 'llama-3.3-70b-versatile',
+    geminiApiKey,
     geminiModel: clean(env.WHATSAPP_AI_MODEL) || 'gemini-2.5-flash',
-    aiEnabled: clean(env.WHATSAPP_AI_ENABLED).toLowerCase() !== 'false',
     remindersEnabled: clean(env.WHATSAPP_REMINDERS_ENABLED).toLowerCase() !== 'false',
     reminderHour: Math.min(Math.max(positiveInt(env.WHATSAPP_REMINDER_HOUR, 8), 0), 23),
     maxMessageAgeMs: 15 * 60 * 1000

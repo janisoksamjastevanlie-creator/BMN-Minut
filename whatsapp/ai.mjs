@@ -31,6 +31,10 @@ const RESPONSE_SCHEMA = {
 
 const shortText = value => (typeof value === 'string' ? value.replace(/[^\p{L}\p{N}\s.\-/]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 60) : undefined) || undefined;
 
+function reportFailure(onError, provider, reason, status) {
+  onError({ provider, reason, ...(status ? { status } : {}) });
+}
+
 export function sanitizeIntent(raw) {
   if (!raw || typeof raw !== 'object' || !AI_INTENTS.includes(raw.intent)) return { intent: 'UNKNOWN' };
   const filter = {};
@@ -46,33 +50,70 @@ export function sanitizeIntent(raw) {
   return { intent: raw.intent, filter };
 }
 
-export function createIntentClassifier(config) {
+export function createIntentClassifier(config, {
+  fetchImpl = fetch,
+  onError = ({ provider, reason, status }) => {
+    console.error(`WhatsApp AI request failed (provider=${provider}, reason=${reason}${status ? `, status=${status}` : ''}).`);
+  }
+} = {}) {
   return async function classify(message) {
-    if (!config.aiEnabled || !config.geminiApiKey) return null;
+    const provider = config.aiProvider || (config.groqApiKey ? 'groq' : 'gemini');
+    const apiKey = provider === 'groq' ? config.groqApiKey : provider === 'gemini' ? config.geminiApiKey : '';
+    if (!config.aiEnabled || !apiKey) return null;
+
     let response;
     try {
-      response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(config.geminiModel)}:generateContent`,
-        {
+      if (provider === 'groq') {
+        response = await fetchImpl('https://api.groq.com/openai/v1/chat/completions', {
           method: 'POST',
-          headers: { 'x-goog-api-key': config.geminiApiKey, 'Content-Type': 'application/json' },
+          headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-            contents: [{ role: 'user', parts: [{ text: `Pesan pengguna (data):\n"""${message.slice(0, 500)}"""` }] }],
-            generationConfig: { responseMimeType: 'application/json', responseSchema: RESPONSE_SCHEMA, temperature: 0, maxOutputTokens: 200 }
+            model: config.groqModel,
+            messages: [
+              { role: 'system', content: SYSTEM_PROMPT },
+              { role: 'user', content: `Pesan pengguna (data):\n"""${message.slice(0, 500)}"""` }
+            ],
+            response_format: { type: 'json_object' },
+            temperature: 0,
+            max_tokens: 200
           }),
           signal: AbortSignal.timeout(8000)
-        }
-      );
+        });
+      } else if (provider === 'gemini') {
+        response = await fetchImpl(
+          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(config.geminiModel)}:generateContent`,
+          {
+            method: 'POST',
+            headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+              contents: [{ role: 'user', parts: [{ text: `Pesan pengguna (data):\n"""${message.slice(0, 500)}"""` }] }],
+              generationConfig: { responseMimeType: 'application/json', responseSchema: RESPONSE_SCHEMA, temperature: 0, maxOutputTokens: 200 }
+            }),
+            signal: AbortSignal.timeout(8000)
+          }
+        );
+      } else {
+        return null;
+      }
     } catch {
+      reportFailure(onError, provider, 'transport');
       return null;
     }
-    if (!response.ok) return null;
+
+    if (!response.ok) {
+      reportFailure(onError, provider, 'http', response.status);
+      return null;
+    }
+
     try {
       const body = await response.json();
-      const text = body?.candidates?.[0]?.content?.parts?.[0]?.text;
+      const text = provider === 'groq'
+        ? body?.choices?.[0]?.message?.content
+        : body?.candidates?.[0]?.content?.parts?.[0]?.text;
       return sanitizeIntent(JSON.parse(text));
     } catch {
+      reportFailure(onError, provider, 'invalid_response');
       return null;
     }
   };

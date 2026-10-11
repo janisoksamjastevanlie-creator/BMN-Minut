@@ -1,7 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { InventoryItem, InventoryType } from '../../types';
-import { getInventoryPhotoUrl, INVENTORY_PHOTO_PRESETS } from '../../utils/assetImages';
 import { X, Boxes, Check, Camera, Upload, Image as ImageIcon } from 'lucide-react';
 
 export const InventoryFormModal: React.FC<{
@@ -9,25 +8,30 @@ export const InventoryFormModal: React.FC<{
   onClose: () => void;
   initialItem?: InventoryItem | null;
 }> = ({ isOpen, onClose, initialItem }) => {
-  const { addInventoryItem, updateInventoryItem, warehouseRacks } = useApp();
+  const { addInventoryItem, updateInventoryItem } = useApp();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [kodeBarang, setKodeBarang] = useState(initialItem?.kodeBarang || '');
   const [nama, setNama] = useState(initialItem?.nama || '');
   const [jenis, setJenis] = useState<InventoryType>(initialItem?.jenis || 'ATK');
-  const [kategori, setKategori] = useState(initialItem?.kategori || 'Alat Tulis Kantor');
-  const [subkategori, setSubkategori] = useState(initialItem?.subkategori || 'Kertas & Kebutuhan Cetak');
-  const [satuan, setSatuan] = useState(initialItem?.satuan || 'Rim');
-  const [stokSaatIni, setStokSaatIni] = useState(initialItem?.stokSaatIni ? String(initialItem.stokSaatIni) : '25');
-  const [stokMinimum, setStokMinimum] = useState(initialItem?.stokMinimum ? String(initialItem.stokMinimum) : '10');
-  const [stokMaksimum, setStokMaksimum] = useState(initialItem?.stokMaksimum ? String(initialItem.stokMaksimum) : '100');
-  const [hargaSatuan, setHargaSatuan] = useState(initialItem?.hargaSatuan ? String(initialItem.hargaSatuan) : '55000');
-  const [rak, setRak] = useState(initialItem?.rak || 'Rak A');
-  const [binCode, setBinCode] = useState(initialItem?.binCode || 'WH-A-01-01');
+  const [kategori, setKategori] = useState(initialItem?.kategori || '');
+  const [subkategori, setSubkategori] = useState(initialItem?.subkategori || '');
+  const [satuan, setSatuan] = useState(initialItem?.satuan || '');
+  const [stokSaatIni, setStokSaatIni] = useState(initialItem ? String(initialItem.stokSaatIni) : '');
+  const [stokMinimum, setStokMinimum] = useState(initialItem ? String(initialItem.stokMinimum) : '');
+  const [stokMaksimum, setStokMaksimum] = useState(initialItem ? String(initialItem.stokMaksimum) : '');
+  const [hargaSatuan, setHargaSatuan] = useState(initialItem ? String(initialItem.hargaSatuan) : '');
+  const [rataRata, setRataRata] = useState(initialItem ? String(initialItem.ratarataPenggunaanBulanan) : '');
+  const [lokasiGudang, setLokasiGudang] = useState(initialItem?.lokasiGudang || '');
+  const [rak, setRak] = useState(initialItem?.rak || '');
+  const [shelf, setShelf] = useState(initialItem?.shelf || '');
+  const [binCode, setBinCode] = useState(initialItem?.binCode || '');
+  const [barcode, setBarcode] = useState(initialItem?.barcode || '');
   const [fotoUrl, setFotoUrl] = useState(initialItem?.fotoUrl || '');
 
   if (!isOpen) return null;
 
-  const currentPreviewPhoto = fotoUrl || (nama ? getInventoryPhotoUrl(nama, subkategori, jenis) : '');
+  const currentPreviewPhoto = fotoUrl;
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -42,13 +46,14 @@ export const InventoryFormModal: React.FC<{
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!nama.trim()) return;
+    const numericValues = [stokSaatIni, stokMinimum, stokMaksimum, hargaSatuan, rataRata].map(Number);
+    if (!kodeBarang.trim() || !nama.trim() || !kategori.trim() || !subkategori.trim() ||
+        !satuan.trim() || numericValues.some(value => !Number.isFinite(value) || value < 0)) return;
 
-    const currentStockNum = parseInt(stokSaatIni, 10) || 0;
-    const minStockNum = parseInt(stokMinimum, 10) || 5;
-    const maxStockNum = parseInt(stokMaksimum, 10) || 100;
-    const priceNum = parseInt(hargaSatuan, 10) || 0;
-    const finalPhoto = fotoUrl.trim() || getInventoryPhotoUrl(nama, subkategori, jenis);
+    const [currentStockNum, minStockNum, maxStockNum, priceNum, averageNum] = numericValues;
+    if (![currentStockNum, minStockNum, maxStockNum, averageNum].every(Number.isSafeInteger) ||
+        minStockNum > maxStockNum) return;
+    const finalPhoto = fotoUrl.trim() || initialItem?.fotoUrl || undefined;
 
     let status: 'Aman' | 'Menipis' | 'Habis' = 'Aman';
     if (currentStockNum === 0) status = 'Habis';
@@ -56,6 +61,7 @@ export const InventoryFormModal: React.FC<{
 
     if (initialItem) {
       updateInventoryItem(initialItem.id, {
+        kodeBarang: kodeBarang.trim(),
         nama,
         jenis,
         kategori,
@@ -65,16 +71,19 @@ export const InventoryFormModal: React.FC<{
         stokMinimum: minStockNum,
         stokMaksimum: maxStockNum,
         hargaSatuan: priceNum,
+        ratarataPenggunaanBulanan: averageNum,
+        lokasiGudang,
         rak,
+        shelf,
         binCode,
+        barcode: barcode.trim(),
         fotoUrl: finalPhoto
-      });
+      }, { recordStockAdjustment: true });
     } else {
-      const codeSuffix = Math.floor(1000 + Math.random() * 9000);
       addInventoryItem({
-        kodeBarang: `1.1.7.01.${jenis === 'ATK' ? '01' : '02'}.${codeSuffix}`,
+        kodeBarang: kodeBarang.trim(),
         nama,
-        kategori: jenis === 'ATK' ? 'Alat Tulis Kantor' : 'Alat Rumah Tangga Kantor',
+        kategori: kategori.trim(),
         subkategori,
         jenis,
         satuan,
@@ -84,13 +93,13 @@ export const InventoryFormModal: React.FC<{
         stokMaksimum: maxStockNum,
         hargaSatuan: priceNum,
         totalNilai: currentStockNum * priceNum,
-        lokasiGudang: 'Gudang Persediaan BPS Minut',
+        lokasiGudang,
         rak,
-        shelf: 'Shelf 01',
+        shelf,
         binCode,
-        barcode: `89971060${jenis === 'ATK' ? '1' : '2'}${codeSuffix}`,
+        barcode: barcode.trim(),
         status,
-        ratarataPenggunaanBulanan: Math.round(minStockNum * 1.5),
+        ratarataPenggunaanBulanan: averageNum,
         fotoUrl: finalPhoto
       });
     }
@@ -118,6 +127,20 @@ export const InventoryFormModal: React.FC<{
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+          <div>
+            <label className="text-[11px] font-semibold text-slate-300 block mb-1">
+              Kode Barang Persediaan <span className="text-rose-400">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              maxLength={50}
+              value={kodeBarang}
+              onChange={e => setKodeBarang(e.target.value)}
+              className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+            />
+          </div>
+
           {/* Nama Barang */}
           <div>
             <label className="text-[11px] font-semibold text-slate-300 block mb-1">
@@ -128,7 +151,6 @@ export const InventoryFormModal: React.FC<{
               required
               value={nama}
               onChange={e => setNama(e.target.value)}
-              placeholder="Contoh: Kertas HVS Sinar Dunia A4 80gr"
               className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-400 focus:outline-none focus:border-emerald-500"
             />
           </div>
@@ -142,15 +164,6 @@ export const InventoryFormModal: React.FC<{
                 onChange={e => {
                   const j = e.target.value as InventoryType;
                   setJenis(j);
-                  if (j === 'ATK') {
-                    setKategori('Alat Tulis Kantor');
-                    setSubkategori('Kertas & Kebutuhan Cetak');
-                    setRak('Rak A');
-                  } else {
-                    setKategori('Alat Rumah Tangga Kantor');
-                    setSubkategori('Perlengkapan Sanitasi');
-                    setRak('Rak D');
-                  }
                 }}
                 className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
               >
@@ -160,12 +173,27 @@ export const InventoryFormModal: React.FC<{
             </div>
 
             <div>
-              <label className="text-[11px] font-semibold text-slate-300 block mb-1">Subkategori / Kelompok</label>
+              <label className="text-[11px] font-semibold text-slate-300 block mb-1">Kategori Persediaan <span className="text-rose-400">*</span></label>
+              <input
+                type="text"
+                required
+                maxLength={100}
+                value={kategori}
+                onChange={e => setKategori(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-[11px] font-semibold text-slate-300 block mb-1">Subkategori / Kelompok <span className="text-rose-400">*</span></label>
               <select
                 value={subkategori}
+                required
                 onChange={e => setSubkategori(e.target.value)}
                 className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
               >
+                <option value="">Pilih subkategori</option>
                 {jenis === 'ATK' ? (
                   <>
                     <option value="Kertas & Kebutuhan Cetak">Kertas & Kebutuhan Cetak</option>
@@ -188,7 +216,6 @@ export const InventoryFormModal: React.FC<{
                   </>
                 )}
               </select>
-            </div>
           </div>
 
           {/* Satuan & Harga Satuan */}
@@ -197,9 +224,11 @@ export const InventoryFormModal: React.FC<{
               <label className="text-[11px] font-semibold text-slate-300 block mb-1">Satuan Hitung</label>
               <select
                 value={satuan}
+                required
                 onChange={e => setSatuan(e.target.value)}
                 className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
               >
+                <option value="">Pilih satuan</option>
                 <option value="Rim">Rim</option>
                 <option value="Pcs">Pcs</option>
                 <option value="Lusin">Lusin</option>
@@ -217,6 +246,9 @@ export const InventoryFormModal: React.FC<{
               <label className="text-[11px] font-semibold text-slate-300 block mb-1">Harga Satuan (Rp)</label>
               <input
                 type="number"
+                min="0"
+                step="0.01"
+                required
                 value={hargaSatuan}
                 onChange={e => setHargaSatuan(e.target.value)}
                 className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 font-mono"
@@ -231,6 +263,7 @@ export const InventoryFormModal: React.FC<{
               <input
                 type="number"
                 min="0"
+                required
                 value={stokSaatIni}
                 onChange={e => setStokSaatIni(e.target.value)}
                 className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white font-mono font-bold focus:outline-none focus:border-emerald-500"
@@ -241,7 +274,8 @@ export const InventoryFormModal: React.FC<{
               <label className="text-[11px] font-semibold text-slate-300 block mb-1">Stok Minimum</label>
               <input
                 type="number"
-                min="1"
+                min="0"
+                required
                 value={stokMinimum}
                 onChange={e => setStokMinimum(e.target.value)}
                 className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
@@ -252,7 +286,8 @@ export const InventoryFormModal: React.FC<{
               <label className="text-[11px] font-semibold text-slate-300 block mb-1">Stok Maksimum</label>
               <input
                 type="number"
-                min="1"
+                min="0"
+                required
                 value={stokMaksimum}
                 onChange={e => setStokMaksimum(e.target.value)}
                 className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
@@ -260,31 +295,74 @@ export const InventoryFormModal: React.FC<{
             </div>
           </div>
 
+          <div>
+            <label className="text-[11px] font-semibold text-slate-300 block mb-1">Rata-rata Pemakaian Bulanan</label>
+            <input
+              type="number"
+              min="0"
+              required
+              value={rataRata}
+              onChange={e => setRataRata(e.target.value)}
+              className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+            />
+          </div>
+
           {/* Lokasi Gudang & Bin */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-[11px] font-semibold text-slate-300 block mb-1">Lokasi Rak Gudang</label>
-              <select
-                value={rak}
-                onChange={e => setRak(e.target.value)}
+              <label className="text-[11px] font-semibold text-slate-300 block mb-1">Nama Gudang</label>
+              <input
+                type="text"
+                maxLength={100}
+                value={lokasiGudang}
+                onChange={e => setLokasiGudang(e.target.value)}
                 className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
-              >
-                {warehouseRacks.map(r => (
-                  <option key={r.id} value={r.code}>{r.name}</option>
-                ))}
-              </select>
+              />
             </div>
 
             <div>
-              <label className="text-[11px] font-semibold text-slate-300 block mb-1">Kode Bin / Baris Rak</label>
+              <label className="text-[11px] font-semibold text-slate-300 block mb-1">Kode Rak</label>
               <input
                 type="text"
+                maxLength={30}
+                value={rak}
+                onChange={e => setRak(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div>
+              <label className="text-[11px] font-semibold text-slate-300 block mb-1">Kode Shelf</label>
+              <input
+                type="text"
+                maxLength={30}
+                value={shelf}
+                onChange={e => setShelf(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div>
+              <label className="text-[11px] font-semibold text-slate-300 block mb-1">Kode Bin</label>
+              <input
+                type="text"
+                maxLength={50}
                 value={binCode}
                 onChange={e => setBinCode(e.target.value)}
-                placeholder="Misal: WH-A-01-05"
                 className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
               />
             </div>
+          </div>
+
+          <div>
+            <label className="text-[11px] font-semibold text-slate-300 block mb-1">Barcode (opsional)</label>
+            <input
+              type="text"
+              maxLength={100}
+              value={barcode}
+              onChange={e => setBarcode(e.target.value)}
+              className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+            />
           </div>
 
           {/* Foto Produk Persediaan */}
@@ -311,7 +389,7 @@ export const InventoryFormModal: React.FC<{
                     alt="Preview Persediaan"
                     className="w-full h-full object-cover"
                     onError={(e) => {
-                      (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1586075010923-2dd4570fb338?auto=format&fit=crop&w=600&q=80';
+                      setFotoUrl('');
                     }}
                   />
                 ) : (
@@ -341,18 +419,6 @@ export const InventoryFormModal: React.FC<{
                     <span>Unggah File Foto</span>
                   </button>
 
-                  <select
-                    onChange={(e) => {
-                      if (e.target.value) setFotoUrl(e.target.value);
-                    }}
-                    defaultValue=""
-                    className="px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-[11px] text-slate-300 focus:outline-none focus:border-emerald-500"
-                  >
-                    <option value="" disabled>Pilih Preset Foto Persediaan...</option>
-                    {INVENTORY_PHOTO_PRESETS.map((p, idx) => (
-                      <option key={idx} value={p.url}>{p.label}</option>
-                    ))}
-                  </select>
                 </div>
 
                 <input

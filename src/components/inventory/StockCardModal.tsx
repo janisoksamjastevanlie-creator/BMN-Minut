@@ -16,11 +16,49 @@ import {
   ArrowRight
 } from 'lucide-react';
 
+interface LedgerRow {
+  id?: string;
+  tanggal: string;
+  noTransaksi: string;
+  tipe: 'AWAL' | 'MASUK' | 'KELUAR' | 'SALDO_AWAL' | 'PENYESUAIAN_OPNAME';
+  masuk: number;
+  keluar: number;
+  saldo: number;
+  keterangan: string;
+  petugas: string;
+}
+
 export const StockCardModal: React.FC<{
   item: InventoryItem | null;
   onClose: () => void;
 }> = ({ item, onClose }) => {
-  const { stockInList, stockOutList } = useApp();
+  const { stockInList, stockOutList, dataBackend } = useApp();
+  const [operationalEntries, setOperationalEntries] = React.useState<LedgerRow[]>([]);
+  const [ledgerLoading, setLedgerLoading] = React.useState(false);
+  const [ledgerError, setLedgerError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!item || dataBackend !== 'operational') return;
+    const controller = new AbortController();
+    setOperationalEntries([]);
+    setLedgerError(null);
+    setLedgerLoading(true);
+    void fetch(`/api/inventory/${encodeURIComponent(item.id)}/stock-card`, { signal: controller.signal })
+      .then(async response => {
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Gagal memuat kartu stok.');
+        if (!Array.isArray(result.entries)) throw new Error('Format kartu stok dari server tidak valid.');
+        setOperationalEntries(result.entries);
+      })
+      .catch(error => {
+        if (error instanceof Error && error.name === 'AbortError') return;
+        setLedgerError(error instanceof Error ? error.message : 'Gagal memuat kartu stok.');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLedgerLoading(false);
+      });
+    return () => controller.abort();
+  }, [item?.id, dataBackend]);
 
   if (!item) return null;
 
@@ -34,18 +72,7 @@ export const StockCardModal: React.FC<{
   const itemOut = stockOutList.filter(s => s.itemId === item.id);
 
   // Combine into single chronological timeline
-  interface LedgerRow {
-    tanggal: string;
-    noTransaksi: string;
-    tipe: 'AWAL' | 'MASUK' | 'KELUAR';
-    masuk: number;
-    keluar: number;
-    saldo: number;
-    keterangan: string;
-    petugas: string;
-  }
-
-  const entries: LedgerRow[] = [
+  const legacyEntries: LedgerRow[] = [
     {
       tanggal: '2026-01-02',
       noTransaksi: 'INIT-2026',
@@ -88,7 +115,8 @@ export const StockCardModal: React.FC<{
   });
 
   // Sort by date ascending
-  entries.sort((a, b) => a.tanggal.localeCompare(b.tanggal));
+  legacyEntries.sort((a, b) => a.tanggal.localeCompare(b.tanggal));
+  const entries = dataBackend === 'operational' ? operationalEntries : legacyEntries;
 
   const handlePrint = () => {
     triggerPrint({ title: `Kartu_Stok_${item.kodeBarang}_${item.nama}_BPS_Minut`, orientation: 'landscape' });
@@ -188,6 +216,11 @@ export const StockCardModal: React.FC<{
               {pendingItemIn.length} penerimaan masih menunggu verifikasi dan belum dihitung sebagai stok masuk pada kartu ini.
             </div>
           )}
+          {ledgerError && (
+            <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-[11px] text-rose-200 print:hidden">
+              {ledgerError}
+            </div>
+          )}
           <div className="rounded-xl border border-slate-800 overflow-hidden print:border-black">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
@@ -203,8 +236,14 @@ export const StockCardModal: React.FC<{
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800 print:divide-gray-300 text-slate-300 print:text-black">
+                {ledgerLoading && (
+                  <tr><td colSpan={8} className="py-4 text-center text-slate-400">Memuat kartu stok operasional…</td></tr>
+                )}
+                {!ledgerLoading && !ledgerError && entries.length === 0 && (
+                  <tr><td colSpan={8} className="py-4 text-center text-slate-400">Belum ada mutasi stok yang tercatat.</td></tr>
+                )}
                 {entries.map((entry, idx) => (
-                  <tr key={idx} className="hover:bg-slate-900/40">
+                  <tr key={entry.id || `${entry.noTransaksi}:${entry.tanggal}:${idx}`} className="hover:bg-slate-900/40">
                     <td className="py-2.5 px-2.5 text-center font-mono text-slate-400 print:text-black">{idx + 1}</td>
                     <td className="py-2.5 px-3 text-slate-400 print:text-black whitespace-nowrap">{entry.tanggal}</td>
                     <td className="py-2.5 px-3 font-mono font-medium text-slate-300 print:text-black">{entry.noTransaksi}</td>

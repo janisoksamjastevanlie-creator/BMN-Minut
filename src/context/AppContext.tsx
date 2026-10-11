@@ -73,6 +73,7 @@ type StockInDetails = {
 
 interface AppContextType {
   currentUser: User | null;
+  dataBackend: 'legacy' | 'operational';
   isInitializing: boolean;
   syncError: string | null;
   login: (nip: string, password: string) => Promise<void>;
@@ -130,7 +131,7 @@ interface AppContextType {
   importAssets: (newAssets: Omit<BmnAsset, 'id'>[], mode?: 'append' | 'upsert') => { successCount: number; updatedCount: number };
   
   addInventoryItem: (item: Omit<InventoryItem, 'id'>) => void;
-  updateInventoryItem: (id: string, updates: Partial<InventoryItem>) => void;
+  updateInventoryItem: (id: string, updates: Partial<InventoryItem>, options?: { recordStockAdjustment?: boolean }) => void;
   // DITAMBAHKAN: penghapusan master persediaan berdasarkan ID.
   deleteInventoryItem: (id: string) => { success: boolean; message: string };
   importInventoryItems: (newItems: Omit<InventoryItem, 'id'>[], mode?: 'append' | 'upsert') => { successCount: number; updatedCount: number };
@@ -236,7 +237,7 @@ function normalizeNotificationIds(notifications: NotificationItem[]): Notificati
     }
 
     let id = notification.id;
-    if (usedIds.has(id)) {
+    if (id.length > 36 || usedIds.has(id)) {
       let firstHash = 0x811c9dc5;
       let secondHash = 0x811c9dc5;
       for (let index = 0; index < signature.length; index += 1) {
@@ -244,10 +245,12 @@ function normalizeNotificationIds(notifications: NotificationItem[]): Notificati
         firstHash = Math.imul(firstHash ^ code, 0x01000193);
         secondHash = Math.imul(secondHash ^ (code + index), 0x01000193);
       }
-      const suffix = `${(firstHash >>> 0).toString(36)}${(secondHash >>> 0).toString(36)}`;
+      const suffix = `${(firstHash >>> 0).toString(16).padStart(8, '0')}${(secondHash >>> 0).toString(16).padStart(8, '0')}`;
       let collision = 0;
       do {
-        id = `${notification.id}-${suffix}${collision ? `-${collision}` : ''}`;
+        const collisionSuffix = collision ? collision.toString(16).padStart(8, '0') : '';
+        const digest = `${suffix}${collisionSuffix}`.padEnd(32, '0').slice(0, 32);
+        id = `${digest.slice(0, 8)}-${digest.slice(8, 12)}-5${digest.slice(13, 16)}-a${digest.slice(17, 20)}-${digest.slice(20)}`;
         collision += 1;
       } while (usedIds.has(id) || reservedIds.has(id));
     }
@@ -262,6 +265,7 @@ function normalizeNotificationIds(notifications: NotificationItem[]): Notificati
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [dataBackend, setDataBackend] = useState<'legacy' | 'operational'>('legacy');
   const [authReady, setAuthReady] = useState(false);
   const [dataReady, setDataReady] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -296,7 +300,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     return OFFICE_ROOMS;
   });
-  const [warehouseRacks] = useState<WarehouseRack[]>(WAREHOUSE_RACKS);
+  const [warehouseRacks, setWarehouseRacks] = useState<WarehouseRack[]>(WAREHOUSE_RACKS);
   const [isRoomModalOpen, setIsRoomModalOpen] = useState(false);
   const [editingRoom, setEditingRoom] = useState<OfficeRoom | null>(null);
 
@@ -471,6 +475,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     if (Array.isArray(state.users)) setUsers(state.users as User[]);
     if (Array.isArray(state.roles)) setRoles(state.roles as RoleDefinition[]);
+    if (Array.isArray(state.warehouseRacks)) setWarehouseRacks(state.warehouseRacks as WarehouseRack[]);
   };
 
   const loadSessionData = async (authenticatedUser: User) => {
@@ -478,6 +483,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'Gagal memuat data terpusat.');
     revisionRef.current = result.revision;
+    setDataBackend(result.dataBackend === 'operational' ? 'operational' : 'legacy');
     if (!result.initialized) {
       if (authenticatedUser.role !== 'Administrator') {
         throw new Error('Database belum diinisialisasi. Administrator harus masuk terlebih dahulu.');
@@ -570,7 +576,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(event)
           }).then(async notificationResponse => {
-            const notificationResult = await notificationResponse.json();
+            const responseBody = await notificationResponse.text();
+            let notificationResult: { skipped?: boolean; success?: boolean; error?: string };
+            try {
+              notificationResult = JSON.parse(responseBody);
+            } catch {
+              const isHtml = /^\s*(?:<!doctype\s+html\b|<html\b)/i.test(responseBody);
+              throw new Error(isHtml
+                ? 'Server mengembalikan halaman HTML, bukan JSON. Di lokal, buka aplikasi melalui http://127.0.0.1:3000; untuk production, teruskan /api/* ke backend Node.js.'
+                : `Respons server notifikasi bukan JSON yang valid (HTTP ${notificationResponse.status}).`);
+            }
+            if (!notificationResult || typeof notificationResult !== 'object' || Array.isArray(notificationResult)) {
+              throw new Error(`Respons server notifikasi tidak valid (HTTP ${notificationResponse.status}).`);
+            }
             if (notificationResult.skipped) return;
             const success = notificationResponse.ok && notificationResult.success;
             pushNotification(
@@ -768,7 +786,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const logAudit = (aktivitas: string, modul: AuditLog['modul'], detail: string) => {
     const now = new Date();
     const newLog: AuditLog = {
-      id: `log-${Date.now()}`,
+      id: crypto.randomUUID(),
       userId: currentUser?.id || 'sys',
       userName: currentUser?.name || 'Sistem SIMAN',
       userRole: currentUser?.role || 'System',
@@ -776,7 +794,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       modul,
       tanggal: now.toISOString().split('T')[0],
       waktu: now.toLocaleTimeString('id-ID') + ' WITA',
-      ipAddress: '192.168.10.45',
+      ipAddress: '',
       detail
     };
     setAuditLogs(prev => [newLog, ...prev]);
@@ -785,7 +803,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Helper for notifications
   const pushNotification = (type: NotificationItem['type'], title: string, message: string, link?: string) => {
     const newNotif: NotificationItem = {
-      id: `notif-${crypto.randomUUID()}`,
+      id: crypto.randomUUID(),
       type,
       title,
       message,
@@ -913,7 +931,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const newId = `bmn-${Date.now()}`;
     const newAsset: BmnAsset = {
       ...assetData,
-      fotoUrl: assetData.fotoUrl || getAssetPhotoUrl(assetData.namaBarang, assetData.kategori),
+      fotoUrl: assetData.fotoUrl || undefined,
       id: newId
     };
     setAssets(prev => [newAsset, ...prev]);
@@ -971,14 +989,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const newItem: InventoryItem = {
       ...itemData,
       id: newId,
-      fotoUrl: itemData.fotoUrl || getInventoryPhotoUrl(itemData.nama, itemData.subkategori, itemData.jenis),
+      fotoUrl: itemData.fotoUrl || undefined,
       totalNilai: itemData.stokSaatIni * itemData.hargaSatuan
     };
     setInventoryItems(prev => [newItem, ...prev]);
     logAudit('Tambah Master Persediaan', 'PERSEDIAAN', `Penambahan barang persediaan: ${newItem.nama} (${newItem.jenis}) di ${newItem.binCode}`);
   };
 
-  const updateInventoryItem = (id: string, updates: Partial<InventoryItem>) => {
+  const updateInventoryItem = (
+    id: string,
+    updates: Partial<InventoryItem>,
+    options: { recordStockAdjustment?: boolean } = {}
+  ) => {
+    const current = inventoryItems.find(item => item.id === id);
+    if (options.recordStockAdjustment && current &&
+        updates.stokSaatIni !== undefined && updates.stokSaatIni !== current.stokSaatIni) {
+      logAudit(
+        'Penyesuaian Stok Master',
+        'PERSEDIAAN',
+        `Penyesuaian saldo ${current.nama} dari ${current.stokSaatIni} menjadi ${updates.stokSaatIni}.`
+      );
+    }
     setInventoryItems(prev =>
       prev.map(item => {
         if (item.id !== id) return item;
@@ -1263,7 +1294,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const nomorTx = `BK-BPS7106/2026/${String(stockOutList.length + sequenceOffset + 1).padStart(4, '0')}`;
 
     const newTx: StockOutTransaction = {
-      id: `sout-${crypto.randomUUID()}`,
+      id: crypto.randomUUID(),
       nomorTransaksi: nomorTx,
       tanggal: tgl,
       unitKerja: data.unitKerja,
@@ -1664,6 +1695,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     <AppContext.Provider
       value={{
         currentUser,
+        dataBackend,
         isInitializing: !authReady || (!!currentUser && !dataReady),
         syncError,
         login,

@@ -5,6 +5,9 @@ import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import express from 'express';
 import mysql from 'mysql2/promise';
+import { createCloudflareAccessMiddleware, createCloudflareAccessVerifier } from './cloudflareAccess.mjs';
+import { assertOperationalSchema, readOperationalState } from './operationalStore.mjs';
+import { writeOperationalState } from './operationalWrites.mjs';
 import { sendWhatsAppMessage } from './whatsappService.mjs';
 import { sendTwilioWhatsAppMessage } from './twilioWhatsAppService.mjs';
 import { createWhatsAppService } from './whatsapp/service.mjs';
@@ -15,6 +18,7 @@ const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST?.trim() || (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1');
 const adminNip = process.env.ADMIN_NIP?.trim();
 const adminPassword = process.env.ADMIN_PASSWORD;
+const configuredDataBackend = process.env.DATA_BACKEND?.trim().toLowerCase();
 const whatsappProvider = process.env.WHATSAPP_PROVIDER?.trim().toLowerCase() || 'meta';
 const whatsappPhoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID?.trim();
 const whatsappAccessToken = process.env.WHATSAPP_ACCESS_TOKEN;
@@ -23,23 +27,52 @@ const whatsappRecipientNumber = process.env.WHATSAPP_RECIPIENT_NUMBER?.trim().re
 if (!['meta', 'twilio', 'fonnte'].includes(whatsappProvider)) {
   throw new Error('WHATSAPP_PROVIDER harus bernilai meta, twilio, atau fonnte.');
 }
-if (!adminNip || !adminPassword || adminPassword.length < 12) {
-  throw new Error('Set ADMIN_NIP and an ADMIN_PASSWORD of at least 12 characters in .env before starting the server.');
-}
-if (adminPassword.startsWith('REPLACE_WITH_')) {
-  throw new Error('Replace the example ADMIN_PASSWORD in .env with a private password before starting the server.');
-}
-
 const dbHost = process.env.DB_HOST?.trim();
 const dbUser = process.env.DB_USER?.trim();
 const dbName = process.env.DB_NAME?.trim();
 const dbPort = Number(process.env.DB_PORT || 3306);
 const dbConnectionLimit = Number(process.env.DB_CONNECTION_LIMIT || 10);
-if (!dbHost || !dbUser || !dbName || !process.env.DB_PASSWORD ||
+if (!dbHost || !dbUser || !dbName ||
+    (!process.env.DB_PASSWORD && process.env.NODE_ENV === 'production') ||
     !Number.isInteger(dbPort) || dbPort < 1 || dbPort > 65535 ||
     !Number.isInteger(dbConnectionLimit) || dbConnectionLimit < 1 || dbConnectionLimit > 100) {
   throw new Error('Set DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, and valid DB_PORT/DB_CONNECTION_LIMIT values before starting the server.');
 }
+
+// Opt-in eksplisit: mode legacy di produksi hanya jika ALLOW_LEGACY_PRODUCTION=true.
+const allowLegacyProduction = process.env.ALLOW_LEGACY_PRODUCTION?.trim().toLowerCase() === 'true';
+const dataBackend = configuredDataBackend || (process.env.NODE_ENV === 'production' ? '' : 'legacy');
+if (!['legacy', 'operational'].includes(dataBackend) ||
+    (process.env.NODE_ENV === 'production' && dataBackend !== 'operational' && !allowLegacyProduction)) {
+  throw new Error('Production requires DATA_BACKEND=operational; set ALLOW_LEGACY_PRODUCTION=true to run legacy app_data mode in production.');
+}
+if (dataBackend === 'legacy' && (!adminNip || !adminPassword || adminPassword.length < 12)) {
+  throw new Error('Set ADMIN_NIP and an ADMIN_PASSWORD of at least 12 characters in .env before starting legacy mode.');
+}
+if (dataBackend === 'legacy' && adminPassword.startsWith('REPLACE_WITH_')) {
+  throw new Error('Replace the example ADMIN_PASSWORD in .env with a private password before starting legacy mode.');
+}
+
+// ACCESS_REQUIRED=false secara eksplisit menonaktifkan Cloudflare Access; default produksi tetap wajib.
+const accessRequiredSetting = process.env.ACCESS_REQUIRED?.trim().toLowerCase();
+const cloudflareAccessRequired = accessRequiredSetting
+  ? accessRequiredSetting === 'true'
+  : process.env.NODE_ENV === 'production';
+const cloudflareAccessTeamDomain = process.env.CLOUDFLARE_ACCESS_TEAM_DOMAIN?.trim();
+const cloudflareAccessAudience = process.env.CLOUDFLARE_ACCESS_AUD?.trim();
+if (cloudflareAccessRequired && (!cloudflareAccessTeamDomain || !cloudflareAccessAudience)) {
+  throw new Error('Set CLOUDFLARE_ACCESS_TEAM_DOMAIN and CLOUDFLARE_ACCESS_AUD when Cloudflare Access is required.');
+}
+const cloudflareAccessVerifier = cloudflareAccessRequired
+  ? createCloudflareAccessVerifier({
+      teamDomain: cloudflareAccessTeamDomain,
+      audience: cloudflareAccessAudience
+    })
+  : null;
+const requireCloudflareAccess = createCloudflareAccessMiddleware({
+  verifier: cloudflareAccessVerifier,
+  required: cloudflareAccessRequired
+});
 
 const db = mysql.createPool({
   host: dbHost,
@@ -111,12 +144,21 @@ async function initializeDatabase() {
 }
 
 try {
-  await initializeDatabase();
-  await db.execute("INSERT IGNORE INTO app_meta (`key`, value) VALUES ('revision', '0')");
+  if (dataBackend === 'legacy') {
+    await initializeDatabase();
+    await db.execute("INSERT IGNORE INTO app_meta (`key`, value) VALUES ('revision', '0')");
+  } else {
+    await db.query('SELECT 1');
+    await assertOperationalSchema(db);
+    const [revisionRows] = await db.execute("SELECT value FROM app_meta WHERE `key` = 'revision'");
+    if (!revisionRows.length || !Number.isInteger(Number(revisionRows[0].value))) {
+      throw new Error('Operational app_meta revision is missing or invalid; apply the approved manual staging migration.');
+    }
+  }
 } catch (error) {
   await db.end();
-  console.error('MySQL startup or schema initialization failed:', error instanceof Error ? error.message : error);
-  throw new Error('Could not connect to or initialize the configured MySQL database.');
+  console.error('Database startup validation failed:', error instanceof Error ? error.message : error);
+  throw new Error('Could not connect to or validate the configured database.');
 }
 
 async function queryRows(executor, sql, params = []) {
@@ -152,22 +194,24 @@ function asyncRoute(handler) {
   return (request, response, next) => Promise.resolve(handler(request, response, next)).catch(next);
 }
 
-const adminProfile = {
-  id: 'usr-4',
-  name: 'Administrator TI BPS Minut',
-  nip: adminNip,
-  email: 'admin.minut@bps.go.id',
-  role: 'Administrator',
-  unitKerja: 'Fungsi IPDS (Integrasi Pengolahan & Diseminasi Statistik)',
-  statusAktif: true
-};
-const adminSalt = crypto.randomBytes(16);
-const adminHash = crypto.scryptSync(adminPassword, adminSalt, 64);
-await execute(db, `
-  INSERT IGNORE INTO auth_users (id, nip, profile_json, salt, password_hash)
-  VALUES (?, ?, ?, ?, ?)
-`, [adminProfile.id, adminNip, JSON.stringify(adminProfile), adminSalt.toString('hex'), adminHash.toString('hex')]);
-await execute(db, 'DELETE FROM sessions WHERE expires_at <= ?', [Date.now()]);
+if (dataBackend === 'legacy') {
+  const adminProfile = {
+    id: 'usr-4',
+    name: 'Administrator TI BPS Minut',
+    nip: adminNip,
+    email: 'admin.minut@bps.go.id',
+    role: 'Administrator',
+    unitKerja: 'Fungsi IPDS (Integrasi Pengolahan & Diseminasi Statistik)',
+    statusAktif: true
+  };
+  const adminSalt = crypto.randomBytes(16);
+  const adminHash = crypto.scryptSync(adminPassword, adminSalt, 64);
+  await execute(db, `
+    INSERT IGNORE INTO auth_users (id, nip, profile_json, salt, password_hash)
+    VALUES (?, ?, ?, ?, ?)
+  `, [adminProfile.id, adminNip, JSON.stringify(adminProfile), adminSalt.toString('hex'), adminHash.toString('hex')]);
+  await execute(db, 'DELETE FROM sessions WHERE expires_at <= ?', [Date.now()]);
+}
 
 const permissionsByCollection = {
   rooms: ['manageAssets', 'systemSettings'],
@@ -191,11 +235,14 @@ const loginAttempts = new Map();
 const collectionCache = Object.fromEntries(collections.map(key => [key, null]));
 
 async function refreshCollections(executor = db) {
-  const state = await readCollections(executor);
+  const state = dataBackend === 'operational'
+    ? await readOperationalState(executor)
+    : await readCollections(executor);
   Object.assign(collectionCache, state);
 }
 
 async function readCollections(executor = db) {
+  if (dataBackend === 'operational') return readOperationalState(executor);
   const state = Object.fromEntries(collections.map(key => [key, null]));
   const rows = await queryRows(executor, 'SELECT `key`, value_json FROM app_data');
   for (const row of rows) {
@@ -216,6 +263,11 @@ function readCookie(request, name) {
   return cookie ? decodeURIComponent(cookie.slice(name.length + 1)) : null;
 }
 
+function secureCookie(request) {
+  return process.env.NODE_ENV === 'production' ||
+    request.get('x-forwarded-proto')?.split(',')[0].trim() === 'https';
+}
+
 function sameOrigin(request, response, next) {
   const origin = request.get('origin');
   if (origin) {
@@ -234,32 +286,58 @@ function sameOrigin(request, response, next) {
   next();
 }
 
-async function requireUser(request, response, next) {
-  try {
-    const token = readCookie(request, 'siman_session');
-    if (!token) return response.status(401).json({ error: 'Silakan masuk kembali.' });
-    const session = await queryOne(db, `
-      SELECT s.user_id, u.profile_json
-      FROM sessions s JOIN auth_users u ON u.id = s.user_id
-      WHERE s.token_hash = ? AND s.expires_at > ?
-    `, [hashToken(token), Date.now()]);
-    if (!session) return response.status(401).json({ error: 'Sesi berakhir. Silakan masuk kembali.' });
-    await refreshCollections();
-    const profile = JSON.parse(session.profile_json);
-    const users = getCollection('users');
-    const currentProfile = users?.find(user => user.id === session.user_id);
-    if (users && !currentProfile) {
-      return response.status(403).json({ error: 'Akun tidak lagi terdaftar di sistem.' });
-    }
-    if (currentProfile?.statusAktif === false || profile.statusAktif === false) {
-      return response.status(403).json({ error: 'Akun dinonaktifkan.' });
-    }
-    request.user = currentProfile ? { ...profile, ...currentProfile } : profile;
-    request.user.id = session.user_id;
-    next();
-  } catch (error) {
-    next(error);
-  }
+function accessIdentityMatches(user, claims, users) {
+  if (!cloudflareAccessRequired) return true;
+  const email = String(user?.email || '').trim().toLowerCase();
+  if (!email || !claims?.email || !Array.isArray(users)) return false;
+  const matches = users.filter(candidate =>
+    candidate.statusAktif !== false &&
+    String(candidate.email || '').trim().toLowerCase() === String(claims.email).trim().toLowerCase()
+  );
+  return matches.length === 1 && matches[0].id === user.id && email === String(claims.email).trim().toLowerCase();
+}
+
+function requireUser(request, response, next) {
+  return requireCloudflareAccess(request, response, () => {
+    (async () => {
+      const token = readCookie(request, 'siman_session');
+      if (!token) {
+        response.status(401).json({ error: 'Silakan masuk kembali.' });
+        return false;
+      }
+      const session = await queryOne(db, `
+        SELECT s.user_id, u.profile_json
+        FROM sessions s JOIN auth_users u ON u.id = s.user_id
+        WHERE s.token_hash = ? AND s.expires_at > ?
+      `, [hashToken(token), Date.now()]);
+      if (!session) {
+        response.status(401).json({ error: 'Sesi berakhir. Silakan masuk kembali.' });
+        return false;
+      }
+      await refreshCollections();
+      const profile = JSON.parse(session.profile_json);
+      const users = getCollection('users');
+      const currentProfile = users?.find(user => user.id === session.user_id);
+      if (users && !currentProfile) {
+        response.status(403).json({ error: 'Akun tidak lagi terdaftar di sistem.' });
+        return false;
+      }
+      if (currentProfile?.statusAktif === false || profile.statusAktif === false) {
+        response.status(403).json({ error: 'Akun dinonaktifkan.' });
+        return false;
+      }
+      const user = currentProfile ? { ...profile, ...currentProfile } : profile;
+      user.id = session.user_id;
+      if (!accessIdentityMatches(user, request.accessClaims, users)) {
+        response.status(403).json({ error: 'Identitas Cloudflare Access tidak cocok dengan akun aplikasi.' });
+        return false;
+      }
+      request.user = user;
+      return true;
+    })().then(authorized => {
+      if (authorized) next();
+    }).catch(next);
+  });
 }
 
 function getCollection(key) {
@@ -761,7 +839,14 @@ async function syncAccountProfiles(connection, users) {
   }
 }
 
-const whatsapp = await createWhatsAppService({ db, getCollection, userHasPermission, requireUser, refreshCollections });
+const whatsapp = await createWhatsAppService({
+  db,
+  getCollection,
+  userHasPermission,
+  requireUser,
+  refreshCollections,
+  initializeSchema: dataBackend === 'legacy'
+});
 await whatsapp.start();
 
 const app = express();
@@ -777,12 +862,14 @@ app.get('/api/health', asyncRoute(async (_request, response) => {
     const result = await queryOne(db, 'SELECT 1 AS ready');
     if (result?.ready !== 1) return response.status(503).json({ status: 'unavailable' });
     response.json({ status: 'ok' });
-  } catch {
+  } catch (error) {
+    const code = typeof error?.code === 'string' ? error.code : 'UNKNOWN';
+    console.error(`Health check database query failed (${code}).`);
     response.status(503).json({ status: 'unavailable' });
   }
 }));
 
-app.post('/api/auth/login', asyncRoute(async (request, response) => {
+app.post('/api/auth/login', requireCloudflareAccess, asyncRoute(async (request, response) => {
   const nip = String(request.body?.nip || '').trim();
   const password = String(request.body?.password || '');
   if (!nip || nip.length > 30 || password.length > 256) {
@@ -820,14 +907,16 @@ app.post('/api/auth/login', asyncRoute(async (request, response) => {
   const currentUser = registeredUsers?.find(user => user.id === account.id);
   if (currentUser?.statusAktif === false) return response.status(403).json({ error: 'Akun dinonaktifkan.' });
   if (profile.statusAktif === false) return response.status(403).json({ error: 'Akun dinonaktifkan.' });
+  if (!accessIdentityMatches(currentUser || profile, request.accessClaims, registeredUsers)) {
+    return response.status(403).json({ error: 'Identitas Cloudflare Access tidak cocok dengan akun aplikasi.' });
+  }
   loginAttempts.delete(address);
   const token = crypto.randomBytes(32).toString('base64url');
   const expiresAt = now + 12 * 60 * 60 * 1000;
   await execute(db, 'INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)', [
     hashToken(token), account.id, expiresAt
   ]);
-  const secure = request.get('x-forwarded-proto')?.split(',')[0].trim() === 'https';
-  response.setHeader('Set-Cookie', `siman_session=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200${secure ? '; Secure' : ''}`);
+  response.setHeader('Set-Cookie', `siman_session=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200${secureCookie(request) ? '; Secure' : ''}`);
   response.json({ user: profile });
 }));
 
@@ -835,11 +924,10 @@ app.get('/api/auth/me', requireUser, (request, response) => {
   response.json({ user: request.user });
 });
 
-app.post('/api/auth/logout', asyncRoute(async (request, response) => {
+app.post('/api/auth/logout', requireCloudflareAccess, asyncRoute(async (request, response) => {
   const token = readCookie(request, 'siman_session');
   if (token) await execute(db, 'DELETE FROM sessions WHERE token_hash = ?', [hashToken(token)]);
-  const secure = request.get('x-forwarded-proto')?.split(',')[0].trim() === 'https';
-  response.setHeader('Set-Cookie', `siman_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secure ? '; Secure' : ''}`);
+  response.setHeader('Set-Cookie', `siman_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secureCookie(request) ? '; Secure' : ''}`);
   response.json({ success: true });
 }));
 
@@ -883,9 +971,38 @@ app.put('/api/auth/users/:id/password', requireUser, asyncRoute(async (request, 
 
 app.get('/api/state', requireUser, asyncRoute(async (_request, response) => {
   const state = Object.fromEntries(collections.map(key => [key, getCollection(key)]));
+  if (dataBackend === 'operational') state.warehouseRacks = getCollection('warehouseRacks') || [];
   const revisionRow = await queryOne(db, "SELECT value FROM app_meta WHERE `key` = 'revision'");
   const revision = Number(revisionRow?.value || 0);
-  response.json({ state, initialized: state.users !== null, revision });
+  response.json({ state, initialized: state.users !== null, revision, dataBackend });
+}));
+
+app.get('/api/inventory/:id/stock-card', requireUser, asyncRoute(async (request, response) => {
+  if (!userHasPermission(request.user, 'viewInventory') && !userHasPermission(request.user, 'manageInventory')) {
+    return response.status(403).json({ error: 'Tidak memiliki izin melihat kartu stok.' });
+  }
+  if (dataBackend !== 'operational') {
+    return response.status(404).json({ error: 'Kartu stok relasional tidak tersedia pada backend ini.' });
+  }
+  const rows = await queryRows(db, `
+    SELECT id, tanggal, nomor_transaksi, tipe_transaksi, masuk, keluar, saldo, keterangan, petugas
+    FROM stock_card_ledger
+    WHERE item_id = ?
+    ORDER BY tanggal, id
+  `, [request.params.id]);
+  response.json({
+    entries: rows.map(row => ({
+      id: row.id,
+      tanggal: row.tanggal instanceof Date ? row.tanggal.toISOString().slice(0, 10) : String(row.tanggal).slice(0, 10),
+      noTransaksi: row.nomor_transaksi,
+      tipe: row.tipe_transaksi,
+      masuk: Number(row.masuk),
+      keluar: Number(row.keluar),
+      saldo: Number(row.saldo),
+      keterangan: row.keterangan || '',
+      petugas: row.petugas || ''
+    }))
+  });
 }));
 
 app.put('/api/state', requireUser, asyncRoute(async (request, response) => {
@@ -922,12 +1039,19 @@ app.put('/api/state', requireUser, asyncRoute(async (request, response) => {
         ? previousRequests.filter(item => !nextRequestIds.has(item.id))
         : [];
       cancellationEvents = [];
-      for (const key of collections) {
-        await execute(connection, `
-          INSERT INTO app_data (\`key\`, value_json)
-          VALUES (?, ?)
-          ON DUPLICATE KEY UPDATE value_json = VALUES(value_json)
-        `, [key, JSON.stringify(state[key])]);
+      if (dataBackend === 'operational') {
+        await writeOperationalState(connection, currentState, state, {
+          ...request.user,
+          ipAddress: request.ip
+        }, revision + 1);
+      } else {
+        for (const key of collections) {
+          await execute(connection, `
+            INSERT INTO app_data (\`key\`, value_json)
+            VALUES (?, ?)
+            ON DUPLICATE KEY UPDATE value_json = VALUES(value_json)
+          `, [key, JSON.stringify(state[key])]);
+        }
       }
       await syncAccountProfiles(connection, state.users);
       await execute(connection, `
@@ -1090,7 +1214,7 @@ app.post('/api/whatsapp/request-events', requireUser, asyncRoute(async (request,
     return response.status(502).json({
       success: false,
       sentCount: result.sentCount,
-      error: 'Permohonan berhasil disimpan, tetapi WhatsApp service temporarily unavailable.'
+      error: result.error || 'Permohonan berhasil disimpan, tetapi WhatsApp service temporarily unavailable.'
     });
   }
 

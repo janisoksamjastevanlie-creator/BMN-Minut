@@ -98,6 +98,16 @@ test('Fonnte rejection and transport errors do not expose credentials or provide
   );
 });
 
+test('Fonnte HTML error responses are reported without exposing the response body', async () => {
+  await assert.rejects(
+    sendFonnteMessage(sendConfig, '6281234567890', 'Tes', async () =>
+      new Response('<!DOCTYPE html><html>private gateway details</html>', { status: 502 })
+    ),
+    error => error.message === 'Fonnte API mengembalikan respons tidak valid (HTTP 502).' &&
+      !error.message.includes('private gateway details')
+  );
+});
+
 test('Fonnte rejects invalid recipient numbers before making a network call', async () => {
   let called = false;
   await assert.rejects(
@@ -105,6 +115,49 @@ test('Fonnte rejects invalid recipient numbers before making a network call', as
     /Nomor tujuan tidak valid/
   );
   assert.equal(called, false);
+});
+
+test('request notification explains when no WhatsApp recipients are linked', async t => {
+  const keys = ['WHATSAPP_PROVIDER', 'FONNTE_TOKEN', 'FONNTE_API_URL', 'FONNTE_WEBHOOK_SECRET'];
+  const previousEnv = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+  process.env.WHATSAPP_PROVIDER = 'fonnte';
+  process.env.FONNTE_TOKEN = 'test-token';
+  process.env.FONNTE_API_URL = 'https://api.fonnte.com/send';
+  process.env.FONNTE_WEBHOOK_SECRET = 'test-webhook-secret-with-32-chars';
+
+  const database = {
+    async query() { return [[], []]; },
+    async execute(sql) {
+      if (sql === 'SELECT * FROM whatsapp_accounts') return [[], []];
+      throw new Error(`Unexpected database operation: ${sql}`);
+    }
+  };
+  const service = await createWhatsAppService({
+    db: database,
+    getCollection: () => [],
+    userHasPermission: () => false,
+    requireUser: (_request, response) => response.sendStatus(401),
+    refreshCollections: async () => {},
+    initializeSchema: false
+  });
+
+  t.after(() => {
+    for (const key of keys) {
+      if (previousEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = previousEnv[key];
+    }
+  });
+
+  assert.deepEqual(await service.notifyRequestEvent({
+    eventKey: 'request-test-event',
+    ownerUserId: 'user-1',
+    title: 'Permohonan barang',
+    lines: []
+  }), {
+    success: false,
+    sentCount: 0,
+    error: 'Tidak ada penerima WhatsApp yang tertaut dan berwenang.'
+  });
 });
 
 test('Fonnte webhook checks its shared secret and processes an inbox message only once', async t => {

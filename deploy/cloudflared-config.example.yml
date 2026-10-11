@@ -1,0 +1,10 @@
+# Copy this template to the host's protected cloudflared config directory.
+# Replace the tunnel ID and hostname with values supplied by the Cloudflare administrator.
+# Keep the generated credentials JSON outside the repository.
+tunnel: TUNNEL_ID_FROM_CLOUDFLARE
+credentials-file: 'C:\ProgramData\cloudflared\TUNNEL_ID_FROM_CLOUDFLARE.json'
+
+ingress:
+  - hostname: app.example.invalid
+    service: http://127.0.0.1:3000
+  - service: http_status:404

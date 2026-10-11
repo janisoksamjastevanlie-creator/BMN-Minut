@@ -7,3 +7,12 @@ data/
 *.log
 .env*
 !.env.example
+
+# Operational database backups and local encryption material
+*.sql.aes
+*.sql.gz
+*.key.dpapi
+*.dump
+backups/
+.cloudflared/
+*.credentials.json
