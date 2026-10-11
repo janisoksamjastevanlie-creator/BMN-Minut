@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { InventoryRequestItem } from '../../types';
+import { getRequestableStock } from '../../../requestStockValidation.mjs';
 import confetti from 'canvas-confetti';
 import {
   ClipboardList,
@@ -16,7 +17,8 @@ import {
   Sparkles,
   Boxes,
   Plus,
-  Trash2
+  Trash2,
+  Search
 } from 'lucide-react';
 
 interface StockRequestModalProps {
@@ -28,6 +30,7 @@ interface StockRequestModalProps {
 interface RequestItemDraft {
   key: string;
   itemId: string;
+  itemSearch: string;
   jumlahDiminta: string;
   spesifikasi: string;
   catatan: string;
@@ -38,11 +41,12 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
   onClose,
   defaultItemId
 }) => {
-  const { inventoryItems, rooms, addInventoryRequest, currentUser, setActiveView } = useApp();
+  const { inventoryItems, requests, rooms, addInventoryRequest, currentUser, setActiveView } = useApp();
 
   const initialItemId = defaultItemId || inventoryItems[0]?.id || '';
+  const initialItem = inventoryItems.find(item => item.id === initialItemId);
   const [requestItems, setRequestItems] = useState<RequestItemDraft[]>([
-    { key: crypto.randomUUID(), itemId: initialItemId, jumlahDiminta: '2', spesifikasi: '', catatan: '' }
+    { key: crypto.randomUUID(), itemId: initialItemId, itemSearch: initialItem?.nama || '', jumlahDiminta: '2', spesifikasi: '', catatan: '' }
   ]);
   const [unitKerja, setUnitKerja] = useState('Fungsi Statistik Sosial');
   const [ruangan, setRuangan] = useState('Ruang Statistik Sosial');
@@ -53,18 +57,28 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
   const [submittedId, setSubmittedId] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
+  const [searchingLineKey, setSearchingLineKey] = useState<string | null>(null);
+  const [highlightedItemIndex, setHighlightedItemIndex] = useState(0);
 
   if (!isOpen) return null;
 
   const requestLines = requestItems.map(line => ({
     ...line,
     item: inventoryItems.find(item => item.id === line.itemId),
-    quantity: Number(line.jumlahDiminta)
+    quantity: Number(line.jumlahDiminta),
+    availableStock: line.itemId ? getRequestableStock(line.itemId, inventoryItems, requests) : 0
   }));
   const invalidLines = requestLines.flatMap((line, index) => {
     const errors: string[] = [];
     if (!line.item) errors.push(`Baris ${index + 1}: pilih barang dari master persediaan.`);
     if (!Number.isSafeInteger(line.quantity) || line.quantity <= 0) errors.push(`Baris ${index + 1}: jumlah harus bilangan bulat lebih dari nol.`);
+    if (line.item && (!Number.isSafeInteger(line.item.stokSaatIni) || line.item.stokSaatIni < 0)) {
+      errors.push(`Baris ${index + 1}: saldo stok barang tidak valid.`);
+    } else if (line.item && line.availableStock === 0) {
+      errors.push(`Baris ${index + 1}: barang tidak dapat diajukan karena stok tersedia 0 ${line.item.satuan}.`);
+    } else if (line.item && line.quantity > line.availableStock) {
+      errors.push(`Baris ${index + 1}: jumlah permintaan melebihi stok tersedia. Stok tersedia: ${line.availableStock} ${line.item.satuan}.`);
+    }
     return errors;
   });
   const hasDuplicateItem = requestItems.some((line, index) =>
@@ -72,7 +86,7 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
   );
   const requestedItemCount = requestLines.filter(line => line.item).length;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
     if (requestLines.length === 0) {
@@ -108,7 +122,7 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
         catatan: line.catatan.trim() || undefined
       }));
       const firstItem = items[0];
-      const newReq = addInventoryRequest({
+      const newReq = await addInventoryRequest({
         pemohonNama: currentUser?.name || 'Pegawai BPS Minahasa Utara',
         unitKerja,
         ruangan,
@@ -142,10 +156,13 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
 
   const handleReset = () => {
     setIsSuccess(false);
-    setRequestItems([{ key: crypto.randomUUID(), itemId: defaultItemId || inventoryItems[0]?.id || '', jumlahDiminta: '2', spesifikasi: '', catatan: '' }]);
+    const resetItemId = defaultItemId || inventoryItems[0]?.id || '';
+    const resetItem = inventoryItems.find(item => item.id === resetItemId);
+    setRequestItems([{ key: crypto.randomUUID(), itemId: resetItemId, itemSearch: resetItem?.nama || '', jumlahDiminta: '2', spesifikasi: '', catatan: '' }]);
     setKeperluan('Administrasi kegiatan survei lapangan BPS Minahasa Utara');
     setCatatan('');
     setFormError('');
+    setSearchingLineKey(null);
   };
 
   const updateLine = (key: string, updates: Partial<RequestItemDraft>) => {
@@ -162,6 +179,7 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
     setRequestItems(current => [...current, {
       key: crypto.randomUUID(),
       itemId: '',
+      itemSearch: '',
       jumlahDiminta: '1',
       spesifikasi: '',
       catatan: ''
@@ -277,32 +295,111 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
               <div className="space-y-3">
                 {requestItems.map((line, index) => {
                   const item = inventoryItems.find(candidate => candidate.id === line.itemId);
+                  const availableStock = line.itemId ? getRequestableStock(line.itemId, inventoryItems, requests) : 0;
+                  const searchQuery = line.itemSearch.trim().toLocaleLowerCase('id-ID');
+                  const matchingItems = inventoryItems.filter(candidate =>
+                    !searchQuery ||
+                    candidate.nama.toLocaleLowerCase('id-ID').includes(searchQuery) ||
+                    candidate.kodeBarang.toLocaleLowerCase('id-ID').includes(searchQuery)
+                  );
+                  const isSearching = searchingLineKey === line.key;
                   const isDuplicate = Boolean(line.itemId && requestItems.some((candidate, candidateIndex) => candidateIndex !== index && candidate.itemId === line.itemId));
                   const hasInvalidQuantity = line.jumlahDiminta !== '' && (!Number.isSafeInteger(Number(line.jumlahDiminta)) || Number(line.jumlahDiminta) <= 0);
-                  const overStock = item && Number(line.jumlahDiminta) > item.stokSaatIni;
+                  const isOutOfStock = item && availableStock === 0;
+                  const overStock = item && Number(line.jumlahDiminta) > availableStock;
                   return (
-                    <div key={line.key} className="grid grid-cols-1 gap-3 rounded-lg border border-slate-800 bg-slate-900/80 p-3 md:grid-cols-[2.5rem_minmax(0,1fr)] lg:grid-cols-[2.5rem_minmax(0,2fr)_minmax(7rem,0.8fr)_minmax(0,1.6fr)_2.5rem] lg:items-center lg:gap-4">
+                    <div key={line.key} className={`grid grid-cols-1 gap-3 rounded-lg border border-slate-800 bg-slate-900/80 p-3 md:grid-cols-[2.5rem_minmax(0,1fr)] lg:grid-cols-[2.5rem_minmax(0,2fr)_minmax(7rem,0.8fr)_minmax(0,1.6fr)_2.5rem] lg:items-center lg:gap-4 ${isSearching ? 'relative z-20' : ''}`}>
                       <div className="text-[10px] font-bold text-indigo-300 md:col-span-1">#{index + 1}</div>
-                      <label className="min-w-0 text-[10px] font-semibold text-slate-300 md:col-span-1 lg:col-span-1">
+                      <div className="min-w-0 text-[10px] font-semibold text-slate-300 md:col-span-1 lg:col-span-1">
                         Nama barang <span className="text-rose-400">*</span>
-                        <select value={line.itemId} onChange={event => {
-                          const chosen = event.target.value;
-                          if (chosen && requestItems.some(candidate => candidate.key !== line.key && candidate.itemId === chosen)) {
-                            setFormError('Barang yang sama tidak dapat ditambahkan lebih dari sekali. Silakan ubah jumlah pada baris yang sudah ada.');
-                            return;
-                          }
-                          updateLine(line.key, { itemId: chosen });
-                        }} className="mt-1 h-10 w-full min-w-0 rounded-lg border border-slate-700 bg-slate-950 px-2.5 text-xs text-white focus:border-indigo-500 focus:outline-none">
-                          <option value="">Pilih barang persediaan</option>
-                          {inventoryItems.map(candidate => <option key={candidate.id} value={candidate.id}>[{candidate.jenis}] {candidate.nama}</option>)}
-                        </select>
+                        <div className="relative mt-1">
+                          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
+                          <input
+                            type="search"
+                            role="combobox"
+                            aria-label={`Cari nama atau kode barang pada baris ${index + 1}`}
+                            aria-autocomplete="list"
+                            aria-expanded={isSearching}
+                            aria-controls={`request-item-options-${line.key}`}
+                            aria-activedescendant={isSearching && matchingItems.length ? `request-item-option-${line.key}-${highlightedItemIndex}` : undefined}
+                            value={line.itemSearch}
+                            onFocus={() => {
+                              setSearchingLineKey(line.key);
+                              setHighlightedItemIndex(0);
+                            }}
+                            onBlur={() => setSearchingLineKey(current => current === line.key ? null : current)}
+                            onChange={event => {
+                              updateLine(line.key, { itemId: '', itemSearch: event.target.value });
+                              setSearchingLineKey(line.key);
+                              setHighlightedItemIndex(0);
+                            }}
+                            onKeyDown={event => {
+                              if (!isSearching || matchingItems.length === 0) {
+                                if (event.key === 'Escape') setSearchingLineKey(null);
+                                return;
+                              }
+                              if (event.key === 'ArrowDown') {
+                                event.preventDefault();
+                                setHighlightedItemIndex(current => Math.min(current + 1, matchingItems.length - 1));
+                              } else if (event.key === 'ArrowUp') {
+                                event.preventDefault();
+                                setHighlightedItemIndex(current => Math.max(current - 1, 0));
+                              } else if (event.key === 'Enter') {
+                                event.preventDefault();
+                                const chosen = matchingItems[highlightedItemIndex] || matchingItems[0];
+                                if (!requestItems.some(candidate => candidate.key !== line.key && candidate.itemId === chosen.id)) {
+                                  updateLine(line.key, { itemId: chosen.id, itemSearch: chosen.nama });
+                                  setSearchingLineKey(null);
+                                } else {
+                                  setFormError('Barang yang sama tidak dapat ditambahkan lebih dari sekali. Silakan ubah jumlah pada baris yang sudah ada.');
+                                }
+                              } else if (event.key === 'Escape') {
+                                setSearchingLineKey(null);
+                              }
+                            }}
+                            placeholder="Cari nama atau kode barang..."
+                            className="h-10 w-full min-w-0 rounded-lg border border-slate-700 bg-slate-950 pl-9 pr-2.5 text-xs text-white focus:border-indigo-500 focus:outline-none"
+                          />
+                          {isSearching && (
+                            <div id={`request-item-options-${line.key}`} role="listbox" className="absolute left-0 right-0 top-full z-30 mt-1 max-h-56 overflow-y-auto rounded-lg border border-slate-700 bg-slate-950 p-1 shadow-xl">
+                              {matchingItems.length ? matchingItems.map((candidate, candidateIndex) => {
+                                const candidateStock = getRequestableStock(candidate.id, inventoryItems, requests);
+                                return (
+                                  <button
+                                    key={candidate.id}
+                                    id={`request-item-option-${line.key}-${candidateIndex}`}
+                                    type="button"
+                                    role="option"
+                                    aria-selected={candidateIndex === highlightedItemIndex}
+                                    onMouseDown={event => event.preventDefault()}
+                                    onMouseEnter={() => setHighlightedItemIndex(candidateIndex)}
+                                    onClick={() => {
+                                      if (requestItems.some(otherLine => otherLine.key !== line.key && otherLine.itemId === candidate.id)) {
+                                        setFormError('Barang yang sama tidak dapat ditambahkan lebih dari sekali. Silakan ubah jumlah pada baris yang sudah ada.');
+                                        return;
+                                      }
+                                      updateLine(line.key, { itemId: candidate.id, itemSearch: candidate.nama });
+                                      setSearchingLineKey(null);
+                                    }}
+                                    className={`block w-full rounded-md px-2.5 py-2 text-left ${candidateIndex === highlightedItemIndex ? 'bg-indigo-500/20' : 'hover:bg-slate-800'}`}
+                                  >
+                                    <span className="block text-xs font-semibold text-white">{candidate.nama}</span>
+                                    <span className="mt-0.5 block text-[10px] font-normal text-slate-400">
+                                      Kode: {candidate.kodeBarang} • Stok: {candidateStock} {candidate.satuan}{candidateStock < candidate.stokSaatIni ? ' (setelah permohonan aktif)' : ''}
+                                    </span>
+                                  </button>
+                                );
+                              }) : <p role="status" className="px-2.5 py-2 text-[11px] font-normal text-slate-400">Barang tidak ditemukan</p>}
+                            </div>
+                          )}
+                        </div>
                         {item && <span className="mt-1 block break-words font-mono font-normal leading-4 text-slate-500">Kode: {item.kodeBarang} • {item.subkategori}</span>}
-                        {!item && <span className="mt-1 block font-normal text-rose-300">Baris {index + 1}: barang wajib dipilih dari master persediaan.</span>}
-                      </label>
+                        {!item && <span className="mt-1 block font-normal text-rose-300">Baris {index + 1}: pilih barang yang tersedia pada hasil pencarian.</span>}
+                      </div>
                       <label className="min-w-0 text-[10px] font-semibold text-slate-300">
                         Jumlah <span className="text-rose-400">*</span>
                         <input type="number" min="1" step="1" value={line.jumlahDiminta} onChange={event => updateLine(line.key, { jumlahDiminta: event.target.value })} className="mt-1 h-10 w-full rounded-lg border border-slate-700 bg-slate-950 px-2.5 text-xs font-mono font-bold text-white focus:border-indigo-500 focus:outline-none" />
-                        {item && <span className="mt-1 block break-words font-normal leading-4 text-slate-500">{item.satuan} • stok {item.stokSaatIni}</span>}
+                        {item && <span className={`mt-1 block break-words font-normal leading-4 ${isOutOfStock || overStock ? 'text-rose-300' : 'text-slate-400'}`}>Stok tersedia: {availableStock} {item.satuan}{availableStock < item.stokSaatIni ? ' (setelah permohonan aktif)' : ''}</span>}
                       </label>
                       <label className="min-w-0 text-[10px] font-semibold text-slate-300">
                         Spesifikasi / catatan barang
@@ -316,7 +413,8 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
                       </div>
                       {isDuplicate && <p className="text-[10px] text-rose-300 md:col-span-2 lg:col-span-4">Barang ini sudah ada pada baris lain.</p>}
                       {hasInvalidQuantity && <p className="text-[10px] text-rose-300 md:col-span-2 lg:col-span-4">Jumlah harus bilangan bulat lebih besar dari nol.</p>}
-                      {overStock && <p className="flex items-center gap-1 text-[10px] text-amber-300 md:col-span-2 lg:col-span-4"><AlertTriangle className="h-3 w-3 shrink-0" />Jumlah melebihi stok tersedia ({item.stokSaatIni} {item.satuan}); permohonan tetap dapat diajukan.</p>}
+                      {isOutOfStock && <p className="flex items-center gap-1 text-[10px] text-rose-300 md:col-span-2 lg:col-span-4"><AlertTriangle className="h-3 w-3 shrink-0" />Barang tidak dapat diajukan karena stok tersedia 0 {item.satuan}.</p>}
+                      {!isOutOfStock && overStock && <p className="flex items-center gap-1 text-[10px] text-rose-300 md:col-span-2 lg:col-span-4"><AlertTriangle className="h-3 w-3 shrink-0" />Jumlah permintaan melebihi stok tersedia. Stok tersedia: {availableStock} {item.satuan}.</p>}
                     </div>
                   );
                 })}

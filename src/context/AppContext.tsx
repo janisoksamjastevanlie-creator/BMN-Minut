@@ -41,8 +41,15 @@ import { DashboardFilters, DEFAULT_DASHBOARD_FILTERS } from '../utils/dashboardF
 import { getHomeView, isPimpinanUser } from '../utils/rbac';
 import { planStockInDeletion } from '../../stockInDeletion.mjs';
 import { mergeStateAfterConflict } from '../../stateConflict.mjs';
+import { getRequestableStock } from '../../requestStockValidation.mjs';
 
 const cloneSharedState = <T,>(state: T): T => JSON.parse(JSON.stringify(state)) as T;
+
+class StateSyncError extends Error {
+  constructor(message: string, readonly definitelyNotSaved = false) {
+    super(message);
+  }
+}
 const sameSharedState = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
 const MAX_STATE_CONFLICT_RETRIES = 3;
 
@@ -167,7 +174,7 @@ interface AppContextType {
     keperluan: string;
   }, sequenceOffset?: number) => { success: boolean; message: string };
   
-  addInventoryRequest: (req: Omit<InventoryRequest, 'id' | 'nomorPermintaan' | 'tanggal' | 'status'>) => InventoryRequest;
+  addInventoryRequest: (req: Omit<InventoryRequest, 'id' | 'nomorPermintaan' | 'tanggal' | 'status'>) => Promise<InventoryRequest>;
   updateRequestStatus: (id: string, status: InventoryRequest['status'], catatan?: string, jumlahDisetujui?: number, itemsDisetujui?: InventoryRequestItem[]) => { success: boolean; message: string };
   deleteInventoryRequest: (id: string, reason?: string) => { success: boolean; message: string };
   
@@ -281,6 +288,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const lastSyncedStateRef = useRef<Record<string, unknown> | null>(null);
   const syncBlockedRef = useRef(false);
   const syncQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const requestPersistenceWaitersRef = useRef(new Map<string, {
+    resolve: () => void;
+    reject: (error: Error) => void;
+  }>());
   const pendingRequestWhatsAppEventsRef = useRef<Array<{
     eventId: string;
     requestId: string;
@@ -553,7 +564,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!currentUser || !dataReady) return;
     const timer = window.setTimeout(async () => {
       syncQueueRef.current = syncQueueRef.current.then(async () => {
-        if (syncBlockedRef.current) return;
+        if (syncBlockedRef.current) {
+          const error = new StateSyncError('Sinkronisasi terhenti. Muat ulang halaman untuk memeriksa status permohonan.', true);
+          for (const waiter of requestPersistenceWaitersRef.current.values()) waiter.reject(error);
+          requestPersistenceWaitersRef.current.clear();
+          return;
+        }
         let stateToSave = cloneSharedState(sharedState);
         if (lastSyncedStateRef.current && sameSharedState(stateToSave, lastSyncedStateRef.current)) return;
         let saveResult: { revision?: number } | null = null;
@@ -565,7 +581,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           });
           const result = await response.json();
           if (response.status !== 409) {
-            if (!response.ok) throw new Error(result.error || 'Perubahan tidak tersimpan ke server.');
+            if (!response.ok) throw new StateSyncError(result.error || 'Perubahan tidak tersimpan ke server.', response.status < 500);
             saveResult = result;
             break;
           }
@@ -574,30 +590,52 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const latest = await latestResponse.json();
           if (!latestResponse.ok || !latest.state || !Number.isInteger(latest.revision)) {
             syncBlockedRef.current = true;
-            setSyncError(latest.error || 'Konflik data terjadi dan data terbaru dari server tidak dapat dimuat. Muat ulang halaman sebelum melanjutkan.');
+            const error = new StateSyncError(latest.error || 'Konflik data terjadi dan data terbaru dari server tidak dapat dimuat. Muat ulang halaman sebelum melanjutkan.', true);
+            for (const waiter of requestPersistenceWaitersRef.current.values()) waiter.reject(error);
+            requestPersistenceWaitersRef.current.clear();
+            setSyncError(error.message);
             return;
           }
           const baseState = lastSyncedStateRef.current;
           if (!baseState) {
             syncBlockedRef.current = true;
-            setSyncError('Konflik data terjadi tanpa salinan perubahan terakhir. Muat ulang halaman sebelum melanjutkan.');
+            const error = new StateSyncError('Konflik data terjadi tanpa salinan perubahan terakhir. Muat ulang halaman sebelum melanjutkan.', true);
+            for (const waiter of requestPersistenceWaitersRef.current.values()) waiter.reject(error);
+            requestPersistenceWaitersRef.current.clear();
+            setSyncError(error.message);
             return;
           }
           const { mergedState, conflicts } = mergeStateAfterConflict(baseState, stateToSave, latest.state);
           if (conflicts.length > 0) {
             syncBlockedRef.current = true;
-            setSyncError(`Data yang sama berubah di perangkat lain (${conflicts.slice(0, 3).join(', ')}). Muat ulang halaman untuk memeriksa perubahan sebelum mencoba lagi.`);
+            const error = new StateSyncError(`Data yang sama berubah di perangkat lain (${conflicts.slice(0, 3).join(', ')}). Muat ulang halaman untuk memeriksa perubahan sebelum mencoba lagi.`, true);
+            for (const waiter of requestPersistenceWaitersRef.current.values()) waiter.reject(error);
+            requestPersistenceWaitersRef.current.clear();
+            setSyncError(error.message);
             return;
           }
           revisionRef.current = latest.revision;
           lastSyncedStateRef.current = cloneSharedState(latest.state);
           stateToSave = mergedState;
           applySharedState(mergedState);
-          if (sameSharedState(mergedState, latest.state)) return;
+          if (sameSharedState(mergedState, latest.state)) {
+            const persistedRequests = (latest.state.requests as InventoryRequest[]) || [];
+            for (const request of persistedRequests) {
+              const waiter = requestPersistenceWaitersRef.current.get(request.id);
+              if (waiter) {
+                requestPersistenceWaitersRef.current.delete(request.id);
+                waiter.resolve();
+              }
+            }
+            return;
+          }
         }
         if (!saveResult) {
           syncBlockedRef.current = true;
-          setSyncError('Data terus berubah di perangkat lain. Perubahan lokal belum tersimpan; muat ulang halaman sebelum melanjutkan.');
+          const error = new StateSyncError('Data terus berubah di perangkat lain. Perubahan lokal belum tersimpan; muat ulang halaman sebelum melanjutkan.', true);
+          for (const waiter of requestPersistenceWaitersRef.current.values()) waiter.reject(error);
+          requestPersistenceWaitersRef.current.clear();
+          setSyncError(error.message);
           return;
         }
         if (!Number.isInteger(saveResult.revision)) {
@@ -607,6 +645,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         lastSyncedStateRef.current = cloneSharedState(stateToSave);
         setSyncError(null);
         const persistedRequests = (stateToSave.requests as InventoryRequest[]) || [];
+        for (const request of persistedRequests) {
+          const waiter = requestPersistenceWaitersRef.current.get(request.id);
+          if (waiter) {
+            requestPersistenceWaitersRef.current.delete(request.id);
+            waiter.resolve();
+          }
+        }
         const pendingEvents = pendingRequestWhatsAppEventsRef.current;
         const readyEvents = pendingEvents.filter(event =>
           persistedRequests.some(request => request.id === event.requestId && request.status === event.status)
@@ -659,7 +704,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           });
         }
       }).catch(error => {
-        setSyncError(error instanceof Error ? error.message : 'Perubahan tidak tersimpan ke server.');
+        const message = error instanceof Error ? error.message : 'Perubahan tidak tersimpan ke server.';
+        const pendingWaiters = [...requestPersistenceWaitersRef.current.values()];
+        requestPersistenceWaitersRef.current.clear();
+        let reportedError = error instanceof Error ? error : new Error(message);
+        if (pendingWaiters.length > 0 && !(error instanceof StateSyncError && error.definitelyNotSaved)) {
+          syncBlockedRef.current = true;
+          reportedError = new StateSyncError('Status penyimpanan permohonan belum dapat dipastikan. Muat ulang halaman dan periksa daftar permohonan sebelum mengirim ulang.');
+        }
+        for (const waiter of pendingWaiters) {
+          waiter.reject(reportedError);
+        }
+        setSyncError(reportedError.message);
       });
     }, 350);
     return () => window.clearTimeout(timer);
@@ -1435,6 +1491,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       if (seenItemIds.has(item.id)) throw new Error(`Barang pada baris ${index + 1} dipilih lebih dari sekali.`);
       seenItemIds.add(item.id);
+      const availableStock = getRequestableStock(item.id, inventoryItems, requests);
+      if (availableStock === 0) {
+        throw new Error(`${item.nama} tidak dapat diajukan karena stok tersedia 0 ${item.satuan}.`);
+      }
+      if (requestedItem.jumlahDiminta > availableStock) {
+        throw new Error(`Jumlah permintaan ${item.nama} melebihi stok tersedia. Stok tersedia: ${availableStock} ${item.satuan}.`);
+      }
       return {
         itemId: item.id,
         namaBarang: item.nama,
@@ -1460,12 +1523,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       items: normalizedItems
     };
 
-    setRequests(prev => [newReq, ...prev]);
-    queueRequestWhatsAppEvent(newReq, 'submitted', newReq.catatan);
-    const itemSummary = normalizedItems.map(requestedItem => `${requestedItem.namaBarang} (${requestedItem.jumlahDiminta} ${requestedItem.satuan})`).join(', ');
-    logAudit('Pengajuan Permohonan Barang', 'PERSEDIAAN', `Permohonan baru ${newReq.nomorPermintaan}: ${itemSummary} diajukan oleh ${newReq.pemohonNama}`);
-    pushNotification('PERMINTAAN_BARU', '📋 Permohonan Barang Baru', `${newReq.pemohonNama} mengajukan ${normalizedItems.length} jenis barang: ${itemSummary}`, 'requests');
-    return newReq;
+    const persisted = new Promise<void>((resolve, reject) => {
+      requestPersistenceWaitersRef.current.set(newReq.id, { resolve, reject });
+      setRequests(prev => [newReq, ...prev]);
+    });
+    return persisted.then(() => {
+      queueRequestWhatsAppEvent(newReq, 'submitted', newReq.catatan);
+      const itemSummary = normalizedItems.map(requestedItem => `${requestedItem.namaBarang} (${requestedItem.jumlahDiminta} ${requestedItem.satuan})`).join(', ');
+      logAudit('Pengajuan Permohonan Barang', 'PERSEDIAAN', `Permohonan baru ${newReq.nomorPermintaan}: ${itemSummary} diajukan oleh ${newReq.pemohonNama}`);
+      pushNotification('PERMINTAAN_BARU', '📋 Permohonan Barang Baru', `${newReq.pemohonNama} mengajukan ${normalizedItems.length} jenis barang: ${itemSummary}`, 'requests');
+      return newReq;
+    }).catch(error => {
+      if (error instanceof StateSyncError && error.definitelyNotSaved) {
+        setRequests(prev => prev.filter(request => request.id !== newReq.id));
+      }
+      throw error;
+    });
   };
 
   const updateRequestStatus = (

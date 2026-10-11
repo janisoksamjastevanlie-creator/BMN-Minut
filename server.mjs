@@ -10,6 +10,7 @@ import { assertOperationalSchema, readOperationalState } from './operationalStor
 import { writeOperationalState } from './operationalWrites.mjs';
 import { sendWhatsAppMessage } from './whatsappService.mjs';
 import { validateRequestAuthorization } from './requestAccess.mjs';
+import { validateNewRequestStock } from './requestStockValidation.mjs';
 import { sendTwilioWhatsAppMessage } from './twilioWhatsAppService.mjs';
 import { createWhatsAppService } from './whatsapp/service.mjs';
 import { getWhatsAppConfig } from './whatsapp/config.mjs';
@@ -1064,6 +1065,8 @@ app.put('/api/state', requireUser, asyncRoute(async (request, response) => {
         state.auditLogs
       );
       if (requestAuthError) return { status: 403, body: { error: requestAuthError } };
+      const requestStockError = validateNewRequestStock(currentState, state);
+      if (requestStockError) return { status: 400, body: { error: requestStockError } };
       const stockInError = validateStockInWorkflow(currentState, state);
       if (stockInError) return { status: 400, body: { error: stockInError } };
       for (const key of collections) {
