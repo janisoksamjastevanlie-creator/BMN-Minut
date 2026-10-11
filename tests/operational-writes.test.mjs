@@ -195,3 +195,64 @@ test('verified stock-in writes a relational transaction and matching ledger move
   assert.equal(executor.statements.some(({ sql, params }) =>
     sql.includes('UPDATE stock_card_ledger SET saldo') && params[0] === 7), true);
 });
+
+test('deleting a verified stock-in removes its rows and reverses its stock ledger effect', async () => {
+  const inventoryItem = {
+    id: 'item-1',
+    kodeBarang: 'ATK-001',
+    nama: 'Kertas',
+    kategori: 'ATK',
+    subkategori: '',
+    jenis: 'ATK',
+    satuan: 'Rim',
+    stokAwal: 5,
+    stokSaatIni: 7,
+    stokMinimum: 1,
+    stokMaksimum: 20,
+    hargaSatuan: 10,
+    lokasiGudang: '',
+    rak: '',
+    shelf: '',
+    binCode: '',
+    barcode: '',
+    ratarataPenggunaanBulanan: 1,
+    fotoUrl: undefined,
+    totalNilai: 70,
+    status: 'Aman'
+  };
+  const stockIn = {
+    id: 'sin-1',
+    nomorTransaksi: 'BM-2026-0001',
+    tanggal: '2026-10-11',
+    nomorDokumen: 'BA-001',
+    sumber: 'Pengadaan',
+    itemId: 'item-1',
+    jumlah: 2,
+    hargaSatuan: 10,
+    totalHarga: 20,
+    lokasiRak: '',
+    petugas: 'Operator',
+    keterangan: '',
+    status: 'Diverifikasi'
+  };
+  const previous = state({ inventoryItems: [inventoryItem], stockInList: [stockIn] });
+  const next = state({
+    inventoryItems: [{ ...inventoryItem, stokSaatIni: 5, totalNilai: 50 }],
+    stockInList: []
+  });
+  const executor = createExecutor();
+
+  await writeOperationalState(executor, previous, next, { name: 'Operator' }, 2);
+
+  assert.ok(executor.statements.some(({ sql, params }) =>
+    sql.includes('DELETE FROM `stock_in_items`') && params[0] === stockIn.id));
+  assert.ok(executor.statements.some(({ sql, params }) =>
+    sql.includes('DELETE FROM `stock_in`') && params[0] === stockIn.id));
+  const reversal = executor.statements.find(({ sql, params }) =>
+    sql.includes('INSERT INTO `stock_card_ledger`') && params[4] === 'KELUAR');
+  assert.ok(reversal);
+  assert.equal(reversal.params[5], 0);
+  assert.equal(reversal.params[6], 2);
+  assert.equal(executor.statements.some(({ sql, params }) =>
+    sql.includes('UPDATE stock_card_ledger SET saldo') && params[0] === 5), true);
+});

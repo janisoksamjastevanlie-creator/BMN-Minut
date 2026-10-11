@@ -39,6 +39,7 @@ import {
 import { getAssetPhotoUrl, getInventoryPhotoUrl } from '../utils/assetImages';
 import { DashboardFilters, DEFAULT_DASHBOARD_FILTERS } from '../utils/dashboardFilters';
 import { getHomeView, isPimpinanUser } from '../utils/rbac';
+import { planStockInDeletion } from '../../stockInDeletion.mjs';
 
 export type ActiveView =
   | 'landing'
@@ -150,6 +151,7 @@ interface AppContextType {
   inspectStockIn: (id: string, pemeriksaan: NonNullable<StockInTransaction['pemeriksaan']>) => { success: boolean; message: string };
   verifyStockIn: (id: string, diterima: boolean, catatan?: string) => { success: boolean; message: string };
   deleteStockIn: (id: string) => { success: boolean; message: string };
+  deleteStockInMany: (ids: string[]) => { deletedIds: string[]; errors: { id: string; message: string }[] };
   
   addStockOut: (data: {
     itemId: string;
@@ -1253,20 +1255,44 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteStockIn = (id: string) => {
+    const result = deleteStockInMany([id]);
+    const error = result.errors[0];
+    if (error) return { success: false, message: error.message };
     const target = stockInList.find(tx => tx.id === id);
-    if (!target) return { success: false, message: 'Transaksi Barang Masuk tidak ditemukan.' };
-    const isPosted = target.status === undefined || target.status === 'Diverifikasi';
-    if (isPosted) {
-      const item = inventoryItems.find(i => i.id === target.itemId);
-      if (!item) return { success: false, message: 'Barang persediaan terkait tidak ditemukan; transaksi historis tidak dapat dihapus dengan aman.' };
-      if (item.stokSaatIni < target.jumlah) {
-        return { success: false, message: 'Stok saat ini tidak mencukupi untuk membatalkan transaksi ini.' };
+    return {
+      success: result.deletedIds.includes(id),
+      message: target ? `Transaksi ${target.nomorTransaksi} berhasil dihapus.` : 'Transaksi Barang Masuk tidak ditemukan.'
+    };
+  };
+
+  const deleteStockInMany = (ids: string[]) => {
+    const result = planStockInDeletion(ids, stockInList, inventoryItems, hasPermission('manageInventory'));
+    if (result.deletedIds.length > 0) {
+      const affectedItems = new Set(
+        result.deletedTransactions
+          .filter(tx => tx.status === undefined || tx.status === 'Diverifikasi')
+          .map(tx => tx.itemId)
+      );
+      setInventoryItems(previous => previous.map(item => {
+        if (!affectedItems.has(item.id)) return item;
+        const stock = result.stockByItem.get(item.id);
+        if (stock === undefined) return item;
+        const updated = { ...item, stokSaatIni: stock, totalNilai: stock * item.hargaSatuan };
+        updated.status = stock === 0 ? 'Habis' : stock <= item.stokMinimum ? 'Menipis' : 'Aman';
+        return updated;
+      }));
+      setStockInList(previous => previous.filter(tx => !result.deletedIds.includes(tx.id)));
+      for (const transaction of result.deletedTransactions) {
+        const isPosted = transaction.status === undefined || transaction.status === 'Diverifikasi';
+        logAudit(
+          'Penghapusan Barang Masuk',
+          'PERSEDIAAN',
+          `Transaksi ${transaction.nomorTransaksi} dihapus${isPosted ? ' dan jumlah stoknya dikoreksi' : ''}.`
+        );
       }
-      updateInventoryItem(item.id, { stokSaatIni: item.stokSaatIni - target.jumlah });
     }
-    setStockInList(prev => prev.filter(tx => tx.id !== id));
-    logAudit('Penghapusan Barang Masuk', 'PERSEDIAAN', `Transaksi ${target.nomorTransaksi} dihapus${isPosted ? ' dan jumlah stoknya dikoreksi' : ''}.`);
-    return { success: true, message: `Transaksi ${target.nomorTransaksi} berhasil dihapus.` };
+
+    return { deletedIds: result.deletedIds, errors: result.errors };
   };
 
   // Stock Out Automation (STOK OTOMATIS BERKURANG)
@@ -1792,6 +1818,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         inspectStockIn,
         verifyStockIn,
         deleteStockIn,
+        deleteStockInMany,
         addStockOut,
         addInventoryRequest,
         updateRequestStatus,

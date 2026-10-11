@@ -36,7 +36,7 @@ import {
 export const InventoryView: React.FC = () => {
   const {
     inventoryItems, stockInList, currentUser, selectedInventoryItem, setSelectedInventoryItem,
-    setActiveView, hasPermission, deleteInventoryItem, inspectStockIn, verifyStockIn, deleteStockIn
+    setActiveView, hasPermission, deleteInventoryItem, inspectStockIn, verifyStockIn, deleteStockIn, deleteStockInMany
   } = useApp();
 
   // DITAMBAHKAN: simpan pilihan menggunakan ID barang agar tetap valid antar halaman.
@@ -63,6 +63,8 @@ export const InventoryView: React.FC = () => {
   const [stockInSearch, setStockInSearch] = useState('');
   const [stockInStatusFilter, setStockInStatusFilter] = useState('ALL');
   const [stockInNotice, setStockInNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [selectedStockInIds, setSelectedStockInIds] = useState<Set<string>>(new Set());
+  const [isStockInBulkDeleteConfirmOpen, setIsStockInBulkDeleteConfirmOpen] = useState(false);
   const [inspectionCondition, setInspectionCondition] = useState<'Baik' | 'Rusak Ringan' | 'Rusak Berat'>('Baik');
   const [inspectionQuantityOk, setInspectionQuantityOk] = useState(true);
   const [inspectionDocumentOk, setInspectionDocumentOk] = useState(true);
@@ -189,6 +191,63 @@ export const InventoryView: React.FC = () => {
       tx.nomorTransaksi, tx.nomorDokumen, tx.namaBarang, tx.itemId, tx.sumber, tx.petugas
     ].some(value => String(value || '').toLocaleLowerCase('id-ID').includes(query));
   });
+  const areAllVisibleStockInSelected =
+    filteredStockIn.length > 0 && filteredStockIn.every(tx => selectedStockInIds.has(tx.id));
+  const hasSomeVisibleStockInSelected =
+    filteredStockIn.some(tx => selectedStockInIds.has(tx.id)) && !areAllVisibleStockInSelected;
+
+  useEffect(() => {
+    const visibleIds = new Set(filteredStockIn.map(tx => tx.id));
+    setSelectedStockInIds(previous => {
+      const next = new Set(Array.from(previous).filter(id => visibleIds.has(id)));
+      return next.size === previous.size ? previous : next;
+    });
+  }, [stockInList, stockInSearch, stockInStatusFilter]);
+
+  const toggleStockInSelection = (id: string) => {
+    setSelectedStockInIds(previous => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllVisibleStockInSelection = () => {
+    setSelectedStockInIds(previous => {
+      const next = new Set(previous);
+      if (areAllVisibleStockInSelected) {
+        filteredStockIn.forEach(tx => next.delete(tx.id));
+      } else {
+        filteredStockIn.forEach(tx => next.add(tx.id));
+      }
+      return next;
+    });
+  };
+
+  const handleBulkStockInDelete = () => {
+    const ids = Array.from(selectedStockInIds);
+    if (ids.length === 0) {
+      setStockInNotice({ type: 'error', message: 'Pilih transaksi Barang Masuk yang ingin dihapus terlebih dahulu.' });
+      return;
+    }
+    const result = deleteStockInMany(ids);
+    const deletedNumbers = stockInList
+      .filter(tx => result.deletedIds.includes(tx.id))
+      .map(tx => tx.nomorTransaksi);
+    const errorDetails = result.errors.map(error => {
+      const transaction = stockInList.find(tx => tx.id === error.id);
+      return `${transaction?.nomorTransaksi || error.id || 'ID tidak valid'}: ${error.message}`;
+    });
+    setSelectedStockInIds(new Set());
+    setIsStockInBulkDeleteConfirmOpen(false);
+    setStockInNotice({
+      type: errorDetails.length > 0 ? 'error' : 'success',
+      message: `${result.deletedIds.length} dari ${ids.length} transaksi berhasil dihapus.${
+        deletedNumbers.length ? ` Dihapus: ${deletedNumbers.join(', ')}.` : ''
+      }${errorDetails.length ? ` Gagal: ${errorDetails.join(' ')}` : ''}`
+    });
+  };
 
   const handleInspectionSubmit = (event: React.FormEvent) => {
     event.preventDefault();
@@ -398,10 +457,42 @@ export const InventoryView: React.FC = () => {
           </div>
         )}
 
+        {hasPermission('manageInventory') && (
+          <div className="px-4 py-3 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <span aria-live="polite" className="text-xs text-slate-300">
+              {selectedStockInIds.size} transaksi dipilih
+            </span>
+            <button
+              type="button"
+              onClick={() => setIsStockInBulkDeleteConfirmOpen(true)}
+              disabled={selectedStockInIds.size === 0}
+              className="px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed text-white text-xs font-bold flex items-center justify-center gap-1.5"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Hapus yang Dipilih
+            </button>
+          </div>
+        )}
+
         <div className="overflow-x-auto">
           <table className="w-full min-w-[900px] text-left">
             <thead className="bg-slate-950/70 text-[10px] uppercase tracking-wider text-slate-400">
               <tr>
+                {hasPermission('manageInventory') && (
+                  <th className="px-4 py-3 text-center">
+                    <input
+                      type="checkbox"
+                      checked={areAllVisibleStockInSelected}
+                      ref={element => {
+                        if (element) element.indeterminate = hasSomeVisibleStockInSelected;
+                      }}
+                      onChange={toggleAllVisibleStockInSelection}
+                      disabled={filteredStockIn.length === 0}
+                      aria-label="Pilih semua transaksi Barang Masuk yang ditampilkan"
+                      className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-rose-500 focus:ring-rose-500"
+                    />
+                  </th>
+                )}
                 <th className="px-4 py-3">Tanggal / Nomor</th>
                 <th className="px-4 py-3">Barang / Dokumen</th>
                 <th className="px-4 py-3 text-right">Jumlah / Nilai</th>
@@ -411,7 +502,7 @@ export const InventoryView: React.FC = () => {
             </thead>
             <tbody className="divide-y divide-slate-800/80">
               {filteredStockIn.length === 0 ? (
-                <tr><td colSpan={5} className="px-4 py-10 text-center text-xs text-slate-500">Tidak ada transaksi Barang Masuk yang cocok.</td></tr>
+                <tr><td colSpan={hasPermission('manageInventory') ? 6 : 5} className="px-4 py-10 text-center text-xs text-slate-500">Tidak ada transaksi Barang Masuk yang cocok.</td></tr>
               ) : filteredStockIn.map(tx => {
                 const status = tx.status || 'HISTORICAL';
                 const statusClass = status === 'Diverifikasi' || status === 'HISTORICAL'
@@ -423,6 +514,17 @@ export const InventoryView: React.FC = () => {
                       : 'bg-amber-500/10 text-amber-300 border-amber-500/20';
                 return (
                   <tr key={tx.id} className="hover:bg-slate-800/30">
+                    {hasPermission('manageInventory') && (
+                      <td className="px-4 py-3 text-center align-top">
+                        <input
+                          type="checkbox"
+                          checked={selectedStockInIds.has(tx.id)}
+                          onChange={() => toggleStockInSelection(tx.id)}
+                          aria-label={`Pilih transaksi ${tx.nomorTransaksi}`}
+                          className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-rose-500 focus:ring-rose-500"
+                        />
+                      </td>
+                    )}
                     <td className="px-4 py-3 align-top">
                       <div className="text-xs font-semibold text-white">{tx.tanggal}</div>
                       <div className="text-[10px] text-slate-400 font-mono mt-1">{tx.nomorTransaksi}</div>
@@ -501,6 +603,42 @@ export const InventoryView: React.FC = () => {
           Menampilkan {filteredStockIn.length} dari {stockInList.length} transaksi. Data historis tanpa status dipertahankan dan tidak otomatis mengubah stok.
         </div>
       </section>
+
+      {isStockInBulkDeleteConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="stock-in-bulk-delete-title"
+            className="w-full max-w-md bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl p-5 space-y-4"
+          >
+            <h2 id="stock-in-bulk-delete-title" className="text-sm font-bold text-white">
+              Konfirmasi Hapus Transaksi Barang Masuk
+            </h2>
+            <p className="text-xs text-slate-300">
+              Anda akan menghapus {selectedStockInIds.size} transaksi yang dipilih. Transaksi terverifikasi akan mengoreksi stok terkait, dan transaksi yang stoknya tidak dapat dikoreksi akan dilaporkan sebagai gagal.
+            </p>
+            <p className="text-xs text-rose-300">Transaksi yang berhasil dihapus tidak dapat dipulihkan.</p>
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsStockInBulkDeleteConfirmOpen(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleBulkStockInDelete}
+                disabled={selectedStockInIds.size === 0}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl"
+              >
+                Hapus {selectedStockInIds.size} Transaksi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tabs & Search Bar */}
       <div ref={masterListRef} className="bg-slate-900 border border-slate-800 p-4 rounded-2xl space-y-3 scroll-mt-4">
