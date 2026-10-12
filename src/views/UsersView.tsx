@@ -1064,7 +1064,7 @@ export const UsersView: React.FC = () => {
             </div>
           ) : viewMode === 'grid' ? (
             /* ================= GRID VIEW ================= */
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4 items-start">
               {filteredUsers.map(user => {
                 const theme = getRoleTheme(user.role);
                 const isCurrentUser = currentUser?.id === user.id;
@@ -1073,32 +1073,32 @@ export const UsersView: React.FC = () => {
                 return (
                   <div
                     key={user.id}
-                    className={`relative p-5 rounded-2xl bg-slate-900/80 border transition-all hover:border-slate-700 space-y-4 ${
+                    className={`relative h-full min-w-0 p-4 sm:p-5 rounded-2xl bg-slate-900/80 border transition-all hover:border-slate-700 flex flex-col gap-4 ${
                       isCurrentUser
                         ? 'border-blue-500/50 shadow-lg shadow-blue-500/10 bg-slate-900'
                         : 'border-slate-800/90'
                     }`}
                   >
                     {/* User Header */}
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="checkbox"
-                          checked={selectedUserIds.has(user.id)}
-                          onChange={() => toggleUserSelection(user.id)}
-                          disabled={isCurrentUser}
-                          className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-blue-500 focus:ring-blue-500 disabled:opacity-40"
-                          aria-label={`Pilih pengguna ${user.name}`}
-                        />
-                        <div className="relative">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <input
+                        type="checkbox"
+                        checked={selectedUserIds.has(user.id)}
+                        onChange={() => toggleUserSelection(user.id)}
+                        disabled={isCurrentUser}
+                        className="mt-1 h-4 w-4 shrink-0 rounded border-slate-600 bg-slate-950 text-blue-500 focus:ring-blue-500 disabled:opacity-40"
+                        aria-label={`Pilih pengguna ${user.name}`}
+                      />
+                      <div className="flex items-start gap-3 min-w-0 flex-1">
+                        <div className="relative shrink-0">
                           {user.avatar ? (
                             <img
                               src={user.avatar}
                               alt={user.name}
-                              className="w-13 h-13 rounded-2xl object-cover border border-slate-700"
+                              className="w-14 h-14 rounded-2xl object-cover object-center border border-slate-700"
                             />
                           ) : (
-                            <div className={`w-13 h-13 rounded-2xl bg-gradient-to-br ${theme.gradient} flex items-center justify-center font-bold text-white text-lg shadow-md`}>
+                            <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${theme.gradient} flex items-center justify-center font-bold text-white text-lg shadow-md`}>
                               {user.name.charAt(0)}
                             </div>
                           )}
@@ -1110,21 +1110,24 @@ export const UsersView: React.FC = () => {
                           />
                         </div>
 
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <h3 className="text-sm font-bold text-white truncate">{user.name}</h3>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-start gap-1.5">
+                            <h3 className="min-w-0 flex-1 text-sm leading-5 font-bold text-white break-words" title={user.name}>
+                              {user.name}
+                            </h3>
                             {isCurrentUser && (
-                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-blue-500/20 text-blue-400 border border-blue-500/30 shrink-0">
+                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-blue-500/20 text-blue-400 border border-blue-500/30 whitespace-nowrap shrink-0">
                                 Sesi Anda
                               </span>
                             )}
                           </div>
-                          <div className="flex items-center gap-1.5 mt-0.5">
-                            <span className="text-[11px] font-mono text-slate-400">{user.nip}</span>
+                          <div className="flex items-center gap-1.5 mt-1 min-w-0">
+                            <span className="min-w-0 text-[11px] font-mono text-slate-400 break-all">{user.nip}</span>
                             <button
                               onClick={() => handleCopyNip(user.nip)}
-                              className="text-slate-500 hover:text-slate-300 transition-colors"
+                              className="p-1 -m-1 text-slate-500 hover:text-slate-300 transition-colors shrink-0"
                               title="Salin NIP"
+                              aria-label={`Salin NIP ${user.name}`}
                             >
                               {copiedNip === user.nip ? (
                                 <Check className="w-3 h-3 text-emerald-400" />
@@ -1133,40 +1136,38 @@ export const UsersView: React.FC = () => {
                               )}
                             </button>
                           </div>
-                          <div className="mt-1">
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${theme.badge}`}>
+                          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                            <span className={`inline-flex max-w-full text-[10px] leading-4 font-bold px-2 py-0.5 rounded-md border whitespace-normal break-words ${theme.badge}`}>
                               {user.role}
+                            </span>
+                            <span
+                              className={`inline-flex text-[10px] font-bold px-2 py-0.5 rounded-full border whitespace-nowrap ${
+                                isActive
+                                  ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                                  : 'bg-slate-700/50 text-slate-400 border-slate-700'
+                              }`}
+                            >
+                              {isActive ? 'Aktif' : 'Nonaktif'}
                             </span>
                           </div>
                         </div>
                       </div>
-
-                      {/* Status Badge */}
-                      <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                          isActive
-                            ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
-                            : 'bg-slate-700/50 text-slate-400 border-slate-700'
-                        }`}
-                      >
-                        {isActive ? 'Aktif' : 'Nonaktif'}
-                      </span>
                     </div>
 
                     {/* Work Unit & Contact Information */}
-                    <div className="space-y-1.5 text-xs text-slate-300 border-t border-b border-slate-800/80 py-3">
-                      <div className="flex items-center gap-2 text-slate-400">
-                        <Building2 className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                        <span className="truncate">{user.unitKerja}</span>
+                    <div className="flex-1 space-y-2 text-xs text-slate-300 border-t border-b border-slate-800/80 py-3 min-w-0">
+                      <div className="flex items-start gap-2 text-slate-400 min-w-0">
+                        <Building2 className="mt-0.5 w-3.5 h-3.5 text-slate-500 shrink-0" />
+                        <span className="min-w-0 break-words" title={user.unitKerja}>{user.unitKerja}</span>
                       </div>
-                      <div className="flex items-center gap-2 text-slate-400">
-                        <Mail className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                        <span className="truncate">{user.email}</span>
+                      <div className="flex items-start gap-2 text-slate-400 min-w-0">
+                        <Mail className="mt-0.5 w-3.5 h-3.5 text-slate-500 shrink-0" />
+                        <span className="min-w-0 break-all" title={user.email}>{user.email}</span>
                       </div>
                       {user.phone && (
-                        <div className="flex items-center gap-2 text-slate-400">
-                          <Phone className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                          <span>{user.phone}</span>
+                        <div className="flex items-start gap-2 text-slate-400 min-w-0">
+                          <Phone className="mt-0.5 w-3.5 h-3.5 text-slate-500 shrink-0" />
+                          <span className="min-w-0 break-all">{user.phone}</span>
                         </div>
                       )}
                     </div>
@@ -1180,11 +1181,12 @@ export const UsersView: React.FC = () => {
                         </div>
                       ) : <span />}
 
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-2 shrink-0">
                         <button
                           onClick={() => handleOpenEditUser(user)}
-                          className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-blue-400 transition-colors"
+                          className="w-9 h-9 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-blue-400 transition-colors inline-flex items-center justify-center"
                           title="Edit Data Pengguna"
+                          aria-label={`Edit data pengguna ${user.name}`}
                         >
                           <Edit3 className="w-4 h-4" />
                         </button>
@@ -1192,12 +1194,13 @@ export const UsersView: React.FC = () => {
                         <button
                           onClick={() => handleOpenDeleteUser(user)}
                           disabled={isCurrentUser}
-                          className={`p-2 rounded-xl transition-colors ${
+                          className={`w-9 h-9 rounded-xl transition-colors inline-flex items-center justify-center ${
                             isCurrentUser
                               ? 'text-slate-600 bg-slate-800/40 cursor-not-allowed'
                               : 'bg-slate-800/80 hover:bg-rose-500/20 text-slate-300 hover:text-rose-400'
                           }`}
                           title={isCurrentUser ? 'Tidak dapat menghapus akun yang sedang aktif' : 'Hapus Pengguna'}
+                          aria-label={`Hapus pengguna ${user.name}`}
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -1211,7 +1214,7 @@ export const UsersView: React.FC = () => {
             /* ================= TABLE VIEW ================= */
             <div className="rounded-2xl bg-slate-900/80 border border-slate-800/80 overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
+                <table className="w-full min-w-[980px] text-left text-xs">
                   <thead className="bg-slate-950/60 text-slate-400 uppercase tracking-wider font-semibold border-b border-slate-800">
                     <tr>
                       <th className="px-3 py-3.5 text-center">
@@ -1255,21 +1258,21 @@ export const UsersView: React.FC = () => {
                             />
                           </td>
                           <td className="px-4 py-3.5">
-                            <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-3 min-w-0">
                               {user.avatar ? (
                                 <img
                                   src={user.avatar}
                                   alt={user.name}
-                                  className="w-9 h-9 rounded-xl object-cover border border-slate-700"
+                                  className="w-9 h-9 shrink-0 rounded-xl object-cover object-center border border-slate-700"
                                 />
                               ) : (
                                 <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${theme.gradient} flex items-center justify-center font-bold text-white text-xs`}>
                                   {user.name.charAt(0)}
                                 </div>
                               )}
-                              <div>
+                              <div className="min-w-0">
                                 <div className="font-bold text-white flex items-center gap-1.5">
-                                  <span>{user.name}</span>
+                                  <span className="max-w-52 truncate" title={user.name}>{user.name}</span>
                                   {isCurrentUser && (
                                     <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-400">
                                       Anda

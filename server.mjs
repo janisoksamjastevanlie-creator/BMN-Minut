@@ -14,6 +14,7 @@ import { validateNewRequestStock } from './requestStockValidation.mjs';
 import { sendTwilioWhatsAppMessage } from './twilioWhatsAppService.mjs';
 import { createWhatsAppService } from './whatsapp/service.mjs';
 import { getWhatsAppConfig } from './whatsapp/config.mjs';
+import { buildFonnteRequestNotification } from './whatsapp/request-notification.mjs';
 import { createWebChat, WEB_CHAT_ERRORS } from './ai/webchat.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
@@ -358,6 +359,10 @@ function maskWhatsAppNumber(value) {
   return digits.length > 4 ? `***${digits.slice(-4)}` : '[invalid]';
 }
 
+function currentMakassarDate() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date());
+}
+
 function buildTwilioRequestMessage(inventoryRequest, eventType, note) {
   const items = Array.isArray(inventoryRequest.items) && inventoryRequest.items.length
     ? inventoryRequest.items
@@ -394,43 +399,6 @@ function buildTwilioRequestMessage(inventoryRequest, eventType, note) {
       ? 'Permohonan Barang tersebut telah dibatalkan. Informasi ini dikirim kepada Administrator.'
       : 'Permohonan Barang baru telah diterima oleh Sistem BMN. Mohon Administrator melakukan pemeriksaan melalui sistem.';
   return [heading, '', ...fields, '', closing].join('\n');
-}
-
-function buildFonnteRequestNotification(inventoryRequest, action, note) {
-  const items = Array.isArray(inventoryRequest.items) && inventoryRequest.items.length
-    ? inventoryRequest.items
-    : [{
-        namaBarang: inventoryRequest.namaBarang,
-        jumlahDiminta: inventoryRequest.jumlahDiminta,
-        jumlahDisetujui: inventoryRequest.jumlahDisetujui,
-        satuan: inventoryRequest.satuan
-      }];
-  const itemLines = items.slice(0, 8).map(item => {
-    const quantity = inventoryRequest.status === 'Disetujui'
-      ? item.jumlahDisetujui || inventoryRequest.jumlahDisetujui || item.jumlahDiminta
-      : item.jumlahDiminta;
-    return `- ${String(item.namaBarang || '-').slice(0, 80)}: ${quantity ?? '-'} ${String(item.satuan || '').slice(0, 20)}`;
-  });
-  if (items.length > itemLines.length) itemLines.push(`- dan ${items.length - itemLines.length} jenis barang lainnya`);
-  const title = action === 'submitted'
-    ? 'Permohonan barang baru'
-    : action === 'cancelled'
-      ? 'Permohonan barang dibatalkan'
-      : `Status permohonan barang: ${inventoryRequest.status}`;
-  return {
-    title,
-    lines: [
-      `Nomor Permohonan: ${String(inventoryRequest.nomorPermintaan || '-').slice(0, 100)}`,
-      `Tanggal: ${String(inventoryRequest.tanggal || '-').slice(0, 40)}`,
-      `Pemohon: ${String(inventoryRequest.pemohonNama || '-').slice(0, 100)}`,
-      `Daftar Barang (${items.length} jenis):`,
-      ...itemLines,
-      `Status: ${String(inventoryRequest.status || '-').slice(0, 50)}`,
-      ...((note || inventoryRequest.catatan)
-        ? [`Keterangan: ${String(note || inventoryRequest.catatan).slice(0, 500)}`]
-        : [])
-    ]
-  };
 }
 
 async function sendTwilioRequestEvent({ eventId, inventoryRequest, eventType, users, note }) {
@@ -1132,6 +1100,7 @@ app.put('/api/state', requireUser, asyncRoute(async (request, response) => {
           inventoryRequest: { ...inventoryRequest, status: 'Dibatalkan' },
           ownerUserId: owner,
           note: cancellationReason || inventoryRequest.catatan,
+          actorName: request.user.name,
           users: Array.isArray(currentState.users) ? currentState.users : []
         });
       }
@@ -1144,7 +1113,13 @@ app.put('/api/state', requireUser, asyncRoute(async (request, response) => {
     for (const event of cancellationEvents) {
       const sendCancellation = whatsappProvider === 'fonnte'
         ? async () => {
-            const notification = buildFonnteRequestNotification(event.inventoryRequest, 'cancelled', event.note);
+            const notification = buildFonnteRequestNotification(
+              event.inventoryRequest,
+              'cancelled',
+              event.note,
+              event.actorName,
+              currentMakassarDate()
+            );
             const result = await whatsapp.notifyRequestEvent({
               eventKey: `request:${event.inventoryRequest.id}:Dibatalkan:cancelled`,
               ownerUserId: event.ownerUserId,
@@ -1290,7 +1265,13 @@ app.post('/api/whatsapp/request-events', requireUser, asyncRoute(async (request,
             String(user.name || '').trim().toLocaleLowerCase('id-ID') ===
             String(inventoryRequest.pemohonNama || '').trim().toLocaleLowerCase('id-ID')
           )?.id;
-      const notification = buildFonnteRequestNotification(inventoryRequest, action, note);
+      const notification = buildFonnteRequestNotification(
+        inventoryRequest,
+        action,
+        note,
+        request.user.name,
+        currentMakassarDate()
+      );
       result = await whatsapp.notifyRequestEvent({
         eventKey: `request:${requestId}:${status}:${action}`,
         ownerUserId: owner,

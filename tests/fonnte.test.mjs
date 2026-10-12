@@ -5,6 +5,9 @@ import express from 'express';
 import { getWhatsAppConfig } from '../whatsapp/config.mjs';
 import { parseFonnteWebhookMessage, sendFonnteMessage } from '../whatsapp/fonnte.mjs';
 import { createWhatsAppService, resolveRequestRecipients } from '../whatsapp/service.mjs';
+import { formatter } from '../whatsapp/formatter.mjs';
+import { buildFonnteRequestNotification } from '../whatsapp/request-notification.mjs';
+import { createWhatsAppStore } from '../whatsapp/store.mjs';
 
 const sendConfig = {
   token: 'test-token',
@@ -117,12 +120,14 @@ test('Fonnte rejects invalid recipient numbers before making a network call', as
   assert.equal(called, false);
 });
 
-test('request recipients use registered profile numbers without requiring chatbot linking', () => {
+test('submitted requests notify only active Administrator, Pengelola BMN, and Operator users', () => {
   const users = [
     { id: 'requester', role: 'Pemohon', phone: '081234567890', statusAktif: true },
     { id: 'admin', role: 'Administrator', phone: '+62 813-4567-8901', statusAktif: true },
+    { id: 'manager', role: 'Pengelola BMN', phone: '081234567892', statusAktif: true },
+    { id: 'operator', role: 'Operator', phone: '081234567893', statusAktif: true },
     { id: 'inactive-admin', role: 'Administrator', phone: '081999999999', statusAktif: false },
-    { id: 'unrelated', role: 'Pemohon', phone: '081777777777', statusAktif: true }
+    { id: 'custom-approver', role: 'Pejabat Penyetuju', phone: '081777777777', statusAktif: true }
   ];
   const result = resolveRequestRecipients({
     users,
@@ -130,22 +135,51 @@ test('request recipients use registered profile numbers without requiring chatbo
     ownerUserId: 'requester',
     status: 'Diajukan',
     action: 'submitted',
-    userHasPermission: user => user.role === 'Administrator'
+    userHasPermission: user => user.id === 'custom-approver'
   });
 
-  assert.deepEqual(result.recipients.map(recipient => recipient.phone).sort(), [
-    '6281234567890',
-    '6281345678901'
+  assert.deepEqual(result.recipients.map(recipient => recipient.user.id).sort(), [
+    'admin',
+    'manager',
+    'operator'
   ]);
-  assert.equal(result.eligibleCount, 2);
+  assert.equal(result.eligibleCount, 3);
   assert.equal(result.missingPhoneCount, 0);
 });
 
-test('request recipients follow workflow authorization and report missing registered numbers', () => {
+test('approval notifications are sent only to the linked account of the request owner', () => {
   const users = [
-    { id: 'requester', role: 'Pemohon', statusAktif: true },
-    { id: 'kasubag', role: 'Kepala Sub Bagian Umum', phone: '081234567890', statusAktif: true },
-    { id: 'operator', role: 'Operator', phone: '081234567891', statusAktif: true }
+    { id: 'requester', role: 'Pemohon', phone: '081234567890', statusAktif: true },
+    { id: 'admin', role: 'Administrator', phone: '+62 813-4567-8901', statusAktif: true },
+    { id: 'manager', role: 'Pengelola BMN', phone: '081234567892', statusAktif: true },
+    { id: 'other-requester', role: 'Pemohon', phone: '081234567893', statusAktif: true }
+  ];
+  const result = resolveRequestRecipients({
+    users,
+    accounts: [
+      { user_id: 'requester', phone: '628555111222', notify_enabled: 1 },
+      { user_id: 'admin', phone: '628555111223', notify_enabled: 1 },
+      { user_id: 'other-requester', phone: '628555111224', notify_enabled: 1 }
+    ],
+    ownerUserId: 'requester',
+    status: 'Disetujui',
+    action: 'status_changed',
+    userHasPermission: user => user.role === 'Administrator' || user.role === 'Pengelola BMN'
+  });
+
+  assert.deepEqual(result.recipients.map(recipient => recipient.user.id), ['requester']);
+  assert.equal(result.recipients[0].phone, '628555111222');
+  assert.equal(result.eligibleCount, 1);
+  assert.equal(result.missingPhoneCount, 0);
+});
+
+test('verification notifies the owner and all core BMN roles', () => {
+  const users = [
+    { id: 'requester', role: 'Pemohon', phone: '081234567890', statusAktif: true },
+    { id: 'admin', role: 'Administrator', phone: '081234567891', statusAktif: true },
+    { id: 'manager', role: 'Pengelola BMN', phone: '081234567892', statusAktif: true },
+    { id: 'operator', role: 'Operator', phone: '081234567893', statusAktif: true },
+    { id: 'custom-approver', role: 'Pejabat Penyetuju', phone: '081234567894', statusAktif: true }
   ];
   const result = resolveRequestRecipients({
     users,
@@ -154,12 +188,130 @@ test('request recipients follow workflow authorization and report missing regist
     status: 'Diverifikasi',
     action: 'status_changed',
     userHasPermission: (user, permission) =>
-      permission === 'approveRequests' && user.role === 'Kepala Sub Bagian Umum'
+      permission === 'approveRequests' && user.id === 'custom-approver'
   });
 
-  assert.deepEqual(result.recipients.map(recipient => recipient.user.id), ['kasubag']);
-  assert.equal(result.eligibleCount, 2);
-  assert.equal(result.missingPhoneCount, 1);
+  assert.deepEqual(result.recipients.map(recipient => recipient.user.id).sort(), [
+    'admin',
+    'manager',
+    'operator',
+    'requester'
+  ]);
+  assert.equal(result.eligibleCount, 4);
+  assert.equal(result.missingPhoneCount, 0);
+});
+
+test('prepared and completed requests notify the owner, core roles, and authorized related roles', () => {
+  const users = [
+    { id: 'requester', role: 'Pemohon', phone: '081234567890', statusAktif: true },
+    { id: 'admin', role: 'Administrator', phone: '081234567891', statusAktif: true },
+    { id: 'manager', role: 'Pengelola BMN', phone: '081234567892', statusAktif: true },
+    { id: 'operator', role: 'Operator', phone: '081234567893', statusAktif: true },
+    { id: 'warehouse', role: 'Petugas Gudang', phone: '081234567894', statusAktif: true },
+    { id: 'unrelated', role: 'Pemohon', phone: '081234567895', statusAktif: true }
+  ];
+  for (const status of ['Diproses', 'Selesai']) {
+    const result = resolveRequestRecipients({
+      users,
+      accounts: [],
+      ownerUserId: 'requester',
+      status,
+      action: 'status_changed',
+      userHasPermission: (user, permission) =>
+        permission === 'manageInventory' && user.id === 'warehouse'
+    });
+    assert.deepEqual(result.recipients.map(recipient => recipient.user.id).sort(), [
+      'admin',
+      'manager',
+      'operator',
+      'requester',
+      'warehouse'
+    ]);
+  }
+});
+
+test('request notification templates contain the required event details and common title', () => {
+  const request = {
+    nomorPermintaan: 'REQ-001',
+    tanggal: '2026-10-12',
+    pemohonNama: 'Pemohon Uji',
+    status: 'Disetujui',
+    items: [{
+      namaBarang: 'Kertas A4',
+      jumlahDiminta: 5,
+      jumlahDisetujui: 3,
+      satuan: 'Rim'
+    }]
+  };
+  const approved = buildFonnteRequestNotification(request, 'status_changed', 'Disetujui sesuai stok', 'Pejabat Uji', '2026-10-13');
+  const approvedMessage = formatter.notification(approved.title, approved.lines, 'https://example.test');
+  assert.match(approvedMessage, /^🔔 \*NOTIFIKASI BMN-BPSMINUT\*/);
+  assert.match(approvedMessage, /Nomor Permohonan: REQ-001/);
+  assert.match(approvedMessage, /Nama Pemohon: Pemohon Uji/);
+  assert.match(approvedMessage, /Penyetuju: Pejabat Uji/);
+  assert.match(approvedMessage, /Tanggal Persetujuan: 2026-10-13/);
+  assert.match(approvedMessage, /Kertas A4: 3 Rim/);
+  assert.match(approvedMessage, /Status Persetujuan: DISETUJUI/);
+
+  const submitted = buildFonnteRequestNotification(
+    { ...request, status: 'Diajukan' },
+    'submitted',
+    undefined,
+    'Pemohon Uji',
+    '2026-10-12'
+  );
+  assert.match(submitted.lines.join('\n'), /Status: MENUNGGU VERIFIKASI/);
+
+  const verified = buildFonnteRequestNotification(
+    { ...request, status: 'Diverifikasi' },
+    'status_changed',
+    'Data lengkap',
+    'Verifikator Uji',
+    '2026-10-13'
+  );
+  assert.match(verified.lines.join('\n'), /Hasil Verifikasi: DIVERIFIKASI/);
+  assert.match(verified.lines.join('\n'), /Petugas Verifikasi: Verifikator Uji/);
+  assert.match(verified.lines.join('\n'), /Catatan\/Alasan: Data lengkap/);
+
+  const prepared = buildFonnteRequestNotification(
+    { ...request, status: 'Diproses' },
+    'status_changed',
+    undefined,
+    'Petugas Gudang',
+    '2026-10-14'
+  );
+  assert.match(prepared.lines.join('\n'), /Tanggal Persiapan: 2026-10-14/);
+
+  const completed = buildFonnteRequestNotification(
+    { ...request, status: 'Selesai' },
+    'status_changed',
+    undefined,
+    'Petugas Gudang',
+    '2026-10-15'
+  );
+  assert.match(completed.lines.join('\n'), /Status: BARANG TELAH DITERIMA/);
+});
+
+test('the same request event and recipient can be claimed only once after a successful send', async () => {
+  const claimed = new Set();
+  const database = {
+    async execute(sql, params) {
+      if (sql.includes('INSERT IGNORE INTO whatsapp_notifications')) {
+        const key = `${params[0]}:${params[1]}`;
+        if (claimed.has(key)) return [{ affectedRows: 0 }, []];
+        claimed.add(key);
+        return [{ affectedRows: 1 }, []];
+      }
+      if (sql.includes("status = 'sending'") && sql.includes("status = 'failed'")) {
+        return [{ affectedRows: 0 }, []];
+      }
+      throw new Error(`Unexpected database operation: ${sql}`);
+    }
+  };
+  const store = await createWhatsAppStore(database, { initializeSchema: false });
+
+  assert.equal(await store.claimNotification('request:req-1:Selesai:status_changed', 'requester'), true);
+  assert.equal(await store.claimNotification('request:req-1:Selesai:status_changed', 'requester'), false);
 });
 
 test('request notification explains how to configure a missing recipient number', async t => {
@@ -180,7 +332,7 @@ test('request notification explains how to configure a missing recipient number'
   const service = await createWhatsAppService({
     db: database,
     getCollection: key => key === 'users'
-      ? [{ id: 'user-1', role: 'Pemohon', statusAktif: true }]
+      ? [{ id: 'user-1', role: 'Pemohon', phone: '081234567890', statusAktif: true }]
       : [],
     userHasPermission: () => false,
     requireUser: (_request, response) => response.sendStatus(401),
@@ -198,15 +350,15 @@ test('request notification explains how to configure a missing recipient number'
   assert.deepEqual(await service.notifyRequestEvent({
     eventKey: 'request-test-event',
     ownerUserId: 'user-1',
-    status: 'Diajukan',
-    action: 'submitted',
-    title: 'Permohonan barang',
+    status: 'Disetujui',
+    action: 'status_changed',
+    title: 'Permohonan barang disetujui',
     lines: []
   }), {
     success: false,
     sentCount: 0,
     failedCount: 0,
-    error: '1 penerima wajib belum memiliki nomor WhatsApp valid. Atur Nomor WhatsApp pada Manajemen Pengguna dengan format 628xxxxxxxxxx.'
+    error: 'Nomor WhatsApp Pemohon belum terhubung atau tidak valid; notifikasi persetujuan tidak dialihkan kepada pengguna lain.'
   });
 });
 

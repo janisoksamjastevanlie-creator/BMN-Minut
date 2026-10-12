@@ -42,25 +42,36 @@ export function resolveRequestRecipients({
   for (const user of Array.isArray(users) ? users : []) {
     if (!user?.id || user.statusAktif === false) continue;
     const isOwner = user.id === ownerUserId;
-    const isAdministrator = String(user.role || '').trim().toLocaleLowerCase('id-ID') === 'administrator';
+    const normalizedRole = String(user.role || '').trim().toLocaleLowerCase('id-ID');
+    const isCoreBmnRole = ['administrator', 'pengelola bmn', 'operator'].includes(normalizedRole);
     const canApprove = userHasPermission(user, 'approveRequests');
     const canManage = userHasPermission(user, 'manageInventory');
-    const authorized = action === 'submitted' || action === 'cancelled'
-      ? isOwner || isAdministrator
-      : status === 'Diverifikasi'
-        ? isOwner || canApprove
-        : status === 'Disetujui'
-          ? isOwner || canManage
-          : ['Ditolak', 'Diproses', 'Selesai'].includes(status)
+    const authorized = action === 'submitted'
+      ? isCoreBmnRole
+      : action === 'cancelled'
+        ? isOwner || isCoreBmnRole || canApprove || canManage
+        : status === 'Diverifikasi'
+          ? isOwner || isCoreBmnRole
+          : status === 'Disetujui'
             ? isOwner
-            : isOwner || canApprove || canManage;
+            : ['Diproses', 'Selesai'].includes(status)
+              ? isOwner || isCoreBmnRole || canApprove || canManage
+              : status === 'Ditolak'
+                ? isOwner || isCoreBmnRole || canApprove || canManage
+                : isOwner || isCoreBmnRole || canApprove || canManage;
     if (!authorized) continue;
 
     const account = accountByUserId.get(user.id);
     eligibleCount += 1;
+    if (account?.notify_enabled === 0 || account?.notify_enabled === false) {
+      missingPhoneCount += 1;
+      continue;
+    }
     const accountPhone = normalizePhone(account?.phone);
     const profilePhone = normalizePhone(user.phone);
-    const phone = isValidPhone(accountPhone)
+    const phone = status === 'Disetujui'
+      ? isValidPhone(accountPhone) ? accountPhone : ''
+      : isValidPhone(accountPhone)
       ? accountPhone
       : isValidPhone(profilePhone)
         ? profilePhone
@@ -175,7 +186,9 @@ export async function createWhatsAppService({
       }
     }
     const missingPhoneError = resolution.missingPhoneCount > 0
-      ? `${resolution.missingPhoneCount} penerima wajib belum memiliki nomor WhatsApp valid. Atur Nomor WhatsApp pada Manajemen Pengguna dengan format 628xxxxxxxxxx.`
+      ? status === 'Disetujui'
+        ? 'Nomor WhatsApp Pemohon belum terhubung atau tidak valid; notifikasi persetujuan tidak dialihkan kepada pengguna lain.'
+        : `${resolution.missingPhoneCount} penerima wajib belum memiliki nomor WhatsApp valid atau menonaktifkan notifikasi. Atur Nomor WhatsApp pada Manajemen Pengguna dengan format 628xxxxxxxxxx.`
       : undefined;
     const noRecipientError = resolution.eligibleCount === 0
       ? 'Tidak ada akun pengguna aktif yang berwenang untuk menerima notifikasi ini.'
@@ -183,7 +196,7 @@ export async function createWhatsAppService({
         ? missingPhoneError
         : undefined;
     return {
-      success: sentCount > 0 && failedCount === 0,
+      success: sentCount > 0 && failedCount === 0 && resolution.missingPhoneCount === 0,
       sentCount,
       failedCount,
       error: failedCount > 0

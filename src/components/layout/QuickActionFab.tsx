@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import {
   Plus,
@@ -25,12 +25,35 @@ export const QuickActionFab: React.FC<{
   onOpenAddAsset
 }) => {
   const { isQuickActionOpen, setIsQuickActionOpen, setIsQrScannerOpen, hasPermission } = useApp();
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isQuickActionOpen) return;
+
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) setIsQuickActionOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsQuickActionOpen(false);
+    };
+
+    document.addEventListener('pointerdown', closeOnOutsideClick);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsideClick);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [isQuickActionOpen, setIsQuickActionOpen]);
 
   return (
-    <div className="fixed bottom-20 right-4 sm:bottom-6 sm:right-6 z-40 flex flex-col items-end">
+    <div ref={containerRef} className="fixed bottom-20 right-4 sm:bottom-6 sm:right-6 z-40 flex flex-col items-end">
       {/* Popover Menu */}
       {isQuickActionOpen && (
-        <div className="mb-3 w-56 bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl p-2 space-y-1 animate-in slide-in-from-bottom-4 duration-200">
+        <div
+          className="mb-3 w-56 max-w-[calc(100vw-2rem)] max-h-[calc(100vh-10rem)] overflow-y-auto bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl p-2 space-y-1 animate-in slide-in-from-bottom-4 duration-200"
+          role="menu"
+          aria-label="Transaksi cepat"
+        >
           <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-800">
             Transaksi Cepat
           </div>
@@ -128,10 +151,16 @@ export const QuickActionFab: React.FC<{
       {/* Main Floating Trigger Button */}
       <button
         onClick={() => setIsQuickActionOpen(!isQuickActionOpen)}
-        className="px-4 py-3 rounded-full bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white font-bold text-xs shadow-xl shadow-blue-600/30 flex items-center gap-2 transition-all hover:scale-105"
+        className={`h-12 rounded-full bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white font-bold text-xs shadow-xl shadow-blue-600/30 inline-flex items-center justify-center transition-all hover:scale-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${
+          isQuickActionOpen ? 'px-4 gap-2' : 'w-12'
+        }`}
+        aria-expanded={isQuickActionOpen}
+        aria-haspopup="menu"
+        aria-label={isQuickActionOpen ? 'Tutup menu transaksi cepat' : 'Buka menu transaksi cepat'}
+        title={isQuickActionOpen ? 'Tutup transaksi cepat' : 'Buka transaksi cepat'}
       >
         {isQuickActionOpen ? <X className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
-        <span>TRANSAKSI</span>
+        {isQuickActionOpen && <span>+ TRANSAKSI</span>}
       </button>
     </div>
   );

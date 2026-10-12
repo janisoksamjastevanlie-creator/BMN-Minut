@@ -242,9 +242,9 @@ export const formatter = {
   },
 
   pending(data, appUrl) {
-    if (!data.items.length) return text('🔔 *NOTIFIKASI BMN-MINUT*\n\nTidak ada pekerjaan yang membutuhkan tindakan Anda saat ini.', quickReplies(BTN_MENU));
+    if (!data.items.length) return text('🔔 *NOTIFIKASI BMN-BPSMINUT*\n\nTidak ada pekerjaan yang membutuhkan tindakan Anda saat ini.', quickReplies(BTN_MENU));
     return text([
-      '🔔 *NOTIFIKASI BMN-MINUT*',
+      '🔔 *NOTIFIKASI BMN-BPSMINUT*',
       '',
       ...data.items.map(item => `• ${n(item.count)} ${item.label}`),
       '',
@@ -284,6 +284,6 @@ export const formatter = {
   },
 
   notification(title, lines, appUrl) {
-    return ['🔔 *NOTIFIKASI BMN-MINUT*', '', `*${title}*`, ...lines, '', 'Silakan buka BMN-Minut untuk detail.', appUrl].join('\n');
+    return ['🔔 *NOTIFIKASI BMN-BPSMINUT*', '', `*${title}*`, ...lines, '', 'Silakan buka BMN-Minut untuk detail.', appUrl].join('\n');
   }
 };
