@@ -16,9 +16,14 @@ import { createWhatsAppService } from './whatsapp/service.mjs';
 import { getWhatsAppConfig } from './whatsapp/config.mjs';
 import { buildFonnteRequestNotification } from './whatsapp/request-notification.mjs';
 import { createWebChat, WEB_CHAT_ERRORS } from './ai/webchat.mjs';
+import { buildRequestEvents, createN8nIntegration } from './automation/n8n/integration.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(root, '.env') });
+const n8nIntegration = createN8nIntegration(process.env);
+if (n8nIntegration.configurationError) {
+  console.error(`n8n integration disabled: ${n8nIntegration.configurationError}`);
+}
 const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST?.trim() || (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1');
 const adminNip = process.env.ADMIN_NIP?.trim();
@@ -1108,9 +1113,30 @@ app.put('/api/state', requireUser, asyncRoute(async (request, response) => {
       return { status: 200, body: { success: true, revision: revision + 1 } };
     });
     if (outcome.status !== 200) return response.status(outcome.status).json(outcome.body);
+    const n8nEvents = n8nIntegration.enabled
+      ? buildRequestEvents({
+          previousRequests: currentState.requests,
+          nextRequests: state.requests,
+          previousAuditLogs: currentState.auditLogs,
+          nextAuditLogs: state.auditLogs,
+          revision: revision + 1
+        })
+      : [];
     Object.assign(collectionCache, state);
     response.json(outcome.body);
     whatsapp.onStateSaved(currentState, state, request.user.id, revision + 1);
+    if (n8nEvents.length) {
+      void (async () => {
+        for (const event of n8nEvents) {
+          const result = await n8nIntegration.publish(event);
+          if (!result.delivered) {
+            console.error(`n8n event delivery failed (${result.reason}) for ${event.eventId}.`);
+          }
+        }
+      })().catch(() => {
+        console.error('n8n event delivery loop failed.');
+      });
+    }
     for (const event of cancellationEvents) {
       const sendCancellation = whatsappProvider === 'fonnte'
         ? async () => {

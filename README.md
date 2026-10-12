@@ -125,3 +125,7 @@ Dokumentasi yang diverifikasi:
 - [Fonnte webhook reply](https://docs.fonnte.com/webhook-reply-message/)
 - [Fonnte Node.js webhook example](https://docs.fonnte.com/webhook-reply-message-with-nodejs/)
 - [Fonnte webhook secret update](https://docs.fonnte.com/update-6-february-2025/)
+
+### Integrasi event keluar ke n8n
+
+Integrasi n8n opsional mengirim event permohonan minimal melalui HTTPS setelah perubahan tersimpan. Integrasi nonaktif secara default dan tidak mengubah autentikasi, role, database, atau notifikasi WhatsApp. Lihat [panduan impor workflow, konfigurasi backend, pengujian staging, dan rollback n8n](./automation/n8n/README.md).

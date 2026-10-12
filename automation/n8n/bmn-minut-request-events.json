@@ -1,0 +1,163 @@
+{
+  "name": "BMN-Minut request events",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "bmn-minut/events",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "15c01d74-d0e2-44f4-97cb-093bec2ed321",
+      "name": "Receive BMN-Minut event",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        260,
+        300
+      ],
+      "webhookId": "3aaf3755-f8b7-4e91-bc1c-e4cc9e0014f2",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_AFTER_IMPORT",
+          "name": "BMN-Minut webhook secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const event = $json.body;\nconst statusByType = {\n  'request.submitted': 'Diajukan',\n  'request.verified': 'Diverifikasi',\n  'request.approved': 'Disetujui',\n  'request.rejected': 'Ditolak',\n  'request.processing': 'Diproses',\n  'request.completed': 'Selesai',\n  'request.cancelled': 'Dibatalkan'\n};\nconst statuses = new Set(['Draft', 'Diajukan', 'Diverifikasi', 'Disetujui', 'Diproses', 'Selesai', 'Ditolak']);\nconst eventId = typeof event?.eventId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(event.eventId);\nconst requestId = typeof event?.data?.requestId === 'string' && event.data.requestId.length > 0 && event.data.requestId.length <= 100;\nconst currentStatusValid = event?.data?.status === statusByType[event?.eventType];\nconst previousStatusValid = event?.eventType === 'request.submitted'\n  ? event?.data?.previousStatus === null\n  : statuses.has(event?.data?.previousStatus);\nconst timestamp = Number($json.headers?.['x-bmn-timestamp']);\nconst fresh = Number.isInteger(timestamp) && Math.abs(Math.floor(Date.now() / 1000) - timestamp) <= 300;\nconst valid = event?.schemaVersion === 1 && eventId && currentStatusValid && previousStatusValid && requestId && fresh && typeof event?.occurredAt === 'string' && !Number.isNaN(Date.parse(event.occurredAt));\nreturn [{ json: { valid, eventId: event?.eventId, eventType: event?.eventType } }];"
+      },
+      "id": "98468135-fdf4-4675-90f7-61f0a3495153",
+      "name": "Validate event envelope",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "588c92c8-ff96-468c-9c84-d3a0c8dd9a96",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "15d39efd-3e6b-4a50-96ca-912cb085b610",
+      "name": "Is event valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        700,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { accepted: true, eventId: $json.eventId } }}",
+        "options": {
+          "responseCode": 202
+        }
+      },
+      "id": "b7f8f851-5f24-4bb7-8cb9-0717ad2ba4cc",
+      "name": "Acknowledge event",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        920,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { accepted: false, error: 'Invalid event' } }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "5faf4248-ea8e-46b8-a8dd-215b5d451ac0",
+      "name": "Reject invalid event",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        920,
+        380
+      ]
+    }
+  ],
+  "connections": {
+    "Receive BMN-Minut event": {
+      "main": [
+        [
+          {
+            "node": "Validate event envelope",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate event envelope": {
+      "main": [
+        [
+          {
+            "node": "Is event valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is event valid?": {
+      "main": [
+        [
+          {
+            "node": "Acknowledge event",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject invalid event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none"
+  },
+  "versionId": "3dd1a2e7-adf8-4ba0-a12a-86c0f125a0f2",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

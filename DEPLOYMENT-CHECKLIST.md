@@ -42,6 +42,7 @@ Keep values in a hosting secret manager or a private environment file, never in 
 | WhatsApp AI (Groq) | `WHATSAPP_AI_PROVIDER=groq`, `GROQ_API_KEY`, `GROQ_MODEL`, `WHATSAPP_AI_ENABLED` | Groq receives only incoming question text for intent classification; database records remain server-side. Verify model availability and privacy settings before production. |
 | Public links | `APP_PUBLIC_URL` | Must be the final HTTPS origin before notifications are enabled. |
 | Cloudflare Access | `ACCESS_REQUIRED`, `CLOUDFLARE_ACCESS_TEAM_DOMAIN`, `CLOUDFLARE_ACCESS_AUD` | The server now fails closed when Access is enabled; production always requires it. Use the exact team domain and AUD supplied by the Cloudflare administrator. |
+| Optional outbound n8n | `N8N_ENABLED`, `N8N_BASE_URL`, `N8N_ALLOWED_HOSTS`, `N8N_WEBHOOK_PATH`, `N8N_WEBHOOK_SECRET`, `N8N_TIMEOUT_MS` | Disabled by default. Requires an independently reachable HTTPS n8n instance; exact hostname allowlist and shared Header Auth secret are mandatory. See [n8n integration guide](./automation/n8n/README.md). |
 
 The selected authentication direction is to preserve NIP/password login and application sessions, with Cloudflare Access as a required outer layer in production. Access assertions are verified server-side and bound to exactly one matching active user email; client-supplied identity headers are not trusted. Operational login requires the manually applied `migrations/operational-auth-session-v1.sql` extension and a password hash provisioned for an existing operational user. Neither DDL nor account creation runs automatically at startup. Production schema/account changes require separate explicit approval.
 
@@ -57,6 +58,7 @@ The selected authentication direction is to preserve NIP/password login and appl
 6. Test Cloudflare Access with a real Access application, verified issuer and AUD, and the final HTTPS URL. Confirm direct API requests cannot bypass Access.
 7. Test WhatsApp with mocked provider calls or a provider sandbox and a designated test recipient. Do not send a real notification without separate approval.
 8. Verify secret scanning and `git check-ignore` for private environment files, encrypted backups, key files, and database dumps.
+9. If n8n is used, import and activate the workflow only after configuring its Header Auth credential and HTTPS production webhook. Run the event smoke test from the integration guide against staging; n8n outage does not roll back an application transaction, and delivery is best-effort without durable retries.
 
 ## Deployment and rollback gate
 
