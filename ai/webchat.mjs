@@ -1,10 +1,9 @@
 // Tanya AI pada aplikasi web. Model hanya menerima ringkasan data yang sudah disaring
 // berdasarkan izin pengguna; tidak ada SQL, tidak ada penulisan data, dan tidak ada rahasia.
-import { createTools, parseDocumentQuery } from '../whatsapp/tools.mjs';
+import { createTools, normalizeQuery, parseAssetQuery, parseInventoryQuery, parseDocumentQuery, parseMaintenanceQuery } from '../whatsapp/tools.mjs';
 
 const MAX_HISTORY = 8;
 const MAX_MESSAGE_CHARS = 1200;
-const MAX_MATCHES = 5;
 
 const PERMISSION_LABELS = {
   viewDashboard: 'melihat dashboard',
@@ -56,66 +55,70 @@ export function sanitizeHistory(messages) {
   return recent;
 }
 
-const tokensOf = text => Array.from(new Set(
-  String(text || '').toLocaleLowerCase('id-ID').split(/[^\p{L}\p{N}]+/u).filter(token => token.length >= 3)
-));
-
 export function createWebChat({ config, getCollection, userHasPermission, getOwnedRequestIds = async () => [], fetchImpl = fetch }) {
   const tools = createTools({ getCollection, userHasPermission });
-  const list = key => (Array.isArray(getCollection(key)) ? getCollection(key) : []);
-  const canViewInventory = user => userHasPermission(user, 'viewInventory') || userHasPermission(user, 'manageInventory');
-
-  function matchInventory(user, question) {
-    if (!canViewInventory(user)) return null;
-    const tokens = tokensOf(question);
-    if (!tokens.length) return [];
-    return list('inventoryItems')
-      .map(item => {
-        const haystack = `${item.nama || ''} ${item.kodeBarang || ''} ${item.subkategori || ''}`.toLocaleLowerCase('id-ID');
-        return { item, score: tokens.filter(token => haystack.includes(token)).length };
-      })
-      .filter(entry => entry.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, MAX_MATCHES)
-      .map(({ item }) => ({
-        nama: item.nama,
-        kodeBarang: item.kodeBarang,
-        stok: item.stokSaatIni,
-        satuan: item.satuan,
-        stokMinimum: item.stokMinimum,
-        status: item.status,
-        lokasi: [item.rak, item.binCode].filter(Boolean).join(' / ')
-      }));
-  }
-
-  function matchAssets(user, question) {
-    const tokens = tokensOf(question);
-    if (!tokens.length) return [];
-    const result = tools.searchAsset(user, { nama: tokens.slice(0, 4).join(' ') });
-    return result.denied ? null : result.items;
-  }
 
   const section = (value, fallback) => (value === null || value === undefined || value?.denied ? fallback : value);
 
-  async function buildContext(user, question) {
+  async function buildContext(user, question, history) {
     const permissions = Object.entries(PERMISSION_LABELS)
       .filter(([key]) => userHasPermission(user, key))
       .map(([, label]) => label);
-    const filter = parseDocumentQuery(question);
-    const asksRequests = /\bpermohonan\b/i.test(question);
-    const asksTransactions = /\b(transaksi|riwayat)\b/i.test(question) && /\b(persediaan|barang|masuk|keluar)\b/i.test(question);
+    const current = normalizeQuery(question);
+    let topic = '';
+    let filter = {};
+    let assetFilter = {};
+    let inventoryFilter = {};
+    let maintenanceFilter = {};
+    for (const message of history.filter(item => item.role === 'user')) {
+      const query = normalizeQuery(message.content);
+      const followUp = Boolean(topic) &&
+        /^(?:yang\b|nomor\b|no[.: ]|kalau\b|bagaimana dengan\b|bagaimana statusnya\b|statusnya\b|itu\b)/.test(query) &&
+        !/\b(?:permohonan|pemeliharaan|perawatan|servis|transaksi|riwayat|stok|persediaan|aset|bmn)\b/.test(query);
+      if (!followUp) {
+        topic = query;
+        filter = {};
+        assetFilter = {};
+        inventoryFilter = {};
+        maintenanceFilter = {};
+      } else if (/^(?:bagaimana statusnya|statusnya|itu)[?.! ]*$/.test(query)) {
+        continue;
+      }
+      filter = { ...filter, ...parseDocumentQuery(query) };
+      const nextAsset = parseAssetQuery(query);
+      if (followUp && /^(?:kalau|bagaimana dengan)\b/.test(query) && nextAsset.nama) {
+        delete assetFilter.nup;
+        delete assetFilter.kodeBarang;
+      }
+      assetFilter = { ...assetFilter, ...nextAsset };
+      inventoryFilter = { ...inventoryFilter, ...parseInventoryQuery(query) };
+      maintenanceFilter = { ...maintenanceFilter, ...parseMaintenanceQuery(query) };
+    }
+    const asksRequests = /\bpermohonan\b/.test(topic);
+    const asksTransactions = /\b(transaksi|riwayat)\b/.test(topic) && /\b(persediaan|barang|masuk|keluar)\b/.test(topic);
+    const asksInventory = !asksRequests && !asksTransactions && /\b(?:stok|persediaan)\b/.test(topic);
+    const asksAssets = /\b(?:aset|bmn)\b/.test(topic) && !/\b(?:pemeliharaan|perawatan|servis|pengelola bmn)\b/.test(topic);
+    const directoryRole = current.match(/\b(administrator|pengelola bmn|operator|pimpinan)\b/)?.[1];
     return {
       pengguna: { nama: user.name, role: user.role, unitKerja: user.unitKerja },
       izinPengguna: permissions,
-      ringkasan: section(tools.getDashboard(user), 'tidak berwenang'),
-      persediaan: section(tools.getInventoryStatus(user), 'tidak berwenang'),
-      pekerjaanMenunggu: section(tools.getPendingActions(user), 'tidak tersedia'),
-      barangCocokDenganPertanyaan: section(matchInventory(user, question), 'tidak berwenang'),
-      asetCocokDenganPertanyaan: section(matchAssets(user, question), 'tidak berwenang'),
+      ringkasan: /\b(?:dashboard|ringkasan)\b/.test(topic) ? section(tools.getDashboard(user), 'tidak berwenang') : 'tidak diminta',
+      persediaan: asksInventory ? section(tools.getInventoryStatus(user), 'tidak berwenang') : 'tidak diminta',
+      pekerjaanMenunggu: /\b(?:tindakan|notifikasi|pekerjaan)\b/.test(topic)
+        ? section(tools.getPendingActions(user), 'tidak tersedia') : 'tidak diminta',
+      barangCocokDenganPertanyaan: asksInventory
+        ? section(tools.searchInventory(user, inventoryFilter), 'tidak berwenang') : 'tidak diminta',
+      asetCocokDenganPertanyaan: asksAssets ? section(tools.searchAsset(user, assetFilter), 'tidak berwenang') : 'tidak diminta',
+      jumlahAset: asksAssets && /\b(?:berapa|jumlah|total)\b/.test(topic)
+        ? section(tools.getAssetCount(user, assetFilter), 'tidak berwenang') : 'tidak diminta',
       permohonan: asksRequests ? section(tools.getMyRequests(user, await getOwnedRequestIds(user.id), filter,
-        !/\bsaya\b/i.test(question) && tools.canReadAllRequests(user)), 'tidak berwenang') : 'tidak diminta',
+        !/\bsaya\b/.test(topic) && tools.canReadAllRequests(user)), 'tidak berwenang') : 'tidak diminta',
       transaksiPersediaan: asksTransactions ? section(tools.getInventoryTransactions(user, filter), 'tidak berwenang') : 'tidak diminta',
-      batasan: 'Status di atas adalah status saat ini. Riwayat perubahan status dan waktu verifikasi/persetujuan tidak disediakan oleh fungsi ini; jangan mengarangnya.'
+      pemeliharaan: /\b(?:pemeliharaan|perawatan|servis)\b/.test(topic)
+        ? section(tools.getMaintenanceStatus(user, maintenanceFilter), 'tidak berwenang') : 'tidak diminta',
+      penggunaAktif: /\b(?:pengguna|administrator|petugas yang berwenang)\b/.test(current)
+        ? section(tools.searchUsers(user, directoryRole ? { role: directoryRole } : {}), 'tidak berwenang') : 'tidak diminta',
+      batasan: 'Status di atas adalah status saat ini. Riwayat perubahan status, nama petugas pemroses permohonan, dan waktu verifikasi/persetujuan tidak disediakan oleh fungsi ini; jangan mengarangnya. Gunakan hanya data terbaru ini, bukan angka atau identitas dari jawaban sebelumnya.'
     };
   }
 
@@ -184,7 +187,7 @@ export function createWebChat({ config, getCollection, userHasPermission, getOwn
       const history = sanitizeHistory(messages);
       const last = history[history.length - 1];
       if (!last || last.role !== 'user') return { error: 'bad_request' };
-      const context = await buildContext(user, last.content);
+      const context = await buildContext(user, last.content, history);
       const system = `${SYSTEM_PROMPT}\n\nDATA_APLIKASI (data aktual dari backend, sudah disaring sesuai izin pengguna):\n${JSON.stringify(context)}`;
       return callModel(system, history);
     }

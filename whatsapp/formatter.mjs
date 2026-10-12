@@ -91,16 +91,19 @@ export const formatter = {
   },
 
   failure() {
-    return text('Maaf, terjadi kendala saat memproses permintaan. Sistem BMN-Minut tetap berjalan normal; silakan coba lagi beberapa saat lagi.');
+    return text('Maaf, terjadi kendala saat memproses permintaan. Data belum dapat diperiksa; silakan coba lagi beberapa saat lagi.');
   },
 
   providerDown() {
-    return text('Maaf, layanan WhatsApp sedang mengalami gangguan. Sistem BMN-Minut tetap berjalan normal.');
+    return text('Maaf, layanan WhatsApp sedang mengalami gangguan. Pesan belum dapat dikirim.');
   },
 
   help() {
     return text([
       '❓ *BANTUAN BMN-MINUT*',
+      '',
+      'BMN adalah Barang Milik Negara. Aplikasi ini mencatat aset BMN dan persediaan, termasuk barang masuk/keluar serta permohonan barang.',
+      'Menu dan data yang dapat dibuka mengikuti izin akun. Chatbot hanya membaca informasi; tindakan transaksi tetap melalui aplikasi.',
       '',
       'Perintah yang tersedia:',
       '/menu — daftar layanan',
@@ -108,10 +111,15 @@ export const formatter = {
       '/cari — cari aset (contoh: cari laptop NUP 12)',
       '/status — status aset',
       '/mutasi — status mutasi aset',
+      '/pemeliharaan — status tiket pemeliharaan',
       '/stok — status persediaan',
       '/laporan — ringkasan laporan',
       '/notif — pekerjaan yang perlu tindakan',
       '/permohonan — status permohonan barang Anda',
+      'Riwayat transaksi — buka Persediaan / kartu stok atau Laporan sesuai izin akun.',
+      'Contoh periode: "transaksi barang masuk bulan Oktober 2026" atau "permohonan saya dari 2026-10-01 sampai 2026-10-12".',
+      'Contoh lanjutan: setelah menanyakan stok kertas A4, ketik "Kalau tinta printer?".',
+      'Nama pengguna aktif hanya tersedia bagi akun dengan izin Manajemen Pengguna.',
       '/akun — informasi akun',
       'NOTIF ON / NOTIF OFF — atur notifikasi otomatis',
       'PUTUSKAN — putuskan tautan WhatsApp',
@@ -169,7 +177,13 @@ export const formatter = {
     if (filter.status) parts.push(`status ${filter.status}`);
     if (filter.nama) parts.push(`"${filter.nama}"`);
     if (filter.lokasi) parts.push(`lokasi ${filter.lokasi}`);
-    return text(`📊 *JUMLAH ASET*\n\nAset ${parts.length ? parts.join(', ') : 'terdaftar (tidak termasuk yang dihapuskan)'}: *${n(result.count)}*`, quickReplies({ id: 'dashboard', title: '📊 Dashboard' }, BTN_MENU));
+    if (filter.kategori) parts.push(`kategori ${filter.kategori}`);
+    const groups = result.kelompok ? [
+      '', `Per ${filter.kelompok}:`,
+      ...result.kelompok.map(item => `• ${item.nama}: ${n(item.count)}`),
+      ...(result.totalKelompok > result.kelompok.length ? [`Menampilkan ${result.kelompok.length} dari ${n(result.totalKelompok)} kelompok.`] : [])
+    ].join('\n') : '';
+    return text(`📊 *JUMLAH ASET*\n\nAset ${parts.length ? parts.join(', ') : 'terdaftar (tidak termasuk yang dihapuskan)'}: *${n(result.count)}*${groups}`, quickReplies({ id: 'dashboard', title: '📊 Dashboard' }, BTN_MENU));
   },
 
   dashboard(data, now = new Date()) {
@@ -217,6 +231,21 @@ export const formatter = {
     ].join('\n'), quickReplies(BTN_MENU));
   },
 
+  maintenance(data) {
+    return text([
+      '🛠️ *PEMELIHARAAN BMN*',
+      '',
+      ...(data.items.length ? data.items.map(item =>
+        `• ${item.nomor || 'Nomor belum tercatat'} — ${item.aset || 'Aset belum tercatat'}\n` +
+        `  ${item.jenis || 'Jenis belum tercatat'}: ${item.status}\n` +
+        `  Mulai: ${item.mulai || 'Belum tercatat'}; selesai: ${item.selesai || 'Belum tercatat'}`
+      ) : ['Tiket pemeliharaan tidak ditemukan dalam filter ini.']),
+      ...(data.total > data.items.length ? [`Menampilkan ${data.items.length} dari ${n(data.total)} tiket.`] : []),
+      '',
+      'Perubahan tiket tetap dilakukan melalui menu Pemeliharaan sesuai izin akun.'
+    ].join('\n'), quickReplies(BTN_MENU));
+  },
+
   inventory(data) {
     const items = data.items.map(item => `• ${item.nama}: ${n(item.stok)} ${item.satuan} (${item.status})`);
     return text([
@@ -231,12 +260,13 @@ export const formatter = {
 
   inventorySearch(data) {
     if (!data.total) {
-      return text(`📦 *STOK BARANG*\n\nBarang${data.query ? ` "${data.query}"` : ''} tidak ditemukan.`, quickReplies(BTN_MENU));
+      return text(`📦 *STOK BARANG*\n\nBarang${data.query ? ` "${data.query}"` : ''}${data.status ? ` berstatus ${data.status}` : ''} tidak ditemukan dalam cakupan akses dan filter ini.`, quickReplies(BTN_MENU));
     }
     const items = data.items.map(item => `• ${item.nama}: ${n(item.stok)} ${item.satuan} (${item.status})`);
     return text([
       '📦 *STOK BARANG*',
       '',
+      ...(data.status ? [`Status: ${data.status}`, ''] : []),
       ...items,
       ...(data.total > data.items.length ? ['', `Menampilkan ${data.items.length} dari ${n(data.total)} hasil.`] : [])
     ].join('\n'), quickReplies(BTN_MENU));
@@ -263,10 +293,11 @@ export const formatter = {
       '',
       `Total: ${n(data.total)}`,
       `Belum selesai: ${n(data.pending)}`,
+      ...(data.periode ? [`Periode: ${data.periode}`] : []),
       '',
       ...items,
       '',
-      'Status yang ditampilkan adalah status saat ini. Riwayat perubahan status dan waktu persetujuan belum tersedia melalui chatbot.'
+      'Status yang ditampilkan adalah status saat ini. Riwayat perubahan status, nama petugas pemroses, dan waktu persetujuan belum tersedia melalui chatbot.'
     ].join('\n'), quickReplies(BTN_MENU));
   },
 
@@ -274,12 +305,26 @@ export const formatter = {
     return text([
       '📦 *TRANSAKSI PERSEDIAAN*',
       '',
+      `Total dokumen: ${n(data.totalDokumen)}`,
+      `Rincian barang: ${n(data.total)}`,
+      ...(data.periode ? [`Periode: ${data.periode}`] : []),
+      '',
       ...(data.items.length ? data.items.map(item =>
         `• ${item.nomor} (${item.tanggal}) — ${item.jenis}\n  ${item.barang}: ${n(item.jumlah)} ${item.satuan}\n  ${item.status}`
       ) : ['Transaksi tidak ditemukan dalam cakupan akses dan filter ini.']),
       ...(data.total > data.items.length ? [`Menampilkan ${data.items.length} dari ${n(data.total)} rincian barang.`] : []),
       '',
       'Riwayat lengkap tersedia di menu Persediaan sesuai izin akun. Status yang tidak tercatat tidak dapat disimpulkan.'
+    ].join('\n'), quickReplies(BTN_MENU));
+  },
+
+  users(data) {
+    return text([
+      '👤 *PENGGUNA AKTIF*', '',
+      `Total dalam filter: ${n(data.total)}`,
+      ...data.items.map(item => `• ${item.nama} — ${item.role}${item.unitKerja ? ` (${item.unitKerja})` : ''}`),
+      ...(data.total > data.items.length ? [`Menampilkan ${data.items.length} pengguna. Persempit pertanyaan dengan role.`] : []),
+      ...(!data.total ? ['Pengguna tidak ditemukan dalam cakupan akses dan filter ini.'] : [])
     ].join('\n'), quickReplies(BTN_MENU));
   },
 

@@ -1,40 +1,16 @@
 import { formatter, MENU_ITEMS } from './formatter.mjs';
 import { extractLinkCode } from './store.mjs';
-import { parseDocumentQuery } from './tools.mjs';
+import { normalizeQuery as normalize, parseInventoryQuery, parseAssetQuery, parseDocumentQuery, parseMaintenanceQuery } from './tools.mjs';
+import { sanitizeIntent } from './ai.mjs';
+
+export { parseAssetQuery } from './tools.mjs';
 
 const MAX_TEXT = 500;
 
-const normalize = value => String(value || '').toLocaleLowerCase('id-ID').replace(/\s+/g, ' ').trim();
-
-function parseInventoryQuery(input) {
-  const name = normalize(input)
-    .replace(/\b(berapa|jumlah|cek|lihat|tampilkan|stok|stock|barang|persediaan|tersedia|yang|ada)\b/g, ' ')
-    .replace(/[^\p{L}\p{N}\s.\-]/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return name ? { nama: name.slice(0, 60) } : {};
-}
-
-export function parseAssetQuery(input) {
-  let rest = ` ${normalize(input)} `;
-  const filter = {};
-  const nup = rest.match(/\bnup\s*[:.]?\s*(\d{1,7})\b/);
-  if (nup) { filter.nup = Number(nup[1]); rest = rest.replace(nup[0], ' '); }
-  const code = rest.match(/\b\d+(?:\.\d+){2,}\b/);
-  if (code) { filter.kodeBarang = code[0]; rest = rest.replace(code[0], ' '); }
-  for (const [pattern, value] of [[/\brusak berat\b/, 'Rusak Berat'], [/\brusak ringan\b/, 'Rusak Ringan'], [/\bkondisi baik\b|\bbaik\b/, 'Baik'], [/\brusak\b/, 'Rusak']]) {
-    if (pattern.test(rest)) { filter.kondisi = value; rest = rest.replace(pattern, ' '); break; }
-  }
-  const location = rest.match(/\b(?:lokasi|ruang(?:an)?|di)\s+([a-z0-9 ]{2,40})$/);
-  if (location) { filter.lokasi = location[1].trim(); rest = rest.replace(location[0], ' '); }
-  const name = rest
-    .replace(/\b(cari|carikan|tampilkan|lihat|bmn|aset|barang|data|tolong|dong|berapa|jumlah|total|yang|dengan|kondisi|status)\b/g, ' ')
-    .replace(/[^\p{L}\p{N}\s.\-]/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (name) filter.nama = name.slice(0, 60);
-  return filter;
-}
+const CONTEXT_INTENTS = new Set([
+  'MY_REQUESTS', 'SEARCH_REQUESTS', 'INVENTORY_TRANSACTIONS',
+  'INVENTORY_STATUS', 'SEARCH_INVENTORY', 'SEARCH_ASSET', 'COUNT_ASSET', 'MAINTENANCE_STATUS'
+]);
 
 const hasCriteria = filter => Object.keys(filter).length > 0;
 
@@ -51,6 +27,7 @@ export function createChatbot({ config, store, tools, resolveUser, classifyInten
       'cari bmn': 'cari', 'cari aset': 'cari', cari: 'cari',
       status: 'status_aset', 'status aset': 'status_aset',
       'mutasi aset': 'mutasi', stok: 'stok', persediaan: 'stok', barang: 'stok',
+      pemeliharaan: 'MAINTENANCE_STATUS', perawatan: 'MAINTENANCE_STATUS', servis: 'MAINTENANCE_STATUS',
       notif: 'notifikasi', notifikasi: 'notifikasi', akun: 'akun', 'akun saya': 'akun',
       bantuan: 'bantuan', help: 'bantuan',
       permohonan: 'permohonan', 'permohonan saya': 'permohonan', 'status permohonan': 'permohonan'
@@ -76,12 +53,17 @@ export function createChatbot({ config, store, tools, resolveUser, classifyInten
       case 'MUTATION_STATUS':
         data = tools.getMutationStatus(user);
         return data.denied ? formatter.denied() : formatter.mutations(data);
+      case 'MAINTENANCE_STATUS':
+        data = tools.getMaintenanceStatus(user, filter);
+        if (data.unavailable) return { text: data.unavailable };
+        return data.denied ? formatter.denied() : formatter.maintenance(data);
       case 'stok':
       case 'INVENTORY_STATUS':
         data = tools.getInventoryStatus(user);
         return data.denied ? formatter.denied() : formatter.inventory(data);
       case 'SEARCH_INVENTORY':
         data = tools.searchInventory(user, filter);
+        if (data.unavailable) return { text: data.unavailable };
         return data.denied ? formatter.denied() : formatter.inventorySearch(data);
       case 'permohonan':
       case 'MY_REQUESTS':
@@ -95,7 +77,11 @@ export function createChatbot({ config, store, tools, resolveUser, classifyInten
         return data.denied ? formatter.denied() : formatter.myRequests(data);
       case 'INVENTORY_TRANSACTIONS':
         data = tools.getInventoryTransactions(user, filter);
+        if (data.unavailable) return { text: data.unavailable };
         return data.denied ? formatter.denied() : formatter.inventoryTransactions(data);
+      case 'USER_DIRECTORY':
+        data = tools.searchUsers(user, filter);
+        return data.denied ? formatter.denied() : formatter.users(data);
       case 'REQUEST_PROCEDURE':
         return formatter.requestProcedure();
       case 'laporan':
@@ -139,10 +125,14 @@ export function createChatbot({ config, store, tools, resolveUser, classifyInten
     }
 
     const asksProcedure = /\b(cara|prosedur|bagaimana)\b.*\b(ajukan|mengajukan|permohonan)\b/.test(normalize(input));
+    const asksHelp = (/\b(?:cara|panduan|bagaimana|bantuan)\b/.test(normalize(input)) &&
+      /\b(?:menu|fitur|aplikasi|login|riwayat|transaksi)\b/.test(normalize(input))) ||
+      /\bapa itu (?:bmn|aset|persediaan)\b/.test(normalize(input));
     const account = await store.getAccountByPhone(phone);
     if (!account) {
       return asksProcedure
         ? { reply: formatter.requestProcedure(), intent: 'REQUEST_PROCEDURE' }
+        : asksHelp ? { reply: formatter.help(), intent: 'HELP' }
         : { reply: formatter.notLinked(), intent: 'NOT_LINKED' };
     }
 
@@ -172,6 +162,19 @@ export function createChatbot({ config, store, tools, resolveUser, classifyInten
 
     const session = await store.getSession(phone);
     const menu = menuIntent(input, interactiveId);
+    async function answer(intent, filter = {}) {
+      const reply = await run(intent, user, filter);
+      let context;
+      if (CONTEXT_INTENTS.has(intent) && !filter.unsupported) {
+        const safe = sanitizeIntent({ ...filter, intent });
+        if (safe.intent !== 'UNKNOWN') {
+          context = { userId: user.id, intent: safe.intent, filter: safe.filter };
+        }
+      }
+      if (context) await store.setSession(phone, 'read_context', context);
+      else if (session?.state === 'read_context') await store.clearSession(phone);
+      return { ...base, reply, intent };
+    }
 
     if (menu === 'cari' || /^cari( bmn| aset)?$/.test(lower)) {
       await store.setSession(phone, 'awaiting_search');
@@ -184,34 +187,75 @@ export function createChatbot({ config, store, tools, resolveUser, classifyInten
 
     if (menu) {
       await store.clearSession(phone);
-      return { ...base, reply: await run(menu, user), intent: menu };
+      return answer(menu === 'permohonan' ? 'MY_REQUESTS' : menu === 'stok' ? 'INVENTORY_STATUS' : menu);
     }
 
     if (asksProcedure) {
-      return { ...base, reply: await run('REQUEST_PROCEDURE', user), intent: 'REQUEST_PROCEDURE' };
+      return answer('REQUEST_PROCEDURE');
+    }
+
+    if (asksHelp) {
+      return answer('HELP');
+    }
+
+    if (/\b(?:pengguna|administrator|petugas yang berwenang)\b/.test(lower) &&
+      !/\b(?:permohonan|aset|transaksi|pemeliharaan|stok)\b/.test(lower)) {
+      const role = lower.match(/\b(administrator|pengelola bmn|operator|pimpinan)\b/)?.[1];
+      return answer('USER_DIRECTORY', role ? { role } : {});
+    }
+
+    if (session?.state === 'read_context' && session.context?.userId === user.id &&
+      CONTEXT_INTENTS.has(session.context.intent) &&
+      /^(?:yang\b|nomor\b|no[.: ]|kalau\b|bagaimana dengan\b|bagaimana statusnya\b|statusnya\b|itu\b)/.test(lower) &&
+      !/\b(?:permohonan|pemeliharaan|perawatan|servis|transaksi|riwayat|stok|persediaan|aset|bmn)\b/.test(lower)) {
+      const previous = sanitizeIntent({ ...session.context.filter, intent: session.context.intent });
+      if (previous.intent !== 'UNKNOWN') {
+        if (/^(?:bagaimana statusnya|statusnya|itu)[?.! ]*$/.test(lower)) return answer(previous.intent, previous.filter);
+        const filter = previous.intent === 'MAINTENANCE_STATUS' ? parseMaintenanceQuery(input)
+          : ['MY_REQUESTS', 'SEARCH_REQUESTS', 'INVENTORY_TRANSACTIONS'].includes(previous.intent)
+          ? parseDocumentQuery(input) : parseAssetQuery(input);
+        if (['SEARCH_INVENTORY', 'INVENTORY_STATUS'].includes(previous.intent)) {
+          const next = parseInventoryQuery(input);
+          const prior = { ...previous.filter };
+          if (/^(?:kalau|bagaimana dengan)\b/.test(lower) && next.nama) delete prior.nama;
+          return answer('SEARCH_INVENTORY', { ...prior, ...next });
+        }
+        if (['SEARCH_ASSET', 'COUNT_ASSET'].includes(previous.intent) &&
+          /^(?:kalau|bagaimana dengan)\b/.test(lower) && filter.nama) {
+          const { nama, nup, kodeBarang, ...prior } = previous.filter;
+          return answer(previous.intent, { ...prior, ...filter });
+        }
+        if (/^(?:kalau|bagaimana dengan)\b/.test(lower) && !hasCriteria(filter)) return answer('HELP');
+        return answer(previous.intent, { ...previous.filter, ...filter });
+      }
     }
 
     if (/\bpermohonan\b/.test(lower)) {
       const intent = /\bsaya\b/.test(lower) ? 'MY_REQUESTS' : 'SEARCH_REQUESTS';
-      return { ...base, reply: await run(intent, user, parseDocumentQuery(input)), intent };
+      return answer(intent, parseDocumentQuery(input));
+    }
+
+    if (/\b(?:pemeliharaan|perawatan|servis)\b/.test(lower)) {
+      return answer('MAINTENANCE_STATUS', parseMaintenanceQuery(input));
     }
 
     if (/\b(transaksi|riwayat)\b/.test(lower) && /\b(persediaan|barang|masuk|keluar)\b/.test(lower)) {
-      return { ...base, reply: await run('INVENTORY_TRANSACTIONS', user, parseDocumentQuery(input)), intent: 'INVENTORY_TRANSACTIONS' };
+      return answer('INVENTORY_TRANSACTIONS', parseDocumentQuery(input));
     }
 
     if (/\b(stok|stock|persediaan)\b/.test(lower)) {
       const filter = parseInventoryQuery(input);
-      if (filter.nama) {
-        return { ...base, reply: await run('SEARCH_INVENTORY', user, filter), intent: 'SEARCH_INVENTORY' };
+      if (hasCriteria(filter)) {
+        return answer('SEARCH_INVENTORY', filter);
       }
+      return answer('INVENTORY_STATUS');
     }
 
     if (session?.state === 'awaiting_search') {
       await store.clearSession(phone);
       const filter = parseAssetQuery(input);
       if (!hasCriteria(filter)) return { ...base, reply: formatter.searchPrompt(), intent: 'SEARCH_PROMPT' };
-      return { ...base, reply: await run('SEARCH_ASSET', user, filter), intent: 'SEARCH_ASSET' };
+      return answer('SEARCH_ASSET', filter);
     }
 
     if (/^(cari|carikan|search)\b/.test(lower) || /\bnup\s*\d/.test(lower)) {
@@ -220,17 +264,22 @@ export function createChatbot({ config, store, tools, resolveUser, classifyInten
         await store.setSession(phone, 'awaiting_search');
         return { ...base, reply: formatter.searchPrompt(), intent: 'SEARCH_PROMPT' };
       }
-      return { ...base, reply: await run('SEARCH_ASSET', user, filter), intent: 'SEARCH_ASSET' };
+      return answer('SEARCH_ASSET', filter);
     }
 
     if (/\b(berapa|jumlah|total)\b/.test(lower) && /\b(aset|bmn|barang)\b/.test(lower)) {
-      return { ...base, reply: await run('COUNT_ASSET', user, parseAssetQuery(input)), intent: 'COUNT_ASSET' };
+      return answer('COUNT_ASSET', parseAssetQuery(input));
+    }
+
+    if (/\b(aset|bmn)\b/.test(lower)) {
+      return answer('SEARCH_ASSET', parseAssetQuery(input));
     }
 
     const ai = await classifyIntent(input);
     if (ai && ai.intent !== 'UNKNOWN') {
-      return { ...base, reply: await run(ai.intent, user, ai.filter || {}), intent: ai.intent };
+      return answer(ai.intent, ai.filter || {});
     }
+    if (session?.state === 'read_context') await store.clearSession(phone);
     return { ...base, reply: formatter.unknown(), intent: 'UNKNOWN' };
   }
 

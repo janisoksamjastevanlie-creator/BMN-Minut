@@ -9,6 +9,7 @@ import { formatter } from '../whatsapp/formatter.mjs';
 import { buildFonnteRequestNotification } from '../whatsapp/request-notification.mjs';
 import { createWhatsAppStore } from '../whatsapp/store.mjs';
 import { SlidingWindowLimiter } from '../whatsapp/security.mjs';
+import { createProvider } from '../whatsapp/client.mjs';
 
 const sendConfig = {
   token: 'test-token',
@@ -101,6 +102,16 @@ test('Fonnte webhook identifies messages originating from the connected device',
   }).fromBot, false);
 });
 
+test('Fonnte distinguishes group messages and rejects non-phone sender aliases', () => {
+  assert.equal(parseFonnteWebhookMessage({ sender: 'alias6281234567890', message: 'hi' }), null);
+  assert.equal(parseFonnteWebhookMessage({
+    sender: '6281234567890', member: '628133333333', message: 'siapa Administrator?'
+  }).fromGroup, true);
+  assert.equal(parseFonnteWebhookMessage({ sender: '6281234567890@g.us', message: 'hi' }).fromGroup, true);
+  assert.equal(parseFonnteWebhookMessage({ sender: '120363123456789012@g.us', member: '628133333333', message: 'hi' }).fromGroup, true);
+  assert.equal(parseFonnteWebhookMessage({ sender: '6281234567890', member: '', message: 'hi' }).fromGroup, false);
+});
+
 test('Fonnte sends internationalized targets as form-data and recognizes provider acceptance', async () => {
   let call;
   const result = await sendFonnteMessage(sendConfig, '+62 812-3456-7890', 'Tes BMN', async (url, options) => {
@@ -146,6 +157,72 @@ test('Fonnte HTML error responses are reported without exposing the response bod
     error => error.message === 'Fonnte API mengembalikan respons tidak valid (HTTP 502).' &&
       !error.message.includes('private gateway details')
   );
+});
+
+test('Fonnte timeout and overlong raw messages fail explicitly without retry', async () => {
+  let calls = 0;
+  await assert.rejects(sendFonnteMessage(sendConfig, '6281234567890', 'Tes', async () => {
+    calls += 1;
+    throw Object.assign(new Error('private transport details'), { name: 'TimeoutError' });
+  }), /melewati batas waktu/);
+  assert.equal(calls, 1);
+  await assert.rejects(sendFonnteMessage(sendConfig, '6281234567890', 'a'.repeat(60001), async () => {
+    assert.fail('invalid message must not reach provider');
+  }), /Isi pesan Fonnte tidak valid/);
+});
+
+test('Fonnte channel bounds reply length to 4000 characters and sends once', async t => {
+  const original = globalThis.fetch;
+  t.after(() => { globalThis.fetch = original; });
+  let calls = 0;
+  globalThis.fetch = async (_url, options) => {
+    calls += 1;
+    assert.equal(options.body.get('message').length, 4000);
+    return new Response(JSON.stringify({ status: true }), { status: 200 });
+  };
+  const provider = createProvider({ provider: 'fonnte', fonnte: sendConfig });
+  await provider.sendReply('6281234567890', { text: 'a'.repeat(5000) });
+  assert.equal(calls, 1);
+});
+
+test('database read failure sends only an explicit error and no application records', async t => {
+  const keys = ['WHATSAPP_PROVIDER', 'FONNTE_TOKEN', 'FONNTE_API_URL', 'FONNTE_WEBHOOK_SECRET'];
+  const previousEnv = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+  process.env.WHATSAPP_PROVIDER = 'fonnte';
+  process.env.FONNTE_TOKEN = 'test-token';
+  process.env.FONNTE_API_URL = 'https://api.fonnte.com/send';
+  process.env.FONNTE_WEBHOOK_SECRET = 'a'.repeat(32);
+  const originalFetch = globalThis.fetch;
+  const originalError = console.error;
+  const errors = [];
+  console.error = (...args) => { errors.push(args.join(' ')); };
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+    console.error = originalError;
+    for (const key of keys) {
+      if (previousEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = previousEnv[key];
+    }
+  });
+  const sent = [];
+  globalThis.fetch = async (_url, options) => {
+    sent.push(options.body.get('message'));
+    return new Response(JSON.stringify({ status: true }), { status: 200 });
+  };
+  const service = await createWhatsAppService({
+    db: { execute: async () => [{ affectedRows: 1 }, []] },
+    initializeSchema: false,
+    getCollection: () => assert.fail('stale data must not be used after database failure'),
+    refreshCollections: async () => { throw new Error('Database unavailable PRIVATE-DB-CREDENTIAL'); },
+    userHasPermission: () => false,
+    requireUser: (_req, res) => res.sendStatus(401)
+  });
+  await service.processMessage({ messageId: 'db-error', phone: '6281234567890', text: 'stok kertas' });
+  assert.equal(sent.length, 1);
+  assert.match(sent[0], /kendala saat memproses/);
+  assert.doesNotMatch(sent[0], /Database unavailable|stok.*\d|test-token/);
+  assert.doesNotMatch(errors.join('\n'), /PRIVATE-DB-CREDENTIAL|Database unavailable|test-token|stok kertas/);
+  assert.match(errors.join('\n'), /WHATSAPP_OPERATION_FAILED/);
 });
 
 test('Fonnte rejects invalid recipient numbers before making a network call', async () => {
@@ -524,6 +601,7 @@ test('Fonnte webhook checks its shared secret and processes an inbox message onl
 
   const processed = new Set();
   const metadata = new Map();
+  const messageLogs = [];
   const database = {
     async query() { return [[], []]; },
     async execute(sql, params = []) {
@@ -541,6 +619,7 @@ test('Fonnte webhook checks its shared secret and processes an inbox message onl
         return [{ affectedRows: 1 }, []];
       }
       if (sql.includes('FROM whatsapp_accounts WHERE phone')) return [[], []];
+      if (sql.includes('INSERT INTO whatsapp_messages')) messageLogs.push(params);
       return [{ affectedRows: 1 }, []];
     }
   };
@@ -580,7 +659,7 @@ test('Fonnte webhook checks its shared secret and processes an inbox message onl
   const payload = {
     secret: process.env.FONNTE_WEBHOOK_SECRET,
     sender: '081234567890',
-    message: 'halo',
+    message: 'PRIVATE-MESSAGE-CONTENT',
     timestamp: Math.floor(Date.now() / 1000),
     inboxid: 'inbox-test-1'
   };
@@ -611,6 +690,13 @@ test('Fonnte webhook checks its shared secret and processes an inbox message onl
   }
   assert.equal(outboundCount, 1);
 
+  const group = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...payload, sender: '120363123456789012@g.us', member: '628133333333', inboxid: 'group-message' })
+  });
+  assert.equal(group.status, 200);
+
   const duplicate = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -620,4 +706,6 @@ test('Fonnte webhook checks its shared secret and processes an inbox message onl
   await new Promise(resolve => setTimeout(resolve, 20));
   assert.equal(outboundCount, 1);
   assert.equal(processed.size, 1);
+  assert.equal(messageLogs.length, 2);
+  assert.doesNotMatch(JSON.stringify(messageLogs), /PRIVATE-MESSAGE-CONTENT|BMN-XXXXXXXX|belum terhubung/);
 });

@@ -132,15 +132,17 @@ export async function createWhatsAppService({
       await store.setMeta('whatsapp_last_failure_at', nowIso());
       await store.incrementMeta('whatsapp_error_count');
     } catch (storageError) {
-      console.error('WhatsApp failure could not be recorded:', String(storageError).slice(0, 200));
+      console.error('WhatsApp failure metadata could not be recorded.');
     }
-    console.error('WhatsApp error:', String(error instanceof Error ? error.message : error).slice(0, 250));
+    const code = ['ER_ACCESS_DENIED_ERROR', 'ER_NO_SUCH_TABLE', 'ER_BAD_FIELD_ERROR', 'ECONNREFUSED', 'ETIMEDOUT'].includes(error?.code)
+      ? error.code : 'WHATSAPP_OPERATION_FAILED';
+    console.error('WhatsApp error:', code);
   }
 
   async function sendReply(phone, reply, context) {
     try {
       await provider.sendReply(phone, reply);
-      await store.logMessage({ phone, userId: context.userId, direction: 'out', message: reply.text, intent: context.intent, status: 'sent' });
+      await store.logMessage({ phone, userId: context.userId, direction: 'out', message: null, intent: context.intent, status: 'sent' });
       return true;
     } catch (error) {
       await store.logMessage({ phone, userId: context.userId, direction: 'out', message: null, intent: context.intent, status: 'failed' });
@@ -217,7 +219,7 @@ export async function createWhatsAppService({
         return;
       }
       if (!await store.claimMessage(messageId)) return;
-      await store.logMessage({ messageId, phone, direction: 'in', message: text || interactiveId, status: 'received' });
+      await store.logMessage({ messageId, phone, direction: 'in', message: null, status: 'received' });
 
       const limit = messageLimiter.hit(normalizePhone(phone));
       if (!limit.allowed) {
@@ -287,7 +289,7 @@ export async function createWhatsAppService({
       }
       const message = parseFonnteWebhookMessage(payload);
       if (!message) return response.sendStatus(400);
-      if (message.fromBot || (config.botNumber && normalizePhone(config.botNumber) === message.phone)) {
+      if (message.fromGroup || message.fromBot || (config.botNumber && normalizePhone(config.botNumber) === message.phone)) {
         return response.sendStatus(200);
       }
       messages = [message];

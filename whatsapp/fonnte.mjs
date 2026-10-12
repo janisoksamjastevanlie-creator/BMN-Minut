@@ -18,9 +18,12 @@ export function parseFonnteWebhookMessage(payload, receivedAtMs = Date.now()) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
   if (typeof payload.sender !== 'string') return null;
 
+  const fromGroup = payload.sender.endsWith('@g.us') ||
+    (typeof payload.member === 'string' && Boolean(payload.member.trim()));
+  if (!fromGroup && !/^\+?[\d\s().-]+$/.test(payload.sender)) return null;
   const phone = normalizePhone(payload.sender);
   const timestampMs = parseTimestamp(payload.timestamp);
-  if (!isValidPhone(phone)) return null;
+  if (!fromGroup && !isValidPhone(phone)) return null;
 
   const buttonText = typeof payload.text === 'string' ? payload.text.trim() : '';
   const message = typeof payload.message === 'string' ? payload.message.trim() : '';
@@ -48,6 +51,7 @@ export function parseFonnteWebhookMessage(payload, receivedAtMs = Date.now()) {
     text,
     timestampMs,
     fromBot,
+    fromGroup,
     unsupported: !text
   };
 }
