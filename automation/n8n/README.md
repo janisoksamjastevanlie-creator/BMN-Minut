@@ -42,6 +42,23 @@ The `eventId` is deterministic for the request transition and committed applicat
 
 The workflow rejects missing/invalid event IDs, unsupported event types, malformed envelope fields, and timestamps more than five minutes from receipt. n8n's Header Auth credential checks the shared secret before the workflow starts. TLS protects the secret in transit. There is no callback to BMN-Minut because this acknowledgement-only workflow needs none.
 
+## Optional website AI chat workflow
+
+`bmn-minut-web-chat.json` is a separate workflow template for the existing website chat. It must not replace or modify the request-events workflow. It receives only a server-built system message (including permission-filtered, bounded application context) and the sanitized conversation history. n8n has no database credentials or data tools in this workflow; every request remains authenticated by BMN-Minut before context is built.
+
+The template is inactive and cannot work until imported and configured in n8n:
+
+1. Import `bmn-minut-web-chat.json` as a separate workflow.
+2. Assign an n8n **Header Auth** credential to **Receive BMN-Minut chat**, with header name `x-bmn-chat-secret`. Use a unique random secret of at least 32 characters.
+3. Assign an authorized OpenAI Chat Model credential to **OpenAI Chat Model**. Model-provider billing and data-retention policies apply to the permission-filtered context sent to the model.
+4. Confirm the production URL shown by n8n is exactly `https://<allowed-n8n-host>/webhook/bmn-minut/chat`. Activate only after both credentials are assigned and workflow validation succeeds.
+5. On the BMN-Minut backend host only, set `WEB_CHAT_AI_PROVIDER=n8n`, `WEB_CHAT_AI_ENABLED=true`, `N8N_CHAT_WEBHOOK_URL` to that verified URL, `N8N_CHAT_WEBHOOK_SECRET` to the matching credential value, and include only the exact n8n hostname in `N8N_ALLOWED_HOSTS`. Keep the existing `N8N_ENABLED` event switch separate; chat settings do not enable request-event delivery.
+6. Smoke-test with an authenticated staging account and known permitted data. Verify an unauthorized role receives no protected context and that errors, timeout, malformed responses, and bad credentials do not leak details. Do not test by sending transaction data to production.
+
+The browser never receives the webhook URL or shared secret. The website continues calling `/api/ai/chat`; the backend authenticates the session, checks permissions, reloads data, and forwards only the resulting context to n8n. n8n does not connect directly to the Hostinger database. When `WEB_CHAT_AI_PROVIDER` is not `n8n`, the pre-existing backend-selected AI provider remains in use.
+
+These are setup instructions, not evidence that the imported chat workflow, credentials, model provider, or production endpoint have been configured or tested. Do not set the backend provider to `n8n` until the workflow is active and its authenticated staging smoke test passes.
+
 ## Backend configuration
 
 Set these variables on the backend host only:

@@ -16,6 +16,7 @@ import { createWhatsAppService } from './whatsapp/service.mjs';
 import { getWhatsAppConfig } from './whatsapp/config.mjs';
 import { buildFonnteRequestNotification } from './whatsapp/request-notification.mjs';
 import { createWebChat, WEB_CHAT_ERRORS } from './ai/webchat.mjs';
+import { getWebChatConfig } from './ai/webchatConfig.mjs';
 import { buildRequestEvents, createN8nIntegration } from './automation/n8n/integration.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
@@ -961,8 +962,13 @@ app.get('/api/state', requireUser, asyncRoute(async (_request, response) => {
   response.json({ state, initialized: state.users !== null, revision, dataBackend });
 }));
 
+const webChatAiConfig = getWhatsAppConfig();
+const webChatConfig = { ...webChatAiConfig, ...getWebChatConfig(process.env, webChatAiConfig) };
+if (webChatConfig.n8nChatConfigurationError) {
+  console.error(`Web chat integration disabled: ${webChatConfig.n8nChatConfigurationError}`);
+}
 const webChat = createWebChat({
-  config: getWhatsAppConfig(),
+  config: webChatConfig,
   getCollection,
   userHasPermission,
   getOwnedRequestIds: userId => whatsapp.store.listOwnedRequestIds(userId)

@@ -123,7 +123,45 @@ export function createWebChat({ config, getCollection, userHasPermission, getOwn
   }
 
   async function callModel(system, history) {
-    const provider = config.aiProvider || (config.groqApiKey ? 'groq' : 'gemini');
+    const webChatProvider = config.webChatProvider || config.aiProvider || (config.groqApiKey ? 'groq' : 'gemini');
+    if (!config.webChatEnabled && config.webChatEnabled !== undefined) return { error: 'not_configured' };
+    if (webChatProvider === 'n8n') {
+      if (!config.n8nChatConfigured ||
+          !config.n8nChatWebhookUrl || !config.n8nChatSecret) {
+        return { error: 'not_configured' };
+      }
+      let response;
+      try {
+        response = await fetchImpl(config.n8nChatWebhookUrl, {
+          method: 'POST',
+          redirect: 'error',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-bmn-chat-secret': config.n8nChatSecret
+          },
+          body: JSON.stringify({ messages: [{ role: 'system', content: system }, ...history] }),
+          signal: AbortSignal.timeout(config.n8nChatTimeoutMs || 25000)
+        });
+      } catch (error) {
+        return { error: error?.name === 'TimeoutError' || error?.name === 'AbortError' ? 'timeout' : 'unreachable' };
+      }
+      if (!response.ok) {
+        console.error(`Web AI request failed (provider=n8n, status=${response.status}).`);
+        if (response.status === 429) return { error: 'quota' };
+        if (response.status === 401 || response.status === 403) return { error: 'not_configured' };
+        if (response.status === 413) return { error: 'too_long' };
+        return { error: 'upstream' };
+      }
+      try {
+        const body = await response.json();
+        const reply = typeof body?.reply === 'string' ? body.reply.trim() : '';
+        return reply && reply.length <= 6000 ? { reply } : { error: 'empty' };
+      } catch {
+        return { error: 'empty' };
+      }
+    }
+
+    const provider = webChatProvider;
     const apiKey = provider === 'groq' ? config.groqApiKey : provider === 'gemini' ? config.geminiApiKey : '';
     if (!config.aiEnabled || !apiKey) return { error: 'not_configured' };
 
@@ -199,6 +237,7 @@ export const WEB_CHAT_ERRORS = {
   too_long: [413, 'Pertanyaan atau percakapan terlalu panjang. Mulai pertanyaan baru yang lebih singkat.'],
   not_configured: [503, 'Layanan AI belum tersedia karena konfigurasi belum lengkap atau tidak valid. Hubungi Administrator.'],
   quota: [429, 'Batas penggunaan layanan AI sedang tercapai. Coba lagi beberapa saat lagi.'],
+  timeout: [504, 'Layanan AI membutuhkan waktu terlalu lama. Coba lagi beberapa saat lagi.'],
   unreachable: [502, 'Layanan AI tidak dapat dihubungi. Periksa koneksi lalu coba lagi.'],
   upstream: [502, 'Layanan AI sedang bermasalah. Coba lagi beberapa saat lagi.'],
   empty: [502, 'AI tidak menghasilkan jawaban. Coba ulangi atau ubah pertanyaan Anda.']

@@ -1,0 +1,227 @@
+{
+  "name": "BMN-Minut Website AI Chat",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "bmn-minut/chat",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "8f597fb5-e6d5-4caf-88b0-06490e1928d2",
+      "name": "Receive BMN-Minut chat",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "56a2204c-7775-4db2-bc3f-9e57e903d098",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_AFTER_IMPORT",
+          "name": "BMN-Minut chat secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const messages = $json.body?.messages;\nconst validText = value => typeof value === 'string' && value.length > 0 && value.length <= 30000;\nconst valid = Array.isArray(messages) && messages.length >= 2 && messages.length <= 9 &&\n  messages[0]?.role === 'system' && validText(messages[0]?.content) &&\n  messages.slice(1).every(message => ['user', 'assistant'].includes(message?.role) && validText(message?.content) && message.content.length <= 1200) &&\n  messages[messages.length - 1]?.role === 'user';\nif (!valid) return [{ json: { valid: false, error: 'Invalid chat request.' } }];\nconst system = messages[0].content;\nconst prompt = messages.slice(1).map(message => `${message.role === 'user' ? 'Pengguna' : 'Asisten'}: ${message.content}`).join('\\n');\nreturn [{ json: { valid: true, system, prompt } }];"
+      },
+      "id": "74d871c9-51c0-4d82-92a1-a680c5fd65b7",
+      "name": "Validate chat envelope",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "aa15e3ac-3015-4a3f-bd91-74c8037822f2",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "6176365b-8626-403c-9e85-3d405eec400e",
+      "name": "Is chat valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.prompt }}",
+        "options": {
+          "systemMessage": "={{ $json.system }}"
+        }
+      },
+      "id": "bcfdb622-f244-4d80-a654-93faaf23af72",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        920,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "options": {}
+      },
+      "id": "9144241d-7e53-492f-9e24-9d72cf45b4d1",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        920,
+        440
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "REPLACE_AFTER_IMPORT",
+          "name": "BMN-Minut AI model"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { reply: $json.output } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "ad8c9fe6-5e1a-4d3f-910d-7903bd27bef8",
+      "name": "Return AI reply",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1160,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { error: $json.error } }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "86c0bb18-b9b6-4db4-8418-02d276da5d12",
+      "name": "Reject invalid chat",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        920,
+        380
+      ]
+    }
+  ],
+  "connections": {
+    "Receive BMN-Minut chat": {
+      "main": [
+        [
+          {
+            "node": "Validate chat envelope",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate chat envelope": {
+      "main": [
+        [
+          {
+            "node": "Is chat valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is chat valid?": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject invalid chat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Return AI reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none"
+  },
+  "versionId": "544c323e-ef7c-45f2-8220-60841061cbf4",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createWebChat, sanitizeHistory } from '../ai/webchat.mjs';
+import { getWebChatConfig } from '../ai/webchatConfig.mjs';
 
 const data = {
   inventoryItems: [
@@ -176,4 +177,93 @@ test('web directory is permission-scoped and general help sends no business coll
   assert.doesNotMatch(dataOnly(), /PRIVATE-/);
   await chat.answer(user, [{ role: 'user', content: 'bagaimana menggunakan menu aplikasi?' }]);
   assert.doesNotMatch(dataOnly(), /Admin Uji|PRIVATE-/);
+});
+
+test('website chat can use n8n only through the fixed HTTPS webhook on an explicitly allowed host', () => {
+  const env = {
+    WEB_CHAT_AI_PROVIDER: 'n8n',
+    N8N_CHAT_WEBHOOK_URL: 'https://bmnbpsminut.app.n8n.cloud/webhook/bmn-minut/chat',
+    N8N_CHAT_WEBHOOK_SECRET: 'test-only-chat-secret-with-more-than-32-characters',
+    N8N_ALLOWED_HOSTS: 'bmnbpsminut.app.n8n.cloud'
+  };
+  const configured = getWebChatConfig(env, { aiEnabled: true, aiProvider: 'groq' });
+  assert.equal(configured.webChatProvider, 'n8n');
+  assert.equal(configured.n8nChatConfigured, true);
+  assert.equal(configured.n8nChatWebhookUrl, env.N8N_CHAT_WEBHOOK_URL);
+
+  for (const overrides of [
+    { N8N_CHAT_WEBHOOK_URL: 'http://bmnbpsminut.app.n8n.cloud/webhook/bmn-minut/chat' },
+    { N8N_CHAT_WEBHOOK_URL: 'https://bmnbpsminut.app.n8n.cloud/webhook/other' },
+    { N8N_CHAT_WEBHOOK_URL: 'https://attacker.example/webhook/bmn-minut/chat' },
+    { N8N_CHAT_WEBHOOK_URL: 'https://user:pass@bmnbpsminut.app.n8n.cloud/webhook/bmn-minut/chat' },
+    { N8N_CHAT_WEBHOOK_SECRET: 'short' }
+  ]) {
+    const invalid = getWebChatConfig({ ...env, ...overrides }, { aiEnabled: true });
+    assert.equal(invalid.n8nChatConfigured, false);
+    assert.equal(invalid.n8nChatWebhookUrl, '');
+    assert.equal(invalid.n8nChatSecret, '');
+  }
+});
+
+test('n8n website chat receives only backend-built permission-filtered context and validated history', async () => {
+  const capture = {};
+  const chat = createWebChat({
+    config: {
+      webChatProvider: 'n8n',
+      webChatEnabled: true,
+      aiEnabled: true,
+      n8nChatConfigured: true,
+      n8nChatWebhookUrl: 'https://bmnbpsminut.app.n8n.cloud/webhook/bmn-minut/chat',
+      n8nChatSecret: 'test-only-chat-secret-with-more-than-32-characters',
+      n8nChatTimeoutMs: 25000
+    },
+    getCollection,
+    userHasPermission,
+    fetchImpl: async (url, options) => {
+      capture.url = String(url);
+      capture.options = options;
+      capture.body = JSON.parse(options.body);
+      return new Response(JSON.stringify({ reply: 'Stok terverifikasi.' }), { status: 200 });
+    }
+  });
+
+  const result = await chat.answer(user, [
+    { role: 'user', content: 'Halo' },
+    { role: 'assistant', content: 'Saya akan memeriksa.' },
+    { role: 'user', content: 'Berapa stok kertas A4?' }
+  ]);
+  assert.deepEqual(result, { reply: 'Stok terverifikasi.' });
+  assert.equal(capture.url, 'https://bmnbpsminut.app.n8n.cloud/webhook/bmn-minut/chat');
+  assert.equal(capture.options.method, 'POST');
+  assert.equal(capture.options.redirect, 'error');
+  assert.equal(capture.options.headers['x-bmn-chat-secret'], 'test-only-chat-secret-with-more-than-32-characters');
+  assert.match(capture.body.messages[0].content, /Kertas HVS A4/);
+  assert.deepEqual(capture.body.messages.slice(1).map(message => message.role), ['user', 'assistant', 'user']);
+  assert.doesNotMatch(JSON.stringify(capture.body), /test-only-chat-secret|password_hash|PRIVATE-/);
+});
+
+test('n8n website chat maps timeout, invalid response and disabled configuration to safe errors', async () => {
+  const baseConfig = {
+    webChatProvider: 'n8n',
+    webChatEnabled: true,
+    aiEnabled: true,
+    n8nChatConfigured: true,
+    n8nChatWebhookUrl: 'https://bmnbpsminut.app.n8n.cloud/webhook/bmn-minut/chat',
+    n8nChatSecret: 'test-only-chat-secret-with-more-than-32-characters',
+    n8nChatTimeoutMs: 1000
+  };
+  const messages = [{ role: 'user', content: 'Halo' }];
+  const makeChat = (config, fetchImpl) => createWebChat({ config, getCollection, userHasPermission, fetchImpl });
+  const timeout = makeChat(baseConfig, async (_url, options) => new Promise((_resolve, reject) => {
+    options.signal.addEventListener('abort', () => {
+      const error = new Error('private timeout detail');
+      error.name = 'AbortError';
+      reject(error);
+    }, { once: true });
+  }));
+  assert.equal((await timeout.answer(user, messages)).error, 'timeout');
+  const badResponse = makeChat(baseConfig, async () => new Response('{}', { status: 200 }));
+  assert.equal((await badResponse.answer(user, messages)).error, 'empty');
+  const disabled = makeChat({ ...baseConfig, n8nChatConfigured: false }, async () => assert.fail('unconfigured chat must not fetch'));
+  assert.equal((await disabled.answer(user, messages)).error, 'not_configured');
 });

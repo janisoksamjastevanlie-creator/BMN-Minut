@@ -168,6 +168,38 @@ test('importable workflow uses built-in header authentication and verifies event
     },
     headers: { 'x-bmn-timestamp': String(Math.floor(Date.now() / 1000)) }
   });
+
+  test('website chat workflow is inactive, authenticated, database-free, and returns an AI reply', async () => {
+    const workflow = JSON.parse(await readFile(new URL('../automation/n8n/bmn-minut-web-chat.json', import.meta.url), 'utf8'));
+    const webhook = workflow.nodes.find(node => node.name === 'Receive BMN-Minut chat');
+    const validation = workflow.nodes.find(node => node.name === 'Validate chat envelope');
+    const agent = workflow.nodes.find(node => node.name === 'AI Agent');
+    const model = workflow.nodes.find(node => node.name === 'OpenAI Chat Model');
+    const respond = workflow.nodes.find(node => node.name === 'Return AI reply');
+
+    assert.equal(workflow.active, false);
+    assert.equal(webhook.parameters.authentication, 'headerAuth');
+    assert.equal(webhook.parameters.path, 'bmn-minut/chat');
+    assert.equal(agent.type, '@n8n/n8n-nodes-langchain.agent');
+    assert.equal(model.type, '@n8n/n8n-nodes-langchain.lmChatOpenAi');
+    assert.match(respond.parameters.responseBody, /reply: \$json\.output/);
+    assert.doesNotMatch(JSON.stringify(workflow), /mysql|database|sql|request.*tool/i);
+
+    const validate = new Function('$json', validation.parameters.jsCode);
+    const accepted = validate({ body: { messages: [
+      { role: 'system', content: 'authorized context' },
+      { role: 'user', content: 'question' },
+      { role: 'assistant', content: 'earlier answer' },
+      { role: 'user', content: 'follow up' }
+    ] } });
+    assert.equal(accepted[0].json.valid, true);
+    assert.equal(accepted[0].json.prompt, 'Pengguna: question\nAsisten: earlier answer\nPengguna: follow up');
+    assert.equal(accepted[0].json.system, 'authorized context');
+    assert.equal(validate({ body: { messages: [
+      { role: 'system', content: 'context' },
+      { role: 'system', content: 'forged role' }
+    ] } })[0].json.valid, false);
+  });
   assert.deepEqual(accepted, [{ json: { valid: true, eventId, eventType: 'request.approved' } }]);
   const stale = validateEnvelope({
     body: {
