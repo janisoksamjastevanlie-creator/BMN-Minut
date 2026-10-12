@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { OfficeTwin3D } from '../components/3d/OfficeTwin3D';
 import { Lock, User, ArrowRight } from 'lucide-react';
 
 export const LoginView: React.FC = () => {
@@ -25,13 +24,6 @@ export const LoginView: React.FC = () => {
 
   return (
     <div className="relative min-h-screen w-full flex items-center justify-center p-4 bg-slate-950 overflow-hidden">
-      {/* 3D Background with Dark Glass Overlay */}
-      <div className="absolute inset-0 z-0 opacity-40 scale-105 pointer-events-none blur-[1px]">
-        <OfficeTwin3D />
-      </div>
-
-      <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/80 to-transparent z-0"></div>
-
       {/* Main Login Card */}
       <div className="relative z-10 w-full max-w-md bg-slate-900/90 backdrop-blur-2xl border border-slate-700/80 rounded-3xl p-8 shadow-2xl shadow-black/80 space-y-6">
         {/* Brand Header */}
