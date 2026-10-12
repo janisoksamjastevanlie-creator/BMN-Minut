@@ -50,9 +50,14 @@ test('Fonnte webhook payload is normalized and gets a stable id without inboxid'
   assert.equal(first.messageId, second.messageId);
 });
 
-test('Fonnte webhook rejects malformed senders and missing timestamps', () => {
+test('Fonnte webhook rejects malformed senders and safely handles missing timestamps', () => {
   assert.equal(parseFonnteWebhookMessage({ sender: '12345', message: 'hi', timestamp: Date.now() }), null);
-  assert.equal(parseFonnteWebhookMessage({ sender: '6281234567890', message: 'hi' }), null);
+  const withoutTimestamp = parseFonnteWebhookMessage(
+    { sender: '6281234567890', message: 'hi' },
+    1_800_000_000_000
+  );
+  assert.equal(withoutTimestamp.timestampMs, null);
+  assert.match(withoutTimestamp.messageId, /^fonnte-/);
   assert.equal(
     parseFonnteWebhookMessage({
       sender: '6281234567890',
@@ -62,6 +67,19 @@ test('Fonnte webhook rejects malformed senders and missing timestamps', () => {
     }).text,
     'Status permohonan'
   );
+});
+
+test('Fonnte webhook identifies messages originating from the connected device', () => {
+  assert.equal(parseFonnteWebhookMessage({
+    device: '081234567890',
+    sender: '081234567890',
+    message: 'outgoing'
+  }).fromBot, true);
+  assert.equal(parseFonnteWebhookMessage({
+    device: '081234567890',
+    sender: '081355555555',
+    message: 'incoming'
+  }).fromBot, false);
 });
 
 test('Fonnte sends internationalized targets as form-data and recognizes provider acceptance', async () => {
@@ -201,6 +219,26 @@ test('verification notifies the owner and all core BMN roles', () => {
   assert.equal(result.missingPhoneCount, 0);
 });
 
+test('missing numbers do not prevent other authorized recipients from being selected', () => {
+  const result = resolveRequestRecipients({
+    users: [
+      { id: 'requester', role: 'Pemohon', phone: '', statusAktif: true },
+      { id: 'admin', role: 'Administrator', phone: '', statusAktif: true },
+      { id: 'manager', role: 'Pengelola BMN', phone: '081234567892', statusAktif: true },
+      { id: 'operator', role: 'Operator', phone: 'invalid', statusAktif: true }
+    ],
+    accounts: [],
+    ownerUserId: 'requester',
+    status: 'Diverifikasi',
+    action: 'status_changed',
+    userHasPermission: () => false
+  });
+
+  assert.deepEqual(result.recipients.map(recipient => recipient.user.id), ['manager']);
+  assert.equal(result.eligibleCount, 4);
+  assert.equal(result.missingPhoneCount, 3);
+});
+
 test('prepared and completed requests notify the owner, core roles, and authorized related roles', () => {
   const users = [
     { id: 'requester', role: 'Pemohon', phone: '081234567890', statusAktif: true },
@@ -302,9 +340,6 @@ test('the same request event and recipient can be claimed only once after a succ
         claimed.add(key);
         return [{ affectedRows: 1 }, []];
       }
-      if (sql.includes("status = 'sending'") && sql.includes("status = 'failed'")) {
-        return [{ affectedRows: 0 }, []];
-      }
       throw new Error(`Unexpected database operation: ${sql}`);
     }
   };
@@ -312,6 +347,104 @@ test('the same request event and recipient can be claimed only once after a succ
 
   assert.equal(await store.claimNotification('request:req-1:Selesai:status_changed', 'requester'), true);
   assert.equal(await store.claimNotification('request:req-1:Selesai:status_changed', 'requester'), false);
+});
+
+test('a failed notification claim is not automatically retried', async () => {
+  const claimed = new Set();
+  const database = {
+    async execute(sql, params) {
+      if (sql.includes('INSERT IGNORE INTO whatsapp_notifications')) {
+        const key = `${params[0]}:${params[1]}`;
+        if (claimed.has(key)) return [{ affectedRows: 0 }, []];
+        claimed.add(key);
+        return [{ affectedRows: 1 }, []];
+      }
+      if (sql.startsWith('UPDATE whatsapp_notifications SET status')) return [{ affectedRows: 1 }, []];
+      throw new Error(`Unexpected database operation: ${sql}`);
+    }
+  };
+  const store = await createWhatsAppStore(database, { initializeSchema: false });
+
+  assert.equal(await store.claimNotification('request:req-2:Diajukan:submitted', 'admin'), true);
+  await store.finishNotification('request:req-2:Diajukan:submitted', 'admin', 'failed', 'timeout');
+  assert.equal(await store.claimNotification('request:req-2:Diajukan:submitted', 'admin'), false);
+});
+
+test('one Fonnte recipient failure does not stop other valid recipients', async t => {
+  const keys = ['WHATSAPP_PROVIDER', 'FONNTE_TOKEN', 'FONNTE_API_URL', 'FONNTE_WEBHOOK_SECRET'];
+  const previousEnv = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+  process.env.WHATSAPP_PROVIDER = 'fonnte';
+  process.env.FONNTE_TOKEN = 'test-token';
+  process.env.FONNTE_API_URL = 'https://api.fonnte.com/send';
+  process.env.FONNTE_WEBHOOK_SECRET = 'test-webhook-secret-with-32-chars';
+
+  const claimed = new Set();
+  const database = {
+    async query() { return [[], []]; },
+    async execute(sql, params = []) {
+      if (sql === 'SELECT * FROM whatsapp_accounts') {
+        return [[
+          { user_id: 'admin', phone: '628111111111', notify_enabled: 1 },
+          { user_id: 'operator', phone: '628222222222', notify_enabled: 1 }
+        ], []];
+      }
+      if (sql.includes('INSERT IGNORE INTO whatsapp_notifications')) {
+        const key = `${params[0]}:${params[1]}`;
+        if (claimed.has(key)) return [{ affectedRows: 0 }, []];
+        claimed.add(key);
+        return [{ affectedRows: 1 }, []];
+      }
+      if (sql.includes('UPDATE whatsapp_notifications SET status')) return [{ affectedRows: 1 }, []];
+      if (sql.includes('INSERT INTO whatsapp_messages')) return [{ affectedRows: 1 }, []];
+      if (sql.includes('INSERT INTO app_meta')) return [{ affectedRows: 1 }, []];
+      throw new Error(`Unexpected database operation: ${sql}`);
+    }
+  };
+  const service = await createWhatsAppService({
+    db: database,
+    getCollection: key => key === 'users'
+      ? [
+          { id: 'admin', role: 'Administrator', statusAktif: true },
+          { id: 'operator', role: 'Operator', statusAktif: true }
+        ]
+      : [],
+    userHasPermission: () => false,
+    requireUser: (_request, response) => response.sendStatus(401),
+    refreshCollections: async () => {},
+    initializeSchema: false
+  });
+  const originalFetch = globalThis.fetch;
+  const attempted = [];
+  globalThis.fetch = async (_url, options) => {
+    const target = options.body.get('target');
+    attempted.push(target);
+    return target === '628111111111'
+      ? new Response(JSON.stringify({ status: false }), { status: 200 })
+      : new Response(JSON.stringify({ status: true, id: ['sent-operator'] }), { status: 200 });
+  };
+
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+    for (const key of keys) {
+      if (previousEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = previousEnv[key];
+    }
+  });
+
+  const result = await service.notifyRequestEvent({
+    eventKey: 'request-partial',
+    ownerUserId: 'requester',
+    status: 'Diajukan',
+    action: 'submitted',
+    title: 'Permohonan baru',
+    lines: []
+  });
+
+  assert.deepEqual(attempted, ['628111111111', '628222222222']);
+  assert.equal(result.success, true);
+  assert.equal(result.sentCount, 1);
+  assert.equal(result.failedCount, 1);
+  assert.match(result.error, /1 penerima gagal/);
 });
 
 test('request notification explains how to configure a missing recipient number', async t => {
@@ -441,25 +574,12 @@ test('Fonnte webhook checks its shared secret and processes an inbox message onl
   assert.equal(denied.status, 401);
 
   const { secret: _omitted, ...payloadWithoutSecret } = payload;
-  const deniedQuery = await fetch(`${url}?secret=wrong-secret`, {
+  const deniedQuery = await fetch(`${url}?secret=${encodeURIComponent(process.env.FONNTE_WEBHOOK_SECRET)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payloadWithoutSecret)
   });
   assert.equal(deniedQuery.status, 401);
-
-  const acceptedQuery = await fetch(`${url}?secret=${encodeURIComponent(process.env.FONNTE_WEBHOOK_SECRET)}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...payloadWithoutSecret, inboxid: 'inbox-test-query' })
-  });
-  assert.equal(acceptedQuery.status, 200);
-  for (let attempt = 0; attempt < 50 && outboundCount === 0; attempt += 1) {
-    await new Promise(resolve => setTimeout(resolve, 10));
-  }
-  assert.equal(outboundCount, 1);
-  outboundCount = 0;
-  processed.clear();
 
   const accepted = await fetch(url, {
     method: 'POST',

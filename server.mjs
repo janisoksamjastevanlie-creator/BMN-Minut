@@ -1161,52 +1161,38 @@ app.post('/api/whatsapp/request-events', requireUser, asyncRoute(async (request,
     if (!authorized) return response.status(403).json({ success: false, error: 'Tidak memiliki izin mengirim notifikasi permohonan.' });
   }
 
-  let notificationEventId = eventId;
-  let retryExistingEvent = false;
+  const notificationEventId = eventId;
   const existingEvent = await queryOne(db, 'SELECT event_id, request_id, request_status, action, status FROM whatsapp_notification_events WHERE event_id = ?', [eventId]);
   if (existingEvent) {
     if (existingEvent.request_id !== requestId || existingEvent.request_status !== status || existingEvent.action !== action) {
       return response.status(409).json({ success: false, error: 'ID notifikasi sudah digunakan untuk tindakan yang berbeda.' });
     }
-    if (whatsappProvider === 'fonnte' && existingEvent.status === 'failed') {
-      const retryClaim = await execute(db, "UPDATE whatsapp_notification_events SET status = 'sending' WHERE event_id = ? AND status = 'failed'", [eventId]);
-      if (Number(retryClaim.affectedRows) !== 1) {
-        return response.json({ success: false, duplicate: true, error: 'Notifikasi WhatsApp untuk tindakan ini sedang diproses.' });
-      }
-      retryExistingEvent = true;
-    } else {
-      return response.json({
-        success: existingEvent.status === 'sent',
-        duplicate: true,
-        error: existingEvent.status === 'sent' ? undefined : 'Notifikasi WhatsApp untuk tindakan ini sedang diproses.'
-      });
-    }
+    return response.json({
+      success: existingEvent.status === 'sent',
+      duplicate: true,
+      error: existingEvent.status === 'sent'
+        ? undefined
+        : existingEvent.status === 'failed'
+          ? 'Notifikasi WhatsApp untuk tindakan ini sudah pernah dicoba dan tidak dikirim ulang otomatis.'
+          : 'Notifikasi WhatsApp untuk tindakan ini sedang diproses.'
+    });
   }
 
-  if (!existingEvent) {
-    const existingRequestEvent = await queryOne(db, `
-      SELECT event_id, status FROM whatsapp_notification_events
-      WHERE request_id = ? AND request_status = ? AND action = ?
-      LIMIT 1
-    `, [requestId, status, action]);
-    if (existingRequestEvent) {
-      if (whatsappProvider === 'fonnte' && existingRequestEvent.status === 'failed') {
-        notificationEventId = existingRequestEvent.event_id;
-        const retryClaim = await execute(db, "UPDATE whatsapp_notification_events SET status = 'sending' WHERE event_id = ? AND status = 'failed'", [notificationEventId]);
-        if (Number(retryClaim.affectedRows) !== 1) {
-          return response.json({ success: false, duplicate: true, error: 'Notifikasi WhatsApp untuk permohonan dan status ini sedang diproses.' });
-        }
-        retryExistingEvent = true;
-      } else {
-        return response.json({
-          success: existingRequestEvent.status === 'sent',
-          duplicate: true,
-          error: existingRequestEvent.status === 'sent'
-            ? undefined
-            : 'Notifikasi WhatsApp untuk permohonan dan status ini sedang diproses.'
-        });
-      }
-    }
+  const existingRequestEvent = await queryOne(db, `
+    SELECT event_id, status FROM whatsapp_notification_events
+    WHERE request_id = ? AND request_status = ? AND action = ?
+    LIMIT 1
+  `, [requestId, status, action]);
+  if (existingRequestEvent) {
+    return response.json({
+      success: existingRequestEvent.status === 'sent',
+      duplicate: true,
+      error: existingRequestEvent.status === 'sent'
+        ? undefined
+        : existingRequestEvent.status === 'failed'
+          ? 'Notifikasi WhatsApp untuk permohonan dan status ini sudah pernah dicoba dan tidak dikirim ulang otomatis.'
+          : 'Notifikasi WhatsApp untuk permohonan dan status ini sedang diproses.'
+    });
   }
 
   const requests = getCollection('requests') || [];
@@ -1223,7 +1209,7 @@ app.post('/api/whatsapp/request-events', requireUser, asyncRoute(async (request,
       if (whatsappProvider === 'twilio') return response.json({ success: true, skipped: true });
     }
 
-    const duplicateEvent = retryExistingEvent ? null : await withTransaction(async connection => {
+    const duplicateEvent = await withTransaction(async connection => {
       const duplicate = await queryOne(connection, `
         SELECT status FROM whatsapp_notification_events
         WHERE request_id = ? AND request_status = ? AND action = ?
@@ -1290,7 +1276,12 @@ app.post('/api/whatsapp/request-events', requireUser, asyncRoute(async (request,
       });
     }
     if (result.success) {
-      return response.json({ success: true, sentCount: result.sentCount });
+      return response.json({
+        success: true,
+        sentCount: result.sentCount,
+        failedCount: result.failedCount,
+        warning: result.error
+      });
     }
     return response.status(502).json({
       success: false,

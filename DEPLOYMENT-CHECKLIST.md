@@ -38,7 +38,7 @@ Keep values in a hosting secret manager or a private environment file, never in 
 | Legacy development only | `DATA_BACKEND=legacy`, `ADMIN_NIP`, `ADMIN_PASSWORD` | This mode creates legacy tables and may seed a bootstrap account. Never point it at an operational or production database. |
 | WhatsApp Meta | `WHATSAPP_PROVIDER=meta`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_GRAPH_API_VERSION`, optional template variables | Not verified against a live provider. |
 | WhatsApp Twilio | `WHATSAPP_PROVIDER=twilio`, `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY`, `TWILIO_API_KEY_SECRET`, `TWILIO_WHATSAPP_FROM` | Not verified against a live provider. |
-| WhatsApp Fonnte | `WHATSAPP_PROVIDER=fonnte`, `FONNTE_TOKEN`, `FONNTE_API_URL`, `FONNTE_WEBHOOK_SECRET` | Not verified against a live provider. |
+| WhatsApp Fonnte | `WHATSAPP_PROVIDER=fonnte`, `FONNTE_TOKEN`, `FONNTE_API_URL`, `FONNTE_WEBHOOK_SECRET`, optional `WHATSAPP_BOT_NUMBER`, rate-limit/reminder variables | Enable Fonnte secret key webhook with the same 32+ character secret. Not verified against a live provider. |
 | WhatsApp AI (Groq) | `WHATSAPP_AI_PROVIDER=groq`, `GROQ_API_KEY`, `GROQ_MODEL`, `WHATSAPP_AI_ENABLED` | Groq receives only incoming question text for intent classification; database records remain server-side. Verify model availability and privacy settings before production. |
 | Public links | `APP_PUBLIC_URL` | Must be the final HTTPS origin before notifications are enabled. |
 | Cloudflare Access | `ACCESS_REQUIRED`, `CLOUDFLARE_ACCESS_TEAM_DOMAIN`, `CLOUDFLARE_ACCESS_AUD` | The server now fails closed when Access is enabled; production always requires it. Use the exact team domain and AUD supplied by the Cloudflare administrator. |

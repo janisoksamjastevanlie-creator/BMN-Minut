@@ -11,7 +11,8 @@ export const MENU_ITEMS = [
   { id: 'laporan', number: 7, emoji: '📝', title: 'Laporan' },
   { id: 'notifikasi', number: 8, emoji: '🔔', title: 'Notifikasi' },
   { id: 'akun', number: 9, emoji: '👤', title: 'Akun Saya' },
-  { id: 'bantuan', number: 10, emoji: '❓', title: 'Bantuan' }
+  { id: 'bantuan', number: 10, emoji: '❓', title: 'Bantuan' },
+  { id: 'permohonan', number: 11, emoji: '📄', title: 'Permohonan Saya' }
 ];
 
 const n = value => NUMBER.format(Number(value) || 0);
@@ -110,6 +111,7 @@ export const formatter = {
       '/stok — status persediaan',
       '/laporan — ringkasan laporan',
       '/notif — pekerjaan yang perlu tindakan',
+      '/permohonan — status permohonan barang Anda',
       '/akun — informasi akun',
       'NOTIF ON / NOTIF OFF — atur notifikasi otomatis',
       'PUTUSKAN — putuskan tautan WhatsApp',
@@ -224,6 +226,48 @@ export const formatter = {
       `Menipis: ${n(data.menipis)}`,
       `Habis: ${n(data.habis)}`,
       ...(items.length ? ['', '*Perlu perhatian:*', ...items] : [])
+    ].join('\n'), quickReplies(BTN_MENU));
+  },
+
+  inventorySearch(data) {
+    if (!data.total) {
+      return text(`📦 *STOK BARANG*\n\nBarang${data.query ? ` "${data.query}"` : ''} tidak ditemukan.`, quickReplies(BTN_MENU));
+    }
+    const items = data.items.map(item => `• ${item.nama}: ${n(item.stok)} ${item.satuan} (${item.status})`);
+    return text([
+      '📦 *STOK BARANG*',
+      '',
+      ...items,
+      ...(data.total > data.items.length ? ['', `Menampilkan ${data.items.length} dari ${n(data.total)} hasil.`] : [])
+    ].join('\n'), quickReplies(BTN_MENU));
+  },
+
+  myRequests(data) {
+    if (!data.total) {
+      return text('📄 *PERMOHONAN SAYA*\n\nBelum ada permohonan yang tercatat untuk akun WhatsApp ini.', quickReplies(BTN_MENU));
+    }
+    const items = data.items.map(item => `• ${item.nomor} — ${item.status} (${item.tanggal})`);
+    return text([
+      '📄 *PERMOHONAN SAYA*',
+      '',
+      `Total: ${n(data.total)}`,
+      `Belum selesai: ${n(data.pending)}`,
+      '',
+      ...items
+    ].join('\n'), quickReplies(BTN_MENU));
+  },
+
+  requestProcedure() {
+    return text([
+      '📄 *PROSEDUR PERMOHONAN BARANG*',
+      '',
+      '1. Masuk ke aplikasi BMN-Minut.',
+      '2. Buka menu Permohonan Barang (ATK).',
+      '3. Tambahkan barang dan jumlah yang diperlukan.',
+      '4. Lengkapi keperluan, lalu ajukan permohonan.',
+      '5. Pantau tahapan verifikasi, persetujuan, persiapan, dan penerimaan di aplikasi.',
+      '',
+      'Persetujuan dan perubahan status tetap harus dilakukan melalui aplikasi sesuai kewenangan pengguna.'
     ].join('\n'), quickReplies(BTN_MENU));
   },
 

@@ -5,6 +5,15 @@ const MAX_TEXT = 500;
 
 const normalize = value => String(value || '').toLocaleLowerCase('id-ID').replace(/\s+/g, ' ').trim();
 
+function parseInventoryQuery(input) {
+  const name = normalize(input)
+    .replace(/\b(berapa|jumlah|cek|lihat|tampilkan|stok|stock|barang|persediaan|tersedia|yang|ada)\b/g, ' ')
+    .replace(/[^\p{L}\p{N}\s.\-]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return name ? { nama: name.slice(0, 60) } : {};
+}
+
 export function parseAssetQuery(input) {
   let rest = ` ${normalize(input)} `;
   const filter = {};
@@ -42,12 +51,13 @@ export function createChatbot({ config, store, tools, resolveUser, classifyInten
       status: 'status_aset', 'status aset': 'status_aset',
       'mutasi aset': 'mutasi', stok: 'stok', persediaan: 'stok', barang: 'stok',
       notif: 'notifikasi', notifikasi: 'notifikasi', akun: 'akun', 'akun saya': 'akun',
-      bantuan: 'bantuan', help: 'bantuan'
+      bantuan: 'bantuan', help: 'bantuan',
+      permohonan: 'permohonan', 'permohonan saya': 'permohonan', 'status permohonan': 'permohonan'
     };
     return aliases[id] || null;
   }
 
-  function run(intent, user, filter = {}) {
+  async function run(intent, user, filter = {}) {
     let data;
     switch (intent) {
       case 'dashboard':
@@ -69,6 +79,15 @@ export function createChatbot({ config, store, tools, resolveUser, classifyInten
       case 'INVENTORY_STATUS':
         data = tools.getInventoryStatus(user);
         return data.denied ? formatter.denied() : formatter.inventory(data);
+      case 'SEARCH_INVENTORY':
+        data = tools.searchInventory(user, filter);
+        return data.denied ? formatter.denied() : formatter.inventorySearch(data);
+      case 'permohonan':
+      case 'MY_REQUESTS':
+        data = tools.getMyRequests(user, await store.listOwnedRequestIds(user.id));
+        return data.denied ? formatter.denied() : formatter.myRequests(data);
+      case 'REQUEST_PROCEDURE':
+        return formatter.requestProcedure();
       case 'laporan':
       case 'REPORT_STATUS':
         data = tools.getReportStatus(user);
@@ -109,8 +128,13 @@ export function createChatbot({ config, store, tools, resolveUser, classifyInten
       return { reply: linkedUser.user ? formatter.linked(linkedUser.user) : formatter.linkInvalid(), intent: 'LINK_ACCOUNT', userId: result.userId };
     }
 
+    const asksProcedure = /\b(cara|prosedur|bagaimana)\b.*\b(ajukan|mengajukan|permohonan)\b/.test(normalize(input));
     const account = await store.getAccountByPhone(phone);
-    if (!account) return { reply: formatter.notLinked(), intent: 'NOT_LINKED' };
+    if (!account) {
+      return asksProcedure
+        ? { reply: formatter.requestProcedure(), intent: 'REQUEST_PROCEDURE' }
+        : { reply: formatter.notLinked(), intent: 'NOT_LINKED' };
+    }
 
     const resolved = await resolveUser(account.user_id);
     if (!resolved.user) return { reply: formatter.accountInactive(), intent: 'INACTIVE', userId: account.user_id };
@@ -150,14 +174,29 @@ export function createChatbot({ config, store, tools, resolveUser, classifyInten
 
     if (menu) {
       await store.clearSession(phone);
-      return { ...base, reply: run(menu, user), intent: menu };
+      return { ...base, reply: await run(menu, user), intent: menu };
+    }
+
+    if (asksProcedure) {
+      return { ...base, reply: await run('REQUEST_PROCEDURE', user), intent: 'REQUEST_PROCEDURE' };
+    }
+
+    if (/\bpermohonan\b/.test(lower) && /\b(saya|status|berapa|jumlah|menunggu)\b/.test(lower)) {
+      return { ...base, reply: await run('MY_REQUESTS', user), intent: 'MY_REQUESTS' };
+    }
+
+    if (/\b(stok|stock|persediaan)\b/.test(lower)) {
+      const filter = parseInventoryQuery(input);
+      if (filter.nama) {
+        return { ...base, reply: await run('SEARCH_INVENTORY', user, filter), intent: 'SEARCH_INVENTORY' };
+      }
     }
 
     if (session?.state === 'awaiting_search') {
       await store.clearSession(phone);
       const filter = parseAssetQuery(input);
       if (!hasCriteria(filter)) return { ...base, reply: formatter.searchPrompt(), intent: 'SEARCH_PROMPT' };
-      return { ...base, reply: run('SEARCH_ASSET', user, filter), intent: 'SEARCH_ASSET' };
+      return { ...base, reply: await run('SEARCH_ASSET', user, filter), intent: 'SEARCH_ASSET' };
     }
 
     if (/^(cari|carikan|search)\b/.test(lower) || /\bnup\s*\d/.test(lower)) {
@@ -166,16 +205,16 @@ export function createChatbot({ config, store, tools, resolveUser, classifyInten
         await store.setSession(phone, 'awaiting_search');
         return { ...base, reply: formatter.searchPrompt(), intent: 'SEARCH_PROMPT' };
       }
-      return { ...base, reply: run('SEARCH_ASSET', user, filter), intent: 'SEARCH_ASSET' };
+      return { ...base, reply: await run('SEARCH_ASSET', user, filter), intent: 'SEARCH_ASSET' };
     }
 
     if (/\b(berapa|jumlah|total)\b/.test(lower) && /\b(aset|bmn|barang)\b/.test(lower)) {
-      return { ...base, reply: run('COUNT_ASSET', user, parseAssetQuery(input)), intent: 'COUNT_ASSET' };
+      return { ...base, reply: await run('COUNT_ASSET', user, parseAssetQuery(input)), intent: 'COUNT_ASSET' };
     }
 
     const ai = await classifyIntent(input);
     if (ai && ai.intent !== 'UNKNOWN') {
-      return { ...base, reply: run(ai.intent, user, ai.filter || {}), intent: ai.intent };
+      return { ...base, reply: await run(ai.intent, user, ai.filter || {}), intent: ai.intent };
     }
     return { ...base, reply: formatter.unknown(), intent: 'UNKNOWN' };
   }

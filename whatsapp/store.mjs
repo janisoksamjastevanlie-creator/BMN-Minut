@@ -158,6 +158,10 @@ export async function createWhatsAppStore(db, { initializeSchema = true } = {}) 
     async listAccounts() {
       return queryRows(db, 'SELECT * FROM whatsapp_accounts');
     },
+    async listOwnedRequestIds(userId) {
+      const rows = await queryRows(db, 'SELECT request_id FROM whatsapp_request_owners WHERE user_id = ?', [userId]);
+      return rows.map(row => row.request_id);
+    },
     async setNotify(userId, enabled) {
       await execute(db, 'UPDATE whatsapp_accounts SET notify_enabled = ? WHERE user_id = ?', [enabled ? 1 : 0, userId]);
     },
@@ -230,13 +234,7 @@ export async function createWhatsAppStore(db, { initializeSchema = true } = {}) 
         INSERT IGNORE INTO whatsapp_notifications (event_key, user_id, status, created_at)
         VALUES (?, ?, 'sending', ?)
       `, [eventKey, userId, now()]);
-      if (Number(inserted.affectedRows) === 1) return true;
-      const retried = await execute(db, `
-        UPDATE whatsapp_notifications
-        SET status = 'sending', error = NULL
-        WHERE event_key = ? AND user_id = ? AND status = 'failed'
-      `, [eventKey, userId]);
-      return Number(retried.affectedRows) === 1;
+      return Number(inserted.affectedRows) === 1;
     },
     async finishNotification(eventKey, userId, status, error) {
       await execute(db, 'UPDATE whatsapp_notifications SET status = ?, error = ? WHERE event_key = ? AND user_id = ?', [

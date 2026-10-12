@@ -143,3 +143,60 @@ test('AI intent answers from permission-checked application collections', async 
   assert.match(result.reply.text, /Laptop Operasional/);
   assert.match(result.reply.text, /3\.10\.01\.02\.001/);
 });
+
+test('request status exposes only requests owned by the linked user', async () => {
+  const collections = {
+    requests: [
+      { id: 'owned', nomorPermintaan: 'REQ-MINE', tanggal: '2026-10-12', status: 'Diajukan' },
+      { id: 'other', nomorPermintaan: 'REQ-OTHER', tanggal: '2026-10-11', status: 'Disetujui' }
+    ]
+  };
+  const user = { id: 'user-1', name: 'Pemohon', role: 'Pemohon' };
+  const tools = createTools({
+    getCollection: key => collections[key] || [],
+    userHasPermission: (_user, permission) => permission === 'requestSupplies'
+  });
+  const chatbot = createChatbot({
+    config: {},
+    store: {
+      getAccountByPhone: async () => ({ user_id: user.id }),
+      getSession: async () => null,
+      clearSession: async () => {},
+      listOwnedRequestIds: async () => ['owned']
+    },
+    tools,
+    resolveUser: async () => ({ user }),
+    classifyIntent: async () => null,
+    appUrl: 'http://localhost:3000'
+  });
+
+  const result = await chatbot.handle({ phone: '6281234567890', text: 'status permohonan saya' });
+  assert.equal(result.intent, 'MY_REQUESTS');
+  assert.match(result.reply.text, /REQ-MINE/);
+  assert.doesNotMatch(result.reply.text, /REQ-OTHER/);
+});
+
+test('unlinked numbers receive only public procedure information', async () => {
+  const chatbot = createChatbot({
+    config: {},
+    store: { getAccountByPhone: async () => null },
+    tools: {},
+    resolveUser: async () => ({ user: null }),
+    classifyIntent: async () => assert.fail('AI must not receive messages from an unlinked number'),
+    appUrl: 'http://localhost:3000'
+  });
+
+  const publicResult = await chatbot.handle({
+    phone: '628999999999',
+    text: 'Bagaimana prosedur mengajukan permohonan?'
+  });
+  assert.equal(publicResult.intent, 'REQUEST_PROCEDURE');
+  assert.match(publicResult.reply.text, /PROSEDUR PERMOHONAN BARANG/);
+
+  const privateResult = await chatbot.handle({
+    phone: '628999999999',
+    text: 'Berapa stok dan status permohonan pengguna lain?'
+  });
+  assert.equal(privateResult.intent, 'NOT_LINKED');
+  assert.match(privateResult.reply.text, /belum terhubung/);
+});

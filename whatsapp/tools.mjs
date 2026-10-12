@@ -11,7 +11,7 @@ export function createTools({ getCollection, userHasPermission }) {
   const can = (user, ...permissions) => permissions.some(permission => userHasPermission(user, permission));
   const list = key => (Array.isArray(getCollection(key)) ? getCollection(key) : []);
   const canViewAssets = user => can(user, 'viewAssets', 'manageAssets');
-  const canViewInventory = user => can(user, 'viewInventory', 'manageInventory');
+  const canViewInventory = user => can(user, 'viewInventory', 'manageInventory', 'requestSupplies');
   const countBy = (items, field) => items.reduce((result, item) => {
     result[item[field]] = (result[item[field]] || 0) + 1;
     return result;
@@ -114,6 +114,47 @@ export function createTools({ getCollection, userHasPermission }) {
         menipis: low.filter(item => item.status === 'Menipis').length,
         habis: low.filter(item => item.status === 'Habis').length,
         items: low.slice(0, MAX_RESULTS).map(item => ({ nama: item.nama, stok: item.stokSaatIni, satuan: item.satuan, status: item.status }))
+      };
+    },
+
+    searchInventory(user, filter = {}) {
+      if (!canViewInventory(user)) return DENIED;
+      const query = String(filter.nama || '').toLocaleLowerCase('id-ID').trim();
+      const matches = list('inventoryItems').filter(item => {
+        if (!query) return Number(item.stokSaatIni) > 0;
+        return `${item.nama || ''} ${item.kodeBarang || ''}`.toLocaleLowerCase('id-ID')
+          .split(/\s+/)
+          .some(token => token.includes(query)) ||
+          query.split(/\s+/).every(token =>
+            `${item.nama || ''} ${item.kodeBarang || ''}`.toLocaleLowerCase('id-ID').includes(token)
+          );
+      });
+      return {
+        query,
+        total: matches.length,
+        items: matches.slice(0, MAX_RESULTS).map(item => ({
+          nama: item.nama,
+          stok: item.stokSaatIni,
+          satuan: item.satuan,
+          status: item.status
+        }))
+      };
+    },
+
+    getMyRequests(user, requestIds) {
+      if (!can(user, 'requestSupplies')) return DENIED;
+      const ownedIds = new Set(Array.isArray(requestIds) ? requestIds : []);
+      const requests = list('requests')
+        .filter(request => ownedIds.has(request.id))
+        .sort((left, right) => String(right.tanggal || '').localeCompare(String(left.tanggal || '')));
+      return {
+        total: requests.length,
+        pending: requests.filter(request => !['Selesai', 'Ditolak'].includes(request.status)).length,
+        items: requests.slice(0, MAX_RESULTS).map(request => ({
+          nomor: request.nomorPermintaan,
+          tanggal: request.tanggal,
+          status: request.status
+        }))
       };
     },
 

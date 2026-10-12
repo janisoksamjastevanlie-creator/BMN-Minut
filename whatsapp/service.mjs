@@ -196,7 +196,7 @@ export async function createWhatsAppService({
         ? missingPhoneError
         : undefined;
     return {
-      success: sentCount > 0 && failedCount === 0 && resolution.missingPhoneCount === 0,
+      success: sentCount > 0,
       sentCount,
       failedCount,
       error: failedCount > 0
@@ -281,13 +281,15 @@ export async function createWhatsAppService({
       if (!request.is('application/json')) return response.sendStatus(415);
       let payload;
       try { payload = JSON.parse(raw.toString('utf8')); } catch { return response.sendStatus(400); }
-      const providedSecret = typeof payload?.secret === 'string' ? payload.secret
-        : typeof request.query?.secret === 'string' ? request.query.secret : null;
+      const providedSecret = typeof payload?.secret === 'string' ? payload.secret : null;
       if (providedSecret === null || !safeEqual(providedSecret, config.fonnte.webhookSecret)) {
         return response.sendStatus(401);
       }
       const message = parseFonnteWebhookMessage(payload);
       if (!message) return response.sendStatus(400);
+      if (message.fromBot || (config.botNumber && normalizePhone(config.botNumber) === message.phone)) {
+        return response.sendStatus(200);
+      }
       messages = [message];
     } else if (config.provider === 'meta') {
       if (!verifyMetaSignature(raw, request.get('x-hub-signature-256'), config.meta.appSecret)) return response.sendStatus(401);

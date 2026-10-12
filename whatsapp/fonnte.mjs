@@ -14,13 +14,13 @@ function parseTimestamp(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-export function parseFonnteWebhookMessage(payload) {
+export function parseFonnteWebhookMessage(payload, receivedAtMs = Date.now()) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
   if (typeof payload.sender !== 'string') return null;
 
   const phone = normalizePhone(payload.sender);
   const timestampMs = parseTimestamp(payload.timestamp);
-  if (!isValidPhone(phone) || !timestampMs) return null;
+  if (!isValidPhone(phone)) return null;
 
   const buttonText = typeof payload.text === 'string' ? payload.text.trim() : '';
   const message = typeof payload.message === 'string' ? payload.message.trim() : '';
@@ -28,21 +28,26 @@ export function parseFonnteWebhookMessage(payload) {
   const inboxId = typeof payload.inboxid === 'string' || typeof payload.inboxid === 'number'
     ? String(payload.inboxid).trim().slice(0, 180)
     : '';
+  const receivedBucket = Math.floor((Number.isFinite(receivedAtMs) ? receivedAtMs : Date.now()) / 60_000);
   const messageId = inboxId || `fonnte-${sha256(JSON.stringify({
     sender: phone,
-    timestamp: timestampMs,
+    timestamp: timestampMs || receivedBucket,
     buttonText: buttonText.slice(0, MAX_INBOUND_TEXT),
     message: message.slice(0, MAX_INBOUND_TEXT),
     location: typeof payload.location === 'string' ? payload.location.slice(0, 100) : '',
     pollname: typeof payload.pollname === 'string' ? payload.pollname.slice(0, 100) : '',
     choices: typeof payload.choices === 'string' ? payload.choices.slice(0, 100) : ''
   }))}`;
+  const device = normalizePhone(payload.device);
+  const fromBot = payload.fromMe === true || payload.fromMe === 1 || payload.fromMe === 'true' ||
+    (isValidPhone(device) && device === phone);
 
   return {
     messageId,
     phone,
     text,
     timestampMs,
+    fromBot,
     unsupported: !text
   };
 }
