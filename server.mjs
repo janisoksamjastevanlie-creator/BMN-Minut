@@ -959,7 +959,8 @@ app.get('/api/state', requireUser, asyncRoute(async (_request, response) => {
 const webChat = createWebChat({
   config: getWhatsAppConfig(),
   getCollection,
-  userHasPermission
+  userHasPermission,
+  getOwnedRequestIds: userId => whatsapp.store.listOwnedRequestIds(userId)
 });
 const webChatHits = new Map();
 

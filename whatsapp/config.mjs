@@ -77,6 +77,7 @@ export function getWhatsAppConfig(env = process.env) {
     inboundConfigured,
     webhookUrl: clean(env.WHATSAPP_WEBHOOK_URL),
     botNumber: clean(env.WHATSAPP_BOT_NUMBER).replace(/\D/g, ''),
+    botNumberVerified: clean(env.WHATSAPP_BOT_VERIFIED).toLowerCase() === 'true',
     appBaseUrl: (clean(env.APP_PUBLIC_URL) || `http://127.0.0.1:${env.PORT || 3000}`).replace(/\/+$/, ''),
     rateLimitMax: positiveInt(env.WHATSAPP_RATE_LIMIT_MAX, 15),
     rateLimitWindowMs: positiveInt(env.WHATSAPP_RATE_LIMIT_WINDOW_SECONDS, 60) * 1000,

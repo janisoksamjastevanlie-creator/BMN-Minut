@@ -7,6 +7,26 @@ const MAX_RESULTS = 5;
 
 const DENIED = Object.freeze({ denied: true });
 
+export function parseDocumentQuery(question) {
+  const input = String(question || '').trim().slice(0, 1200);
+  const filter = {};
+  const explicit = input.match(/\b(?:nomor|no\.?)\s*[:#]?\s*([\p{L}\p{N}./_-]+)/iu);
+  const number = explicit?.[1] || input.match(/\b(?=[\p{L}\p{N}./_-]*\d)[\p{L}\p{N}]+[-/][\p{L}\p{N}./_-]+\b/u)?.[0];
+  if (number) filter.nomor = number;
+  if (/\b(?:belum|bukan|tidak|selain)\s+(?:status\s+)?(?:diajukan|diverifikasi|disetujui|diproses|selesai|ditolak)\b/i.test(input)) {
+    return { ...filter, unsupported: true };
+  }
+  const status = ['Diajukan', 'Diverifikasi', 'Disetujui', 'Diproses', 'Selesai', 'Ditolak']
+    .find(value => new RegExp(`\\b${value}\\b`, 'i').test(input));
+  if (status) filter.statusPermohonan = status;
+  if (/\bmasuk\b/i.test(input)) filter.jenisTransaksi = 'masuk';
+  else if (/\bkeluar\b/i.test(input)) filter.jenisTransaksi = 'keluar';
+  return filter;
+}
+
+const validNumberFilter = filter => filter.nomor === undefined ||
+  (typeof filter.nomor === 'string' && /^[\p{L}\p{N}./_-]{1,60}$/u.test(filter.nomor));
+
 export function createTools({ getCollection, userHasPermission }) {
   const can = (user, ...permissions) => permissions.some(permission => userHasPermission(user, permission));
   const list = key => (Array.isArray(getCollection(key)) ? getCollection(key) : []);
@@ -46,6 +66,7 @@ export function createTools({ getCollection, userHasPermission }) {
 
   return {
     constants: { CONDITIONS, ASSET_STATUSES },
+    canReadAllRequests: user => can(user, 'approveRequests', 'manageInventory'),
 
     getDashboard(user) {
       if (!can(user, 'viewDashboard')) return DENIED;
@@ -141,19 +162,74 @@ export function createTools({ getCollection, userHasPermission }) {
       };
     },
 
-    getMyRequests(user, requestIds) {
-      if (!can(user, 'requestSupplies')) return DENIED;
+    getMyRequests(user, requestIds, filter = {}, staff = false) {
+      const canReadAll = can(user, 'approveRequests', 'manageInventory');
+      if (staff ? !canReadAll : !can(user, 'requestSupplies')) return DENIED;
+      if (filter.unsupported) return { unavailable: 'Filter pengecualian status belum didukung. Gunakan nomor dokumen atau satu status yang pasti.' };
+      if (!validNumberFilter(filter) || (filter.statusPermohonan !== undefined &&
+        !['Diajukan', 'Diverifikasi', 'Disetujui', 'Diproses', 'Selesai', 'Ditolak'].includes(filter.statusPermohonan))) return DENIED;
       const ownedIds = new Set(Array.isArray(requestIds) ? requestIds : []);
+      const nomor = typeof filter.nomor === 'string' ? filter.nomor.trim().toLocaleLowerCase('id-ID').slice(0, 60) : '';
+      const status = ['Diajukan', 'Diverifikasi', 'Disetujui', 'Diproses', 'Selesai', 'Ditolak'].includes(filter.statusPermohonan)
+        ? filter.statusPermohonan : null;
       const requests = list('requests')
-        .filter(request => ownedIds.has(request.id))
+        .filter(request => (staff || ownedIds.has(request.id)) &&
+          (!nomor || String(request.nomorPermintaan || '').toLocaleLowerCase('id-ID') === nomor) &&
+          (!status || request.status === status))
         .sort((left, right) => String(right.tanggal || '').localeCompare(String(left.tanggal || '')));
       return {
+        scope: staff ? 'petugas' : 'sendiri',
         total: requests.length,
         pending: requests.filter(request => !['Selesai', 'Ditolak'].includes(request.status)).length,
         items: requests.slice(0, MAX_RESULTS).map(request => ({
           nomor: request.nomorPermintaan,
           tanggal: request.tanggal,
-          status: request.status
+          status: request.status,
+          catatan: typeof request.catatan === 'string' ? request.catatan.trim().slice(0, 250) : undefined,
+          barang: (Array.isArray(request.items) && request.items.length
+            ? request.items
+            : request.namaBarang
+              ? [{
+                  namaBarang: request.namaBarang,
+                  jumlahDiminta: request.jumlahDiminta,
+                  satuan: request.satuan
+                }]
+              : []
+          ).slice(0, MAX_RESULTS).map(item => ({
+            nama: item.namaBarang,
+            jumlah: item.jumlahDiminta,
+            disetujui: item.jumlahDisetujui,
+            satuan: item.satuan
+          })),
+          jumlahBarangLain: Math.max(0, (Array.isArray(request.items) ? request.items.length : 0) - MAX_RESULTS),
+          alasanPenolakan: request.status === 'Ditolak' && typeof request.catatan === 'string'
+            ? request.catatan.trim().slice(0, 250) || undefined
+            : undefined
+        }))
+      };
+    },
+
+    getInventoryTransactions(user, filter = {}) {
+      if (!can(user, 'manageInventory', 'viewReports')) return DENIED;
+      if (!validNumberFilter(filter)) return DENIED;
+      const nomor = typeof filter.nomor === 'string' ? filter.nomor.trim().toLocaleLowerCase('id-ID').slice(0, 60) : '';
+      const jenis = filter.jenisTransaksi;
+      if (jenis !== undefined && !['masuk', 'keluar'].includes(jenis)) return DENIED;
+      const rows = [
+        ...(jenis === 'keluar' ? [] : list('stockInList').map(item => ({ item, jenis: 'masuk' }))),
+        ...(jenis === 'masuk' ? [] : list('stockOutList').map(item => ({ item, jenis: 'keluar' })))
+      ].filter(({ item }) => !nomor || String(item.nomorTransaksi || '').toLocaleLowerCase('id-ID') === nomor)
+        .sort((a, b) => String(b.item.tanggal || '').localeCompare(String(a.item.tanggal || '')));
+      return {
+        total: rows.length,
+        items: rows.slice(0, MAX_RESULTS).map(({ item, jenis: tipe }) => ({
+          nomor: item.nomorTransaksi,
+          tanggal: item.tanggal,
+          jenis: tipe,
+          barang: item.namaBarang,
+          jumlah: item.jumlah,
+          satuan: item.satuan,
+          status: item.status || 'Status tidak tercatat'
         }))
       };
     },

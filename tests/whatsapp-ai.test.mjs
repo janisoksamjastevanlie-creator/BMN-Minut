@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createIntentClassifier } from '../whatsapp/ai.mjs';
+import { createIntentClassifier, sanitizeIntent } from '../whatsapp/ai.mjs';
 import { createChatbot } from '../whatsapp/chatbot.mjs';
 import { getWhatsAppConfig } from '../whatsapp/config.mjs';
-import { createTools } from '../whatsapp/tools.mjs';
+import { createTools, parseDocumentQuery } from '../whatsapp/tools.mjs';
 
 test('Groq is selected when explicitly configured or when only its key is present', async () => {
   const explicit = getWhatsAppConfig({
@@ -147,8 +147,22 @@ test('AI intent answers from permission-checked application collections', async 
 test('request status exposes only requests owned by the linked user', async () => {
   const collections = {
     requests: [
-      { id: 'owned', nomorPermintaan: 'REQ-MINE', tanggal: '2026-10-12', status: 'Diajukan' },
-      { id: 'other', nomorPermintaan: 'REQ-OTHER', tanggal: '2026-10-11', status: 'Disetujui' }
+      {
+        id: 'owned',
+        nomorPermintaan: 'REQ-MINE',
+        tanggal: '2026-10-12',
+        status: 'Ditolak',
+        catatan: 'Stok belum tersedia',
+        items: [{ namaBarang: 'Kertas A4', jumlahDiminta: 2, satuan: 'rim' }]
+      },
+      {
+        id: 'other',
+        nomorPermintaan: 'REQ-OTHER',
+        tanggal: '2026-10-11',
+        status: 'Disetujui',
+        catatan: 'Catatan milik pengguna lain',
+        items: [{ namaBarang: 'Tinta Printer', jumlahDiminta: 1, satuan: 'unit' }]
+      }
     ]
   };
   const user = { id: 'user-1', name: 'Pemohon', role: 'Pemohon' };
@@ -173,7 +187,10 @@ test('request status exposes only requests owned by the linked user', async () =
   const result = await chatbot.handle({ phone: '6281234567890', text: 'status permohonan saya' });
   assert.equal(result.intent, 'MY_REQUESTS');
   assert.match(result.reply.text, /REQ-MINE/);
+  assert.match(result.reply.text, /Kertas A4: 2 rim/);
+  assert.match(result.reply.text, /Alasan penolakan: Stok belum tersedia/);
   assert.doesNotMatch(result.reply.text, /REQ-OTHER/);
+  assert.doesNotMatch(result.reply.text, /Tinta Printer|Catatan milik pengguna lain/);
 });
 
 test('unlinked numbers receive only public procedure information', async () => {
@@ -199,4 +216,84 @@ test('unlinked numbers receive only public procedure information', async () => {
   });
   assert.equal(privateResult.intent, 'NOT_LINKED');
   assert.match(privateResult.reply.text, /belum terhubung/);
+});
+
+test('document filters are bounded and invalid AI filters cannot broaden a search', () => {
+  assert.deepEqual(parseDocumentQuery('status permohonan nomor REQ-01 Ditolak'), {
+    nomor: 'REQ-01', statusPermohonan: 'Ditolak'
+  });
+  assert.deepEqual(parseDocumentQuery('riwayat transaksi barang keluar BK/2026/01'), {
+    nomor: 'BK/2026/01', jenisTransaksi: 'keluar'
+  });
+  assert.deepEqual(parseDocumentQuery('permohonan saya belum disetujui'), { unsupported: true });
+  for (const filter of [{ nomor: 'x'.repeat(61) }, { nomor: "' OR 1=1" }, { statusPermohonan: 'Semua' }, { jenisTransaksi: 'hapus' }]) {
+    assert.deepEqual(sanitizeIntent({ intent: 'SEARCH_REQUESTS', ...filter }), { intent: 'UNKNOWN' });
+  }
+});
+
+test('request searches enforce ownership even when a requester asks for the staff scope', () => {
+  const collections = { requests: [
+    { id: 'mine', nomorPermintaan: 'REQ-01', tanggal: '2026-10-12', status: 'Disetujui', items: [
+      { namaBarang: 'Kertas', jumlahDiminta: 4, jumlahDisetujui: 2, satuan: 'rim' }
+    ] },
+    { id: 'other', nomorPermintaan: 'REQ-02', tanggal: '2026-10-12', status: 'Ditolak', catatan: 'Rahasia pengguna lain' }
+  ] };
+  const tools = createTools({
+    getCollection: key => collections[key] || [],
+    userHasPermission: (user, permission) => user.permissions.includes(permission)
+  });
+  const requester = { permissions: ['requestSupplies'] };
+  assert.equal(tools.getMyRequests(requester, ['mine'], {}, true).denied, true);
+  assert.equal(tools.getMyRequests(requester, ['mine'], { nomor: 'REQ-02' }).total, 0);
+  const mine = tools.getMyRequests(requester, ['mine'], { statusPermohonan: 'Disetujui' });
+  assert.equal(mine.items[0].barang[0].disetujui, 2);
+  assert.equal(tools.getMyRequests(requester, ['mine'], { nomor: 'bad number' }).denied, true);
+  const staff = { permissions: ['approveRequests'] };
+  const other = tools.getMyRequests(staff, [], { nomor: 'REQ-02' }, true);
+  assert.equal(other.scope, 'petugas');
+  assert.equal(other.total, 1);
+  assert.equal(other.items[0].catatan, 'Rahasia pengguna lain');
+  assert.equal(tools.getMyRequests(requester, []).total, 0);
+});
+
+test('inventory transactions use existing permissions and never invent missing status', () => {
+  const collections = {
+    stockInList: [{ nomorTransaksi: 'BM-01', tanggal: '2026-10-11', namaBarang: 'Kertas', jumlah: 5, satuan: 'rim', status: 'Diverifikasi' }],
+    stockOutList: [{ nomorTransaksi: 'BK-01', tanggal: '2026-10-12', namaBarang: 'Kertas', jumlah: 1, satuan: 'rim' }]
+  };
+  const tools = createTools({
+    getCollection: key => collections[key] || [],
+    userHasPermission: (user, permission) => user.permissions.includes(permission)
+  });
+  assert.equal(tools.getInventoryTransactions({ permissions: ['requestSupplies'] }).denied, true);
+  assert.equal(tools.getInventoryTransactions({ permissions: ['viewInventory'] }).denied, true);
+  const staff = { permissions: ['manageInventory'] };
+  const result = tools.getInventoryTransactions(staff, { jenisTransaksi: 'keluar', nomor: 'BK-01' });
+  assert.equal(result.total, 1);
+  assert.equal(result.items[0].status, 'Status tidak tercatat');
+  assert.equal(tools.getInventoryTransactions(staff, { nomor: 'missing' }).total, 0);
+  assert.equal(tools.getInventoryTransactions(staff, { jenisTransaksi: 'hapus' }).denied, true);
+});
+
+test('WhatsApp document questions work without AI and staff requests do not bypass requester scope', async () => {
+  const user = { id: 'u1', permissions: ['requestSupplies'] };
+  const tools = createTools({
+    getCollection: key => key === 'requests' ? [
+      { id: 'mine', nomorPermintaan: 'REQ-01', tanggal: '2026-10-12', status: 'Diajukan' },
+      { id: 'other', nomorPermintaan: 'REQ-02', tanggal: '2026-10-12', status: 'Ditolak' }
+    ] : [],
+    userHasPermission: (current, permission) => current.permissions.includes(permission)
+  });
+  const chatbot = createChatbot({
+    config: {}, tools, resolveUser: async () => ({ user }),
+    store: { getAccountByPhone: async () => ({ user_id: user.id }), getSession: async () => null,
+      listOwnedRequestIds: async () => ['mine'] },
+    classifyIntent: async () => assert.fail('structured document question should not need AI'),
+    appUrl: 'https://example.invalid'
+  });
+  const deniedOther = await chatbot.handle({ phone: '6281234567890', text: 'status permohonan nomor REQ-02' });
+  assert.doesNotMatch(deniedOther.reply.text, /REQ-02|Ditolak/);
+  const mine = await chatbot.handle({ phone: '6281234567890', text: 'status permohonan saya nomor REQ-01' });
+  assert.match(mine.reply.text, /REQ-01/);
+  assert.match(mine.reply.text, /Diajukan/);
 });

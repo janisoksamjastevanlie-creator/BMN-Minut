@@ -243,17 +243,43 @@ export const formatter = {
   },
 
   myRequests(data) {
+    const title = data.scope === 'petugas' ? 'PERMOHONAN BARANG' : 'PERMOHONAN SAYA';
     if (!data.total) {
-      return text('📄 *PERMOHONAN SAYA*\n\nBelum ada permohonan yang tercatat untuk akun WhatsApp ini.', quickReplies(BTN_MENU));
+      return text(`📄 *${title}*\n\nPermohonan tidak ditemukan dalam cakupan akses dan filter ini.`, quickReplies(BTN_MENU));
     }
-    const items = data.items.map(item => `• ${item.nomor} — ${item.status} (${item.tanggal})`);
+    const items = data.items.flatMap(item => [
+      `• ${item.nomor} — ${item.status} (${item.tanggal})`,
+      ...(item.barang.length
+        ? item.barang.map(barang => `  - ${barang.nama}: ${n(barang.jumlah)} ${barang.satuan}${barang.disetujui == null ? '' : `; disetujui ${n(barang.disetujui)}`}`)
+        : ['  - Rincian barang belum tersedia.']),
+      ...(item.jumlahBarangLain ? [`  - ${n(item.jumlahBarangLain)} barang lainnya.`] : []),
+      ...(item.status === 'Ditolak'
+        ? [`  - Alasan penolakan: ${item.alasanPenolakan || 'Belum dicatat di sistem.'}`]
+        : []),
+      ...(item.catatan && item.status !== 'Ditolak' ? [`  - Catatan: ${item.catatan}`] : [])
+    ]);
     return text([
-      '📄 *PERMOHONAN SAYA*',
+      `📄 *${title}*`,
       '',
       `Total: ${n(data.total)}`,
       `Belum selesai: ${n(data.pending)}`,
       '',
-      ...items
+      ...items,
+      '',
+      'Status yang ditampilkan adalah status saat ini. Riwayat perubahan status dan waktu persetujuan belum tersedia melalui chatbot.'
+    ].join('\n'), quickReplies(BTN_MENU));
+  },
+
+  inventoryTransactions(data) {
+    return text([
+      '📦 *TRANSAKSI PERSEDIAAN*',
+      '',
+      ...(data.items.length ? data.items.map(item =>
+        `• ${item.nomor} (${item.tanggal}) — ${item.jenis}\n  ${item.barang}: ${n(item.jumlah)} ${item.satuan}\n  ${item.status}`
+      ) : ['Transaksi tidak ditemukan dalam cakupan akses dan filter ini.']),
+      ...(data.total > data.items.length ? [`Menampilkan ${data.items.length} dari ${n(data.total)} rincian barang.`] : []),
+      '',
+      'Riwayat lengkap tersedia di menu Persediaan sesuai izin akun. Status yang tidak tercatat tidak dapat disimpulkan.'
     ].join('\n'), quickReplies(BTN_MENU));
   },
 

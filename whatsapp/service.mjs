@@ -345,6 +345,7 @@ export async function createWhatsAppService({
       notifyEnabled: account ? Boolean(account.notify_enabled) : false,
       linkedAt: account?.linked_at ?? null,
       botNumber: config.botNumber || null,
+      botNumberVerified: config.botNumberVerified && isValidPhone(config.botNumber),
       provider: config.provider,
       available: config.validProvider && config.inboundConfigured && config.outboundConfigured
     });
@@ -497,6 +498,9 @@ export async function createWhatsAppService({
     await store.prune();
     if (!config.validProvider) console.warn('WHATSAPP_PROVIDER tidak valid; chatbot WhatsApp dinonaktifkan.');
     else if (!config.inboundConfigured) console.warn('Chatbot WhatsApp belum aktif: webhook secret/verify token belum dikonfigurasi di .env.');
+    if (config.aiEnabled && !config.aiConfigured) {
+      console.warn(`Chatbot WhatsApp AI belum aktif: kredensial provider ${config.aiProvider} belum dikonfigurasi di environment backend.`);
+    }
     if (config.remindersEnabled && config.outboundConfigured) {
       const timer = setInterval(() => { void sendDailyReminders().catch(recordFailure); }, 5 * 60_000);
       timer.unref();

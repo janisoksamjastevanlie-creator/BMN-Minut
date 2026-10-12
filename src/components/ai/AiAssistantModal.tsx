@@ -12,12 +12,7 @@ interface ChatMessage {
 export const AiAssistantModal: React.FC = () => {
   const {
     isAiAssistantOpen,
-    setIsAiAssistantOpen,
-    assets,
-    inventoryItems,
-    stockInList,
-    stockOutList,
-    rooms
+    setIsAiAssistantOpen
   } = useApp();
 
   const [inputQuery, setInputQuery] = useState('');
@@ -33,81 +28,6 @@ export const AiAssistantModal: React.FC = () => {
   const [failedQuery, setFailedQuery] = useState<string | null>(null);
 
   if (!isAiAssistantOpen) return null;
-
-  // Smart grounded query solver using live app database
-  const answerQueryWithDatabase = (q: string): string => {
-    const lower = q.toLowerCase();
-
-    // 1. Total aset BMN
-    if (lower.includes('total aset') || lower.includes('jumlah aset')) {
-      const total = assets.length;
-      const baik = assets.filter(a => a.kondisi === 'Baik').length;
-      const rRingan = assets.filter(a => a.kondisi === 'Rusak Ringan').length;
-      const rBerat = assets.filter(a => a.kondisi === 'Rusak Berat').length;
-      return `Total aset BMN yang tercatat di BPS Kabupaten Minahasa Utara saat ini berjumlah **${total} unit**.\n\nRincian kondisi:\n- **Baik:** ${baik} unit (${((baik/total)*100).toFixed(1)}%)\n- **Rusak Ringan:** ${rRingan} unit\n- **Rusak Berat:** ${rBerat} unit.`;
-    }
-
-    // 2. Nilai aset BMN
-    if (lower.includes('nilai aset') || lower.includes('total nilai bmn') || lower.includes('nilai perolehan')) {
-      const totalPerolehan = assets.reduce((sum, a) => sum + a.nilaiPerolehan, 0);
-      const totalNilaiBuku = assets.reduce((sum, a) => sum + a.nilaiBuku, 0);
-      const totalPenyusutan = assets.reduce((sum, a) => sum + a.akumulasiPenyusutan, 0);
-      return `Total nilai perolehan BMN BPS Kabupaten Minahasa Utara adalah **Rp ${totalPerolehan.toLocaleString('id-ID')}**.\n\n- Akumulasi Penyusutan: Rp ${totalPenyusutan.toLocaleString('id-ID')}\n- **Nilai Buku Saat Ini:** Rp ${totalNilaiBuku.toLocaleString('id-ID')}.`;
-    }
-
-    // 3. Laptop
-    if (lower.includes('laptop') || lower.includes('komputer jinjing')) {
-      const laptops = assets.filter(a => a.namaBarang.toLowerCase().includes('laptop'));
-      const baik = laptops.filter(a => a.kondisi === 'Baik').length;
-      const rusak = laptops.filter(a => a.kondisi !== 'Baik').length;
-      return `Terdapat **${laptops.length} unit laptop** terdaftar (ASUS ExpertBook, Lenovo ThinkPad, Dell Latitude).\n- Kondisi Baik: ${baik} unit\n- Perlu perhatian/servis: ${rusak} unit.`;
-    }
-
-    // 4. Rusak berat
-    if (lower.includes('rusak berat')) {
-      const rusakBerat = assets.filter(a => a.kondisi === 'Rusak Berat');
-      const sample = rusakBerat.slice(0, 4).map(a => `- **${a.namaBarang}** (NUP ${a.nup}) di ${a.ruanganNama}`).join('\n');
-      return `Terdapat **${rusakBerat.length} aset berstatus Rusak Berat** yang direkomendasikan untuk diusulkan penghapusan atau perbaikan besar:\n${sample}\n\nSemua dapat dilihat pada menu Aset BMN > Penghapusan.`;
-    }
-
-    // 5. Stok kertas A4
-    if (lower.includes('kertas a4') || lower.includes('stok kertas')) {
-      const kertas = inventoryItems.filter(i => i.nama.toLowerCase().includes('kertas') && i.nama.toLowerCase().includes('a4'));
-      if (kertas.length > 0) {
-        const item = kertas[0];
-        return `Stok **${item.nama}** saat ini adalah **${item.stokSaatIni} ${item.satuan}** di **${item.rak} (${item.binCode})**.\nBatas minimum stok: ${item.stokMinimum} ${item.satuan}. Status: **${item.status}**.`;
-      }
-      return `Stok Kertas HVS A4 saat ini berada di Rak A. Cek modul Master Persediaan untuk rincian real-time.`;
-    }
-
-    // 6. Hampir habis / stok minimum
-    if (lower.includes('hampir habis') || lower.includes('menipis') || lower.includes('habis')) {
-      const lowItems = inventoryItems.filter(i => i.status === 'Menipis' || i.status === 'Habis');
-      const samples = lowItems.slice(0, 5).map(i => `- **${i.nama}**: Sisa ${i.stokSaatIni} ${i.satuan} (Min: ${i.stokMinimum}) [${i.status.toUpperCase()}]`).join('\n');
-      return `Ada **${lowItems.length} item persediaan** yang menipis atau habis di gudang:\n${samples}\n\nDisarankan segera mengajukan pengadaan barang melalui menu Rekomendasi Pengadaan.`;
-    }
-
-    // 7. Penggunaan ATK / Barang keluar
-    if (lower.includes('atk yang keluar') || lower.includes('barang keluar') || lower.includes('penggunaan')) {
-      const atkOut = stockOutList.filter(s => s.jenis === 'ATK');
-      const totalQty = atkOut.reduce((sum, s) => sum + s.jumlah, 0);
-      return `Tercatat **${atkOut.length} transaksi pengeluaran ATK** dengan total **${totalQty} item** disalurkan ke berbagai fungsi (Tata Usaha, Sosial, Produksi, Distribusi, Neraca, IPDS).`;
-    }
-
-    // 8. Ruangan paling banyak aset
-    if (lower.includes('ruangan') || lower.includes('paling banyak')) {
-      const roomCounts = rooms.map(r => ({
-        name: r.name,
-        count: assets.filter(a => a.ruanganId === r.id).length
-      })).sort((a, b) => b.count - a.count);
-      
-      const top = roomCounts[0];
-      return `Ruangan dengan jumlah aset terbanyak adalah **${top.name}** dengan total **${top.count} unit aset BMN**, disusul oleh **${roomCounts[1]?.name}** (${roomCounts[1]?.count} unit).`;
-    }
-
-    // Default intelligent response
-    return `Berdasarkan database SIMAN-BMN per hari ini:\n- Total BMN: **${assets.length} unit** (Nilai Buku: Rp ${assets.reduce((sum, a) => sum + a.nilaiBuku, 0).toLocaleString('id-ID')})\n- Jenis Persediaan: **${inventoryItems.length} item** (ATK & ARK)\n- Transaksi Barang Keluar: **${stockOutList.length} kali**\n\nSilakan ajukan pertanyaan spesifik seperti "Berapa stok kertas A4?" atau "Ruangan mana yang asetnya paling banyak?".`;
-  };
 
   const sendToAi = async (userText: string, history: ChatMessage[]) => {
     setIsTyping(true);
@@ -130,9 +50,6 @@ export const AiAssistantModal: React.FC = () => {
       const body = await response.json().catch(() => ({}));
       if (response.ok && typeof body.reply === 'string' && body.reply.trim()) {
         pushAi(body.reply);
-      } else if (response.status === 503 || response.status === 401) {
-        // AI belum dikonfigurasi atau sesi berakhir: gunakan jawaban data lokal sebagai cadangan.
-        pushAi(`${answerQueryWithDatabase(userText)}\n\n_(Mode data dasar: ${body.error || 'layanan AI tidak tersedia.'})_`);
       } else {
         pushAi(`⚠️ ${body.error || 'Terjadi kesalahan saat memproses pertanyaan.'}`);
         setFailedQuery(userText);
@@ -183,7 +100,7 @@ export const AiAssistantModal: React.FC = () => {
                   AI Grounded
                 </span>
               </h3>
-              <p className="text-[11px] text-slate-400">Terhubung langsung ke database BPS Minahasa Utara</p>
+              <p className="text-[11px] text-slate-400">Data dari backend sesuai izin akun</p>
             </div>
           </div>
           <button

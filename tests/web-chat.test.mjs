@@ -56,3 +56,37 @@ test('kesalahan dipetakan tanpa membocorkan detail', async () => {
   assert.equal((await createWebChat({ config: { ...config, groqApiKey: '' }, getCollection, userHasPermission }).answer(user, msg)).error, 'not_configured');
   assert.equal((await mk(okFetch({})).answer(user, [])).error, 'bad_request');
 });
+
+test('web request context loads only server-owned ids and does not invent history', async () => {
+  const capture = {};
+  const chat = createWebChat({
+    config, fetchImpl: okFetch(capture),
+    getCollection: key => key === 'requests' ? [
+      { id: 'owned', nomorPermintaan: 'REQ-01', status: 'Diajukan', tanggal: '2026-10-12' },
+      { id: 'other', nomorPermintaan: 'REQ-02', status: 'Ditolak', catatan: 'PRIVATE-OTHER' }
+    ] : [],
+    getOwnedRequestIds: async id => { assert.equal(id, user.id); return ['owned']; },
+    userHasPermission: (_user, permission) => permission === 'requestSupplies'
+  });
+  await chat.answer(user, [{ role: 'user', content: 'riwayat permohonan saya' }]);
+  const context = capture.body.messages[0].content.split('DATA_APLIKASI (data aktual')[1];
+  assert.match(context, /REQ-01/);
+  assert.doesNotMatch(context, /REQ-02|PRIVATE-OTHER/);
+  assert.match(context, /Riwayat perubahan status.*tidak disediakan/);
+});
+
+test('web staff request context respects permissions and exact document filter', async () => {
+  const capture = {};
+  const chat = createWebChat({
+    config, fetchImpl: okFetch(capture),
+    getCollection: key => key === 'requests' ? [
+      { id: 'a', nomorPermintaan: 'REQ-01', status: 'Diajukan' },
+      { id: 'b', nomorPermintaan: 'REQ-02', status: 'Ditolak' }
+    ] : [],
+    userHasPermission: (_user, permission) => permission === 'approveRequests'
+  });
+  await chat.answer(user, [{ role: 'user', content: 'status permohonan nomor REQ-02' }]);
+  const context = capture.body.messages[0].content.split('DATA_APLIKASI (data aktual')[1];
+  assert.match(context, /REQ-02/);
+  assert.doesNotMatch(context, /REQ-01/);
+});

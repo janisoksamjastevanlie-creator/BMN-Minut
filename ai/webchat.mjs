@@ -1,6 +1,6 @@
 // Tanya AI pada aplikasi web. Model hanya menerima ringkasan data yang sudah disaring
 // berdasarkan izin pengguna; tidak ada SQL, tidak ada penulisan data, dan tidak ada rahasia.
-import { createTools } from '../whatsapp/tools.mjs';
+import { createTools, parseDocumentQuery } from '../whatsapp/tools.mjs';
 
 const MAX_HISTORY = 8;
 const MAX_MESSAGE_CHARS = 1200;
@@ -60,7 +60,7 @@ const tokensOf = text => Array.from(new Set(
   String(text || '').toLocaleLowerCase('id-ID').split(/[^\p{L}\p{N}]+/u).filter(token => token.length >= 3)
 ));
 
-export function createWebChat({ config, getCollection, userHasPermission, fetchImpl = fetch }) {
+export function createWebChat({ config, getCollection, userHasPermission, getOwnedRequestIds = async () => [], fetchImpl = fetch }) {
   const tools = createTools({ getCollection, userHasPermission });
   const list = key => (Array.isArray(getCollection(key)) ? getCollection(key) : []);
   const canViewInventory = user => userHasPermission(user, 'viewInventory') || userHasPermission(user, 'manageInventory');
@@ -97,10 +97,13 @@ export function createWebChat({ config, getCollection, userHasPermission, fetchI
 
   const section = (value, fallback) => (value === null || value === undefined || value?.denied ? fallback : value);
 
-  function buildContext(user, question) {
+  async function buildContext(user, question) {
     const permissions = Object.entries(PERMISSION_LABELS)
       .filter(([key]) => userHasPermission(user, key))
       .map(([, label]) => label);
+    const filter = parseDocumentQuery(question);
+    const asksRequests = /\bpermohonan\b/i.test(question);
+    const asksTransactions = /\b(transaksi|riwayat)\b/i.test(question) && /\b(persediaan|barang|masuk|keluar)\b/i.test(question);
     return {
       pengguna: { nama: user.name, role: user.role, unitKerja: user.unitKerja },
       izinPengguna: permissions,
@@ -108,7 +111,11 @@ export function createWebChat({ config, getCollection, userHasPermission, fetchI
       persediaan: section(tools.getInventoryStatus(user), 'tidak berwenang'),
       pekerjaanMenunggu: section(tools.getPendingActions(user), 'tidak tersedia'),
       barangCocokDenganPertanyaan: section(matchInventory(user, question), 'tidak berwenang'),
-      asetCocokDenganPertanyaan: section(matchAssets(user, question), 'tidak berwenang')
+      asetCocokDenganPertanyaan: section(matchAssets(user, question), 'tidak berwenang'),
+      permohonan: asksRequests ? section(tools.getMyRequests(user, await getOwnedRequestIds(user.id), filter,
+        !/\bsaya\b/i.test(question) && tools.canReadAllRequests(user)), 'tidak berwenang') : 'tidak diminta',
+      transaksiPersediaan: asksTransactions ? section(tools.getInventoryTransactions(user, filter), 'tidak berwenang') : 'tidak diminta',
+      batasan: 'Status di atas adalah status saat ini. Riwayat perubahan status dan waktu verifikasi/persetujuan tidak disediakan oleh fungsi ini; jangan mengarangnya.'
     };
   }
 
@@ -177,7 +184,7 @@ export function createWebChat({ config, getCollection, userHasPermission, fetchI
       const history = sanitizeHistory(messages);
       const last = history[history.length - 1];
       if (!last || last.role !== 'user') return { error: 'bad_request' };
-      const context = buildContext(user, last.content);
+      const context = await buildContext(user, last.content);
       const system = `${SYSTEM_PROMPT}\n\nDATA_APLIKASI (data aktual dari backend, sudah disaring sesuai izin pengguna):\n${JSON.stringify(context)}`;
       return callModel(system, history);
     }

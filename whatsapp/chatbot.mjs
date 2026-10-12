@@ -1,5 +1,6 @@
 import { formatter, MENU_ITEMS } from './formatter.mjs';
 import { extractLinkCode } from './store.mjs';
+import { parseDocumentQuery } from './tools.mjs';
 
 const MAX_TEXT = 500;
 
@@ -84,8 +85,17 @@ export function createChatbot({ config, store, tools, resolveUser, classifyInten
         return data.denied ? formatter.denied() : formatter.inventorySearch(data);
       case 'permohonan':
       case 'MY_REQUESTS':
-        data = tools.getMyRequests(user, await store.listOwnedRequestIds(user.id));
+        data = tools.getMyRequests(user, await store.listOwnedRequestIds(user.id), filter);
+        if (data.unavailable) return { text: data.unavailable };
         return data.denied ? formatter.denied() : formatter.myRequests(data);
+      case 'SEARCH_REQUESTS':
+        data = tools.getMyRequests(user, await store.listOwnedRequestIds(user.id), filter,
+          tools.canReadAllRequests(user));
+        if (data.unavailable) return { text: data.unavailable };
+        return data.denied ? formatter.denied() : formatter.myRequests(data);
+      case 'INVENTORY_TRANSACTIONS':
+        data = tools.getInventoryTransactions(user, filter);
+        return data.denied ? formatter.denied() : formatter.inventoryTransactions(data);
       case 'REQUEST_PROCEDURE':
         return formatter.requestProcedure();
       case 'laporan':
@@ -181,8 +191,13 @@ export function createChatbot({ config, store, tools, resolveUser, classifyInten
       return { ...base, reply: await run('REQUEST_PROCEDURE', user), intent: 'REQUEST_PROCEDURE' };
     }
 
-    if (/\bpermohonan\b/.test(lower) && /\b(saya|status|berapa|jumlah|menunggu)\b/.test(lower)) {
-      return { ...base, reply: await run('MY_REQUESTS', user), intent: 'MY_REQUESTS' };
+    if (/\bpermohonan\b/.test(lower)) {
+      const intent = /\bsaya\b/.test(lower) ? 'MY_REQUESTS' : 'SEARCH_REQUESTS';
+      return { ...base, reply: await run(intent, user, parseDocumentQuery(input)), intent };
+    }
+
+    if (/\b(transaksi|riwayat)\b/.test(lower) && /\b(persediaan|barang|masuk|keluar)\b/.test(lower)) {
+      return { ...base, reply: await run('INVENTORY_TRANSACTIONS', user, parseDocumentQuery(input)), intent: 'INVENTORY_TRANSACTIONS' };
     }
 
     if (/\b(stok|stock|persediaan)\b/.test(lower)) {

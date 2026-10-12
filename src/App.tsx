@@ -12,6 +12,7 @@ import { GlobalSearchModal } from './components/layout/GlobalSearchModal';
 import { QuickActionFab } from './components/layout/QuickActionFab';
 import { QrScannerModal } from './components/common/QrScannerModal';
 import { AiAssistantModal } from './components/ai/AiAssistantModal';
+import { ChatbotButton } from './components/ai/ChatbotButton';
 import { BackToTopButton } from './components/common/BackToTopButton';
 
 // Modals
@@ -164,6 +165,7 @@ const MainLayout: React.FC = () => {
       </div>
 
       <BackToTopButton containerRef={mainRef} />
+      <ChatbotButton />
 
       {/* Mobile Bottom Navigation Bar (Phone & Tablet) */}
       <div className="no-print">

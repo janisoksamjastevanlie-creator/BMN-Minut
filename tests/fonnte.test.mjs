@@ -8,6 +8,7 @@ import { createWhatsAppService, resolveRequestRecipients } from '../whatsapp/ser
 import { formatter } from '../whatsapp/formatter.mjs';
 import { buildFonnteRequestNotification } from '../whatsapp/request-notification.mjs';
 import { createWhatsAppStore } from '../whatsapp/store.mjs';
+import { SlidingWindowLimiter } from '../whatsapp/security.mjs';
 
 const sendConfig = {
   token: 'test-token',
@@ -20,6 +21,7 @@ test('Fonnte config requires a token, HTTPS endpoint, and sufficiently long webh
     FONNTE_TOKEN: 'test-token',
     FONNTE_WEBHOOK_SECRET: 'a'.repeat(32)
   });
+
   assert.equal(ready.validProvider, true);
   assert.equal(ready.outboundConfigured, true);
   assert.equal(ready.inboundConfigured, true);
@@ -32,6 +34,23 @@ test('Fonnte config requires a token, HTTPS endpoint, and sufficiently long webh
   });
   assert.equal(invalidEndpoint.outboundConfigured, false);
   assert.equal(invalidEndpoint.inboundConfigured, false);
+});
+
+test('website bot verification is opt-in and does not change notification readiness', () => {
+  const env = { WHATSAPP_PROVIDER: 'fonnte', FONNTE_TOKEN: 'test-token', FONNTE_WEBHOOK_SECRET: 'a'.repeat(32), WHATSAPP_BOT_NUMBER: '6281234567890' };
+  const config = getWhatsAppConfig(env);
+  assert.equal(config.botNumberVerified, false);
+  assert.equal(config.outboundConfigured, true);
+  assert.equal(getWhatsAppConfig({ ...env, WHATSAPP_BOT_VERIFIED: 'true' }).botNumberVerified, true);
+});
+
+test('message limiter allows 15 requests, rejects the 16th, and isolates senders', () => {
+  const limiter = new SlidingWindowLimiter({ limit: 15, windowMs: 60000 });
+  for (let i = 0; i < 15; i += 1) assert.equal(limiter.hit('sender-a', 1000).allowed, true);
+  assert.deepEqual(limiter.hit('sender-a', 1000), { allowed: false, first: true });
+  assert.deepEqual(limiter.hit('sender-a', 1000), { allowed: false, first: false });
+  assert.equal(limiter.hit('sender-b', 1000).allowed, true);
+  assert.equal(limiter.hit('sender-a', 61000).allowed, true);
 });
 
 test('Fonnte webhook payload is normalized and gets a stable id without inboxid', () => {
