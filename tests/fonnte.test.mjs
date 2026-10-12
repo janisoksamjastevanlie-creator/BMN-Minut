@@ -4,7 +4,7 @@ import http from 'node:http';
 import express from 'express';
 import { getWhatsAppConfig } from '../whatsapp/config.mjs';
 import { parseFonnteWebhookMessage, sendFonnteMessage } from '../whatsapp/fonnte.mjs';
-import { createWhatsAppService } from '../whatsapp/service.mjs';
+import { createWhatsAppService, resolveRequestRecipients } from '../whatsapp/service.mjs';
 
 const sendConfig = {
   token: 'test-token',
@@ -117,7 +117,52 @@ test('Fonnte rejects invalid recipient numbers before making a network call', as
   assert.equal(called, false);
 });
 
-test('request notification explains when no WhatsApp recipients are linked', async t => {
+test('request recipients use registered profile numbers without requiring chatbot linking', () => {
+  const users = [
+    { id: 'requester', role: 'Pemohon', phone: '081234567890', statusAktif: true },
+    { id: 'admin', role: 'Administrator', phone: '+62 813-4567-8901', statusAktif: true },
+    { id: 'inactive-admin', role: 'Administrator', phone: '081999999999', statusAktif: false },
+    { id: 'unrelated', role: 'Pemohon', phone: '081777777777', statusAktif: true }
+  ];
+  const result = resolveRequestRecipients({
+    users,
+    accounts: [],
+    ownerUserId: 'requester',
+    status: 'Diajukan',
+    action: 'submitted',
+    userHasPermission: user => user.role === 'Administrator'
+  });
+
+  assert.deepEqual(result.recipients.map(recipient => recipient.phone).sort(), [
+    '6281234567890',
+    '6281345678901'
+  ]);
+  assert.equal(result.eligibleCount, 2);
+  assert.equal(result.missingPhoneCount, 0);
+});
+
+test('request recipients follow workflow authorization and report missing registered numbers', () => {
+  const users = [
+    { id: 'requester', role: 'Pemohon', statusAktif: true },
+    { id: 'kasubag', role: 'Kepala Sub Bagian Umum', phone: '081234567890', statusAktif: true },
+    { id: 'operator', role: 'Operator', phone: '081234567891', statusAktif: true }
+  ];
+  const result = resolveRequestRecipients({
+    users,
+    accounts: [],
+    ownerUserId: 'requester',
+    status: 'Diverifikasi',
+    action: 'status_changed',
+    userHasPermission: (user, permission) =>
+      permission === 'approveRequests' && user.role === 'Kepala Sub Bagian Umum'
+  });
+
+  assert.deepEqual(result.recipients.map(recipient => recipient.user.id), ['kasubag']);
+  assert.equal(result.eligibleCount, 2);
+  assert.equal(result.missingPhoneCount, 1);
+});
+
+test('request notification explains how to configure a missing recipient number', async t => {
   const keys = ['WHATSAPP_PROVIDER', 'FONNTE_TOKEN', 'FONNTE_API_URL', 'FONNTE_WEBHOOK_SECRET'];
   const previousEnv = Object.fromEntries(keys.map(key => [key, process.env[key]]));
   process.env.WHATSAPP_PROVIDER = 'fonnte';
@@ -134,7 +179,9 @@ test('request notification explains when no WhatsApp recipients are linked', asy
   };
   const service = await createWhatsAppService({
     db: database,
-    getCollection: () => [],
+    getCollection: key => key === 'users'
+      ? [{ id: 'user-1', role: 'Pemohon', statusAktif: true }]
+      : [],
     userHasPermission: () => false,
     requireUser: (_request, response) => response.sendStatus(401),
     refreshCollections: async () => {},
@@ -151,12 +198,15 @@ test('request notification explains when no WhatsApp recipients are linked', asy
   assert.deepEqual(await service.notifyRequestEvent({
     eventKey: 'request-test-event',
     ownerUserId: 'user-1',
+    status: 'Diajukan',
+    action: 'submitted',
     title: 'Permohonan barang',
     lines: []
   }), {
     success: false,
     sentCount: 0,
-    error: 'Tidak ada penerima WhatsApp yang tertaut dan berwenang.'
+    failedCount: 0,
+    error: '1 penerima wajib belum memiliki nomor WhatsApp valid. Atur Nomor WhatsApp pada Manajemen Pengguna dengan format 628xxxxxxxxxx.'
   });
 });
 

@@ -226,10 +226,17 @@ export async function createWhatsAppStore(db, { initializeSchema = true } = {}) 
     },
 
     async claimNotification(eventKey, userId) {
-      const result = await execute(db, `
-        INSERT IGNORE INTO whatsapp_notifications (event_key, user_id, status, created_at) VALUES (?, ?, 'sending', ?)
+      const inserted = await execute(db, `
+        INSERT IGNORE INTO whatsapp_notifications (event_key, user_id, status, created_at)
+        VALUES (?, ?, 'sending', ?)
       `, [eventKey, userId, now()]);
-      return Number(result.affectedRows) === 1;
+      if (Number(inserted.affectedRows) === 1) return true;
+      const retried = await execute(db, `
+        UPDATE whatsapp_notifications
+        SET status = 'sending', error = NULL
+        WHERE event_key = ? AND user_id = ? AND status = 'failed'
+      `, [eventKey, userId]);
+      return Number(retried.affectedRows) === 1;
     },
     async finishNotification(eventKey, userId, status, error) {
       await execute(db, 'UPDATE whatsapp_notifications SET status = ?, error = ? WHERE event_key = ? AND user_id = ?', [

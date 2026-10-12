@@ -26,6 +26,59 @@ function localDateAndHour(date = new Date()) {
   return { date: `${get('year')}-${get('month')}-${get('day')}`, hour: Number(get('hour')) % 24 };
 }
 
+export function resolveRequestRecipients({
+  users,
+  accounts,
+  ownerUserId,
+  status,
+  action,
+  userHasPermission
+}) {
+  const accountByUserId = new Map((Array.isArray(accounts) ? accounts : []).map(account => [account.user_id, account]));
+  const recipientsByPhone = new Map();
+  let eligibleCount = 0;
+  let missingPhoneCount = 0;
+
+  for (const user of Array.isArray(users) ? users : []) {
+    if (!user?.id || user.statusAktif === false) continue;
+    const isOwner = user.id === ownerUserId;
+    const isAdministrator = String(user.role || '').trim().toLocaleLowerCase('id-ID') === 'administrator';
+    const canApprove = userHasPermission(user, 'approveRequests');
+    const canManage = userHasPermission(user, 'manageInventory');
+    const authorized = action === 'submitted' || action === 'cancelled'
+      ? isOwner || isAdministrator
+      : status === 'Diverifikasi'
+        ? isOwner || canApprove
+        : status === 'Disetujui'
+          ? isOwner || canManage
+          : ['Ditolak', 'Diproses', 'Selesai'].includes(status)
+            ? isOwner
+            : isOwner || canApprove || canManage;
+    if (!authorized) continue;
+
+    const account = accountByUserId.get(user.id);
+    eligibleCount += 1;
+    const accountPhone = normalizePhone(account?.phone);
+    const profilePhone = normalizePhone(user.phone);
+    const phone = isValidPhone(accountPhone)
+      ? accountPhone
+      : isValidPhone(profilePhone)
+        ? profilePhone
+        : '';
+    if (!phone) {
+      missingPhoneCount += 1;
+      continue;
+    }
+    if (!recipientsByPhone.has(phone)) recipientsByPhone.set(phone, { user, phone });
+  }
+
+  return {
+    recipients: [...recipientsByPhone.values()],
+    eligibleCount,
+    missingPhoneCount
+  };
+}
+
 export async function createWhatsAppService({
   db,
   getCollection,
@@ -85,45 +138,59 @@ export async function createWhatsAppService({
     }
   }
 
-  async function notifyRequestEvent({ eventKey, ownerUserId, title, lines }) {
+  async function notifyRequestEvent({ eventKey, ownerUserId, status, action, title, lines }) {
     if (!config.validProvider || !config.outboundConfigured) {
-      return { success: false, sentCount: 0, error: 'Integrasi WhatsApp belum dikonfigurasi.' };
+      const error = config.provider === 'fonnte' && !config.fonnte.token
+        ? 'FONNTE_TOKEN belum tersedia pada environment backend.'
+        : 'Integrasi WhatsApp belum dikonfigurasi dengan benar pada environment backend.';
+      return { success: false, sentCount: 0, failedCount: 0, error };
     }
     await refreshCollections();
     const message = formatter.notification(title, lines, config.appBaseUrl);
+    const accounts = await store.listAccounts();
+    const resolution = resolveRequestRecipients({
+      users: getCollection('users'),
+      accounts,
+      ownerUserId,
+      status,
+      action,
+      userHasPermission
+    });
     let sentCount = 0;
     let failedCount = 0;
     let lastSendError;
-    for (const account of await store.listAccounts()) {
-      if (!account.notify_enabled) continue;
-      const { user } = await resolveUser(account.user_id);
-      if (!user) continue;
-      const isOwner = user.id === ownerUserId;
-      const canManageRequests = userHasPermission(user, 'approveRequests') ||
-        userHasPermission(user, 'manageInventory');
-      if (!isOwner && !canManageRequests) continue;
+    for (const { user, phone } of resolution.recipients) {
       if (!await store.claimNotification(eventKey, user.id)) continue;
       try {
-        await provider.sendNotification(account.phone, message);
+        await provider.sendNotification(phone, message);
         await store.finishNotification(eventKey, user.id, 'sent');
-        await store.logMessage({ phone: account.phone, userId: user.id, direction: 'out', message: title, intent: 'REQUEST_NOTIFICATION', status: 'sent' });
+        await store.logMessage({ phone, userId: user.id, direction: 'out', message: title, intent: 'REQUEST_NOTIFICATION', status: 'sent' });
         sentCount += 1;
       } catch (error) {
         lastSendError = error instanceof Error ? error.message.slice(0, 250) : 'Pengiriman WhatsApp gagal.';
         await store.finishNotification(eventKey, user.id, 'failed', lastSendError);
-        await store.logMessage({ phone: account.phone, userId: user.id, direction: 'out', message: title, intent: 'REQUEST_NOTIFICATION', status: 'failed' });
+        await store.logMessage({ phone, userId: user.id, direction: 'out', message: title, intent: 'REQUEST_NOTIFICATION', status: 'failed' });
         await recordFailure(error);
         failedCount += 1;
       }
     }
+    const missingPhoneError = resolution.missingPhoneCount > 0
+      ? `${resolution.missingPhoneCount} penerima wajib belum memiliki nomor WhatsApp valid. Atur Nomor WhatsApp pada Manajemen Pengguna dengan format 628xxxxxxxxxx.`
+      : undefined;
+    const noRecipientError = resolution.eligibleCount === 0
+      ? 'Tidak ada akun pengguna aktif yang berwenang untuk menerima notifikasi ini.'
+      : resolution.recipients.length === 0
+        ? missingPhoneError
+        : undefined;
     return {
       success: sentCount > 0 && failedCount === 0,
       sentCount,
+      failedCount,
       error: failedCount > 0
-        ? lastSendError || 'Provider WhatsApp gagal mengirim pesan.'
+        ? `${failedCount} penerima gagal diproses oleh provider. ${lastSendError || 'Provider WhatsApp gagal mengirim pesan.'}`
         : sentCount === 0
-          ? 'Tidak ada penerima WhatsApp yang tertaut dan berwenang.'
-          : undefined
+          ? noRecipientError
+          : missingPhoneError
     };
   }
 

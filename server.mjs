@@ -396,7 +396,7 @@ function buildTwilioRequestMessage(inventoryRequest, eventType, note) {
   return [heading, '', ...fields, '', closing].join('\n');
 }
 
-function buildFonnteRequestNotification(inventoryRequest, action) {
+function buildFonnteRequestNotification(inventoryRequest, action, note) {
   const items = Array.isArray(inventoryRequest.items) && inventoryRequest.items.length
     ? inventoryRequest.items
     : [{
@@ -414,7 +414,9 @@ function buildFonnteRequestNotification(inventoryRequest, action) {
   if (items.length > itemLines.length) itemLines.push(`- dan ${items.length - itemLines.length} jenis barang lainnya`);
   const title = action === 'submitted'
     ? 'Permohonan barang baru'
-    : `Status permohonan barang: ${inventoryRequest.status}`;
+    : action === 'cancelled'
+      ? 'Permohonan barang dibatalkan'
+      : `Status permohonan barang: ${inventoryRequest.status}`;
   return {
     title,
     lines: [
@@ -423,7 +425,10 @@ function buildFonnteRequestNotification(inventoryRequest, action) {
       `Pemohon: ${String(inventoryRequest.pemohonNama || '-').slice(0, 100)}`,
       `Daftar Barang (${items.length} jenis):`,
       ...itemLines,
-      `Status: ${String(inventoryRequest.status || '-').slice(0, 50)}`
+      `Status: ${String(inventoryRequest.status || '-').slice(0, 50)}`,
+      ...((note || inventoryRequest.catatan)
+        ? [`Keterangan: ${String(note || inventoryRequest.catatan).slice(0, 500)}`]
+        : [])
     ]
   };
 }
@@ -1074,7 +1079,8 @@ app.put('/api/state', requireUser, asyncRoute(async (request, response) => {
       }
       const previousRequests = Array.isArray(currentState.requests) ? currentState.requests : [];
       const nextRequestIds = new Set(state.requests.map(item => item.id));
-      const removedRequests = whatsappProvider === 'twilio'
+      const previousAuditLogIds = new Set((currentState.auditLogs || []).map(log => log.id));
+      const removedRequests = whatsappProvider === 'twilio' || whatsappProvider === 'fonnte'
         ? previousRequests.filter(item => !nextRequestIds.has(item.id))
         : [];
       cancellationEvents = [];
@@ -1109,9 +1115,23 @@ app.put('/api/state', requireUser, asyncRoute(async (request, response) => {
           INSERT INTO whatsapp_notification_events (event_id, request_id, request_status, action, status)
           VALUES (?, ?, 'Dibatalkan', 'cancelled', 'sending')
         `, [eventId, inventoryRequest.id]);
+        const owner = (await queryOne(connection, 'SELECT user_id FROM whatsapp_request_owners WHERE request_id = ?', [inventoryRequest.id]))?.user_id
+          || currentState.users.find(user =>
+            String(user.name || '').trim().toLocaleLowerCase('id-ID') ===
+            String(inventoryRequest.pemohonNama || '').trim().toLocaleLowerCase('id-ID')
+          )?.id;
+        const cancellationPrefix = `Permohonan ${inventoryRequest.id} dibatalkan. Alasan: `;
+        const cancellationReason = (state.auditLogs || []).find(log =>
+          !previousAuditLogIds.has(log.id) &&
+          log.aktivitas === 'Pembatalan Permohonan Barang' &&
+          typeof log.detail === 'string' &&
+          log.detail.startsWith(cancellationPrefix)
+        )?.detail.slice(cancellationPrefix.length).trim();
         cancellationEvents.push({
           eventId,
           inventoryRequest: { ...inventoryRequest, status: 'Dibatalkan' },
+          ownerUserId: owner,
+          note: cancellationReason || inventoryRequest.catatan,
           users: Array.isArray(currentState.users) ? currentState.users : []
         });
       }
@@ -1122,11 +1142,25 @@ app.put('/api/state', requireUser, asyncRoute(async (request, response) => {
     response.json(outcome.body);
     whatsapp.onStateSaved(currentState, state, request.user.id, revision + 1);
     for (const event of cancellationEvents) {
-      void sendTwilioRequestEvent({ ...event, eventType: 'cancelled', note: event.inventoryRequest.catatan })
+      const sendCancellation = whatsappProvider === 'fonnte'
+        ? async () => {
+            const notification = buildFonnteRequestNotification(event.inventoryRequest, 'cancelled', event.note);
+            const result = await whatsapp.notifyRequestEvent({
+              eventKey: `request:${event.inventoryRequest.id}:Dibatalkan:cancelled`,
+              ownerUserId: event.ownerUserId,
+              status: 'Dibatalkan',
+              action: 'cancelled',
+              ...notification
+            });
+            await execute(db, 'UPDATE whatsapp_notification_events SET status = ? WHERE event_id = ?', [result.success ? 'sent' : 'failed', event.eventId]);
+            if (!result.success) throw new Error(result.error || 'Pengiriman notifikasi pembatalan gagal.');
+          }
+        : () => sendTwilioRequestEvent({ ...event, eventType: 'cancelled', note: event.note });
+      void sendCancellation()
         .catch(async error => {
           await execute(db, 'UPDATE whatsapp_notification_events SET status = ? WHERE event_id = ?', ['failed', event.eventId]);
           const message = error instanceof Error ? error.message : 'Pengiriman notifikasi pembatalan gagal.';
-          console.error('Twilio WhatsApp cancellation processing failed:', message.slice(0, 250));
+          console.error(`${whatsappProvider} WhatsApp cancellation processing failed:`, message.slice(0, 250));
         });
     }
   } catch (error) {
@@ -1152,31 +1186,52 @@ app.post('/api/whatsapp/request-events', requireUser, asyncRoute(async (request,
     if (!authorized) return response.status(403).json({ success: false, error: 'Tidak memiliki izin mengirim notifikasi permohonan.' });
   }
 
-  const existingEvent = await queryOne(db, 'SELECT request_id, request_status, action, status FROM whatsapp_notification_events WHERE event_id = ?', [eventId]);
+  let notificationEventId = eventId;
+  let retryExistingEvent = false;
+  const existingEvent = await queryOne(db, 'SELECT event_id, request_id, request_status, action, status FROM whatsapp_notification_events WHERE event_id = ?', [eventId]);
   if (existingEvent) {
     if (existingEvent.request_id !== requestId || existingEvent.request_status !== status || existingEvent.action !== action) {
       return response.status(409).json({ success: false, error: 'ID notifikasi sudah digunakan untuk tindakan yang berbeda.' });
     }
-    return response.json({
-      success: existingEvent.status === 'sent',
-      duplicate: true,
-      error: existingEvent.status === 'sent' ? undefined : 'Notifikasi WhatsApp untuk tindakan ini sudah pernah dicoba dan tidak dikirim ulang.'
-    });
+    if (whatsappProvider === 'fonnte' && existingEvent.status === 'failed') {
+      const retryClaim = await execute(db, "UPDATE whatsapp_notification_events SET status = 'sending' WHERE event_id = ? AND status = 'failed'", [eventId]);
+      if (Number(retryClaim.affectedRows) !== 1) {
+        return response.json({ success: false, duplicate: true, error: 'Notifikasi WhatsApp untuk tindakan ini sedang diproses.' });
+      }
+      retryExistingEvent = true;
+    } else {
+      return response.json({
+        success: existingEvent.status === 'sent',
+        duplicate: true,
+        error: existingEvent.status === 'sent' ? undefined : 'Notifikasi WhatsApp untuk tindakan ini sedang diproses.'
+      });
+    }
   }
 
-  const existingRequestEvent = await queryOne(db, `
-    SELECT status FROM whatsapp_notification_events
-    WHERE request_id = ? AND request_status = ? AND action = ?
-    LIMIT 1
-  `, [requestId, status, action]);
-  if (existingRequestEvent) {
-    return response.json({
-      success: existingRequestEvent.status === 'sent',
-      duplicate: true,
-      error: existingRequestEvent.status === 'sent'
-        ? undefined
-        : 'Notifikasi WhatsApp untuk permohonan dan status ini sudah pernah dicoba dan tidak dikirim ulang.'
-    });
+  if (!existingEvent) {
+    const existingRequestEvent = await queryOne(db, `
+      SELECT event_id, status FROM whatsapp_notification_events
+      WHERE request_id = ? AND request_status = ? AND action = ?
+      LIMIT 1
+    `, [requestId, status, action]);
+    if (existingRequestEvent) {
+      if (whatsappProvider === 'fonnte' && existingRequestEvent.status === 'failed') {
+        notificationEventId = existingRequestEvent.event_id;
+        const retryClaim = await execute(db, "UPDATE whatsapp_notification_events SET status = 'sending' WHERE event_id = ? AND status = 'failed'", [notificationEventId]);
+        if (Number(retryClaim.affectedRows) !== 1) {
+          return response.json({ success: false, duplicate: true, error: 'Notifikasi WhatsApp untuk permohonan dan status ini sedang diproses.' });
+        }
+        retryExistingEvent = true;
+      } else {
+        return response.json({
+          success: existingRequestEvent.status === 'sent',
+          duplicate: true,
+          error: existingRequestEvent.status === 'sent'
+            ? undefined
+            : 'Notifikasi WhatsApp untuk permohonan dan status ini sedang diproses.'
+        });
+      }
+    }
   }
 
   const requests = getCollection('requests') || [];
@@ -1193,7 +1248,7 @@ app.post('/api/whatsapp/request-events', requireUser, asyncRoute(async (request,
       if (whatsappProvider === 'twilio') return response.json({ success: true, skipped: true });
     }
 
-    const duplicateEvent = await withTransaction(async connection => {
+    const duplicateEvent = retryExistingEvent ? null : await withTransaction(async connection => {
       const duplicate = await queryOne(connection, `
         SELECT status FROM whatsapp_notification_events
         WHERE request_id = ? AND request_status = ? AND action = ?
@@ -1203,7 +1258,7 @@ app.post('/api/whatsapp/request-events', requireUser, asyncRoute(async (request,
       await execute(connection, `
         INSERT INTO whatsapp_notification_events (event_id, request_id, request_status, action, status)
         VALUES (?, ?, ?, ?, 'sending')
-      `, [eventId, requestId, status, action]);
+      `, [notificationEventId, requestId, status, action]);
       if (action === 'submitted') {
         await execute(connection, 'INSERT IGNORE INTO whatsapp_request_owners (request_id, user_id) VALUES (?, ?)', [requestId, request.user.id]);
       }
@@ -1230,17 +1285,23 @@ app.post('/api/whatsapp/request-events', requireUser, asyncRoute(async (request,
     if (whatsappProvider === 'fonnte') {
       const owner = action === 'submitted'
         ? request.user.id
-        : (await queryOne(db, 'SELECT user_id FROM whatsapp_request_owners WHERE request_id = ?', [requestId]))?.user_id;
-      const notification = buildFonnteRequestNotification(inventoryRequest, action);
+        : (await queryOne(db, 'SELECT user_id FROM whatsapp_request_owners WHERE request_id = ?', [requestId]))?.user_id
+          || (getCollection('users') || []).find(user =>
+            String(user.name || '').trim().toLocaleLowerCase('id-ID') ===
+            String(inventoryRequest.pemohonNama || '').trim().toLocaleLowerCase('id-ID')
+          )?.id;
+      const notification = buildFonnteRequestNotification(inventoryRequest, action, note);
       result = await whatsapp.notifyRequestEvent({
-        eventKey: `request:${requestId}:${status}:${action}:${eventId}`,
+        eventKey: `request:${requestId}:${status}:${action}`,
         ownerUserId: owner,
+        status,
+        action,
         ...notification
       });
-      await execute(db, 'UPDATE whatsapp_notification_events SET status = ? WHERE event_id = ?', [result.success ? 'sent' : 'failed', eventId]);
+      await execute(db, 'UPDATE whatsapp_notification_events SET status = ? WHERE event_id = ?', [result.success ? 'sent' : 'failed', notificationEventId]);
     } else {
       result = await sendTwilioRequestEvent({
-        eventId,
+        eventId: notificationEventId,
         inventoryRequest,
         eventType: action === 'submitted' ? 'submitted' : 'approved',
         users: getCollection('users') || [],
