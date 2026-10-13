@@ -50,12 +50,12 @@
 
   @page official-portrait {
     size: A4 portrait;
-    margin: 40mm 12mm 12mm 12mm;
+    margin: 17.65mm 12mm 12mm 12mm;
   }
 
   @page official-landscape {
     size: A4 landscape;
-    margin: 40mm 12mm 12mm 12mm;
+    margin: 17.65mm 12mm 12mm 12mm;
   }
 
   @page report-label {
@@ -99,6 +99,12 @@
     max-width: none !important;
     margin: 0 !important;
     padding: 0 !important;
+  }
+
+  body.printing-active:not(.printing-page-label) #root main {
+    padding-top: 22.35mm !important;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
   }
 
   /* Hide app chrome, sidebars, navigations, action buttons and modals background */
@@ -159,54 +165,90 @@
 
   .official-letterhead {
     position: fixed !important;
-    top: -29mm !important;
-    left: 0 !important;
-    right: 0 !important;
-    display: grid !important;
-    grid-template-columns: 29mm minmax(0, 1fr);
-    align-items: center;
-    column-gap: 3mm;
-    padding: 0 0 2mm;
-    border-bottom: 0.8mm solid #111111;
+    top: 0 !important;
+    left: 12.49mm !important;
+    right: auto !important;
+    display: block !important;
+    width: 163mm !important;
+    height: 21.48mm !important;
+    padding: 0 !important;
+    border: 0 !important;
     color: #000000 !important;
     background: #ffffff !important;
+    font-family: Arial, sans-serif !important;
     z-index: 1000;
     break-inside: avoid;
   }
 
   .official-letterhead img {
     display: block !important;
-    width: 29mm !important;
-    height: 24mm !important;
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 25.72mm !important;
+    height: 19.98mm !important;
     object-fit: contain !important;
     object-position: center;
   }
 
   .official-letterhead-copy {
+    position: absolute !important;
+    top: 0 !important;
+    left: 28.19mm !important;
+    width: 134.81mm !important;
+    height: 19.6mm !important;
     min-width: 0;
-    font-style: italic;
-    line-height: 1.15;
+    font-family: Arial, sans-serif !important;
+    font-style: italic !important;
+    line-height: 1 !important;
+    white-space: nowrap;
   }
 
   .official-letterhead-title {
-    font-size: 14pt;
-    font-weight: 800;
-    letter-spacing: 0.04em;
+    position: absolute;
+    top: 0.66mm;
+    left: 0;
+    font-size: 14.05pt;
+    font-weight: 700;
+    letter-spacing: 0;
+    line-height: 1;
   }
 
   .official-letterhead-subtitle {
-    margin-top: 1mm;
-    font-size: 13pt;
-    font-weight: 800;
-    letter-spacing: 0.035em;
+    position: absolute;
+    top: 6.67mm;
+    left: 0;
+    font-size: 14.05pt;
+    font-weight: 700;
+    letter-spacing: 0;
+    line-height: 1;
   }
 
-  .official-letterhead-address,
-  .official-letterhead-contact {
-    margin-top: 0.6mm;
-    font-size: 8pt;
+  .official-letterhead-address {
+    position: absolute;
+    top: 12.51mm;
+    left: 0;
+    font-size: 8.05pt;
     font-weight: 400;
-    overflow-wrap: anywhere;
+    line-height: 1;
+  }
+
+  .official-letterhead-contact {
+    position: absolute;
+    top: 16.11mm;
+    left: 0;
+    font-size: 8.05pt;
+    font-weight: 400;
+    line-height: 1;
+  }
+
+  .official-letterhead-rule {
+    position: absolute;
+    left: 1.05mm;
+    top: 20.71mm;
+    width: 162.98mm;
+    height: 0.762mm !important;
+    background: #000000;
   }
 
   .report-signatures {
