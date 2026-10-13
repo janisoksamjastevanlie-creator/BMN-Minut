@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
-import { DocumentItem } from '../types';
+import { DocumentItem, ReceiptItem } from '../types';
 import { UploadDocumentModal } from '../components/documents/UploadDocumentModal';
 import { UploadNotaModal } from '../components/documents/UploadNotaModal';
 import { ListPager, usePagedList } from '../components/common/ListPager';
@@ -21,7 +21,8 @@ import {
   Trash2,
   ExternalLink,
   Store,
-  DollarSign
+  DollarSign,
+  Package
 } from 'lucide-react';
 
 export const DocumentsView: React.FC = () => {
@@ -36,15 +37,76 @@ export const DocumentsView: React.FC = () => {
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [isUploadNotaOpen, setIsUploadNotaOpen] = useState(false);
 
-  const filteredDocs = documents.filter(d => {
-    const matchType = filterType === 'all' || d.jenis === filterType;
-    const matchSearch =
-      search === '' ||
-      d.judul.toLowerCase().includes(search.toLowerCase()) ||
-      d.nomorDokumen.toLowerCase().includes(search.toLowerCase()) ||
-      d.uploader.toLowerCase().includes(search.toLowerCase());
-    return matchType && matchSearch;
-  });
+  const normalizedSearch = search.trim().toLowerCase();
+
+  const filteredDocs = useMemo(() => {
+    return documents.filter(d => {
+      const matchType = filterType === 'all' || d.jenis === filterType;
+      if (!matchType) return false;
+      if (!normalizedSearch) return true;
+
+      const matchDocMeta =
+        d.judul.toLowerCase().includes(normalizedSearch) ||
+        d.nomorDokumen.toLowerCase().includes(normalizedSearch) ||
+        d.uploader.toLowerCase().includes(normalizedSearch) ||
+        (d.namaToko && d.namaToko.toLowerCase().includes(normalizedSearch)) ||
+        (d.kategoriNota && d.kategoriNota.toLowerCase().includes(normalizedSearch)) ||
+        d.tanggal.toLowerCase().includes(normalizedSearch) ||
+        (d.description && d.description.toLowerCase().includes(normalizedSearch)) ||
+        (d.fileName && d.fileName.toLowerCase().includes(normalizedSearch));
+
+      if (matchDocMeta) return true;
+
+      if (d.items && d.items.length > 0) {
+        return d.items.some(item =>
+          item.namaBarang.toLowerCase().includes(normalizedSearch) ||
+          (item.kodeBarang && item.kodeBarang.toLowerCase().includes(normalizedSearch)) ||
+          item.satuan.toLowerCase().includes(normalizedSearch) ||
+          item.kategori.toLowerCase().includes(normalizedSearch)
+        );
+      }
+
+      return false;
+    });
+  }, [documents, filterType, normalizedSearch]);
+
+  const matchedReceiptItems = useMemo(() => {
+    if (!normalizedSearch) return [];
+    const results: Array<{
+      key: string;
+      doc: DocumentItem;
+      item: ReceiptItem;
+    }> = [];
+
+    const receiptDocs = documents.filter(d => Array.isArray(d.items) && d.items.length > 0);
+    for (const doc of receiptDocs) {
+      const docMatches =
+        doc.judul.toLowerCase().includes(normalizedSearch) ||
+        doc.nomorDokumen.toLowerCase().includes(normalizedSearch) ||
+        (doc.namaToko && doc.namaToko.toLowerCase().includes(normalizedSearch)) ||
+        (doc.kategoriNota && doc.kategoriNota.toLowerCase().includes(normalizedSearch)) ||
+        doc.tanggal.toLowerCase().includes(normalizedSearch) ||
+        (doc.description && doc.description.toLowerCase().includes(normalizedSearch));
+
+      doc.items!.forEach((item, idx) => {
+        const itemMatches =
+          item.namaBarang.toLowerCase().includes(normalizedSearch) ||
+          (item.kodeBarang && item.kodeBarang.toLowerCase().includes(normalizedSearch)) ||
+          item.satuan.toLowerCase().includes(normalizedSearch) ||
+          item.kategori.toLowerCase().includes(normalizedSearch);
+
+        if (itemMatches || docMatches) {
+          results.push({
+            key: `${doc.id}-item-${idx}`,
+            doc,
+            item
+          });
+        }
+      });
+    }
+    return results;
+  }, [documents, normalizedSearch]);
+
   const pager = usePagedList(filteredDocs);
 
   const areAllDocumentsSelected =
@@ -178,17 +240,17 @@ export const DocumentsView: React.FC = () => {
 
       {/* Filter and Search */}
       <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-3">
-        <div className="flex items-center gap-1.5 overflow-x-auto w-full md:w-auto pb-1 md:pb-0">
+        <div className="flex items-center gap-1.5 flex-wrap w-full md:w-auto pb-1 md:pb-0">
           {[
             'all',
             'Nota',
             'Berita Acara',
-            'Dokumen Lainnya',
             'Dokumen Perolehan',
             'Dokumen Pemindahan',
             'Dokumen Pemeliharaan',
             'Dokumen Penghapusan',
-            'Dokumen Stock Opname'
+            'Dokumen Stock Opname',
+            'Dokumen Lainnya'
           ].map(t => (
             <button
               key={t}
@@ -204,17 +266,119 @@ export const DocumentsView: React.FC = () => {
           ))}
         </div>
 
-        <div className="relative w-full md:w-64">
+        <div className="relative w-full md:w-96">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
           <input
             type="text"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Cari berkas BAST..."
-            className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-purple-500"
+            placeholder="Cari nama barang, kode barang, satuan, toko, atau nomor nota..."
+            className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-8 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-purple-500"
           />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              className="absolute right-2.5 top-2.5 text-slate-400 hover:text-white"
+              title="Hapus kata pencarian"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Hasil Pencarian Barang Lintas Seluruh Nota */}
+      {normalizedSearch && matchedReceiptItems.length > 0 && (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
+            <div className="flex items-center gap-2">
+              <Package className="w-4 h-4 text-emerald-400" />
+              <h3 className="text-xs font-bold text-white">
+                Hasil Pencarian Rincian Barang di Seluruh Nota ({matchedReceiptItems.length} item ditemukan)
+              </h3>
+            </div>
+            <button
+              onClick={() => setSearch('')}
+              className="text-[11px] text-slate-400 hover:text-white flex items-center gap-1 self-start sm:self-auto"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>Hapus Kata Pencarian</span>
+            </button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-slate-800 text-slate-400 text-[11px]">
+                  <th className="py-2 px-3 font-medium">Nama Barang</th>
+                  <th className="py-2 px-3 font-medium">Toko / Penyedia</th>
+                  <th className="py-2 px-3 font-medium">No. Nota</th>
+                  <th className="py-2 px-3 font-medium">Tanggal</th>
+                  <th className="py-2 px-3 font-medium text-right">Jumlah</th>
+                  <th className="py-2 px-3 font-medium">Satuan</th>
+                  <th className="py-2 px-3 font-medium text-right">Harga Satuan</th>
+                  <th className="py-2 px-3 font-medium text-right">Subtotal</th>
+                  <th className="py-2 px-3 font-medium text-right">Total Nota</th>
+                  <th className="py-2 px-3 font-medium text-center">Aksi</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {matchedReceiptItems.map(({ key, doc, item }) => (
+                  <tr key={key} className="text-slate-200 hover:bg-slate-800/50 transition-colors">
+                    <td className="py-2 px-3 font-semibold text-white">
+                      <div className="flex items-center gap-1.5">
+                        <span>{item.namaBarang}</span>
+                        {item.kategori && (
+                          <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                            {item.kategori}
+                          </span>
+                        )}
+                      </div>
+                      {item.kodeBarang && (
+                        <div className="text-[10px] text-slate-500 font-mono mt-0.5">{item.kodeBarang}</div>
+                      )}
+                    </td>
+                    <td className="py-2 px-3 text-emerald-400 font-medium">
+                      {doc.namaToko || '-'}
+                    </td>
+                    <td className="py-2 px-3 font-mono text-[11px] text-slate-300">
+                      {doc.nomorDokumen}
+                    </td>
+                    <td className="py-2 px-3 text-slate-400 whitespace-nowrap">
+                      {doc.tanggal}
+                    </td>
+                    <td className="py-2 px-3 text-right font-medium text-white">
+                      {item.jumlah}
+                    </td>
+                    <td className="py-2 px-3 text-slate-400">
+                      {item.satuan}
+                    </td>
+                    <td className="py-2 px-3 text-right text-slate-300 whitespace-nowrap">
+                      Rp {Number(item.hargaSatuan || 0).toLocaleString('id-ID')}
+                    </td>
+                    <td className="py-2 px-3 text-right font-bold text-emerald-400 whitespace-nowrap">
+                      Rp {Number(item.subtotal !== undefined ? item.subtotal : item.totalHarga || 0).toLocaleString('id-ID')}
+                    </td>
+                    <td className="py-2 px-3 text-right font-bold text-amber-300 whitespace-nowrap">
+                      Rp {Number(doc.totalNilaiNota || 0).toLocaleString('id-ID')}
+                    </td>
+                    <td className="py-2 px-3 text-center">
+                      <button
+                        onClick={() => setPreviewDoc(doc)}
+                        className="px-2.5 py-1 rounded-lg bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white text-[11px] font-semibold transition-colors inline-flex items-center gap-1 border border-blue-500/30"
+                        title="Buka rincian lengkap nota dan bukti lampiran"
+                      >
+                        <Eye className="w-3 h-3" />
+                        <span>Lihat Nota</span>
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Document Grid */}
       <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-slate-900 border border-slate-800">
@@ -242,80 +406,165 @@ export const DocumentsView: React.FC = () => {
           )}
         </div>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {pager.pageItems.map(doc => (
-          <div
-            key={doc.id}
-            className="p-4 rounded-2xl bg-slate-900 border border-slate-800 hover:border-slate-700 transition-all flex flex-col justify-between"
-          >
-            <div>
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={selectedDocumentIds.has(doc.id)}
-                    onChange={() => toggleDocumentSelection(doc.id)}
-                    className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-purple-500 focus:ring-purple-500"
-                    aria-label={`Pilih dokumen ${doc.judul}`}
-                  />
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/10 text-purple-300 border border-purple-500/20 font-bold">
-                    {doc.jenis}
+
+      {filteredDocs.length === 0 ? (
+        <div className="p-10 text-center bg-slate-900 border border-slate-800 rounded-2xl space-y-3">
+          {normalizedSearch ? (
+            <>
+              <Search className="w-12 h-12 text-slate-600 mx-auto" />
+              <h3 className="text-sm font-bold text-slate-200">
+                Barang atau nota yang Anda cari tidak ditemukan.
+              </h3>
+              <p className="text-xs text-slate-400 max-w-md mx-auto">
+                Tidak ada barang, toko, atau nota yang cocok dengan kata pencarian "{search}".
+              </p>
+              <button
+                onClick={() => setSearch('')}
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold rounded-xl inline-flex items-center gap-1.5 transition-colors"
+              >
+                <X className="w-4 h-4" />
+                <span>Hapus Kata Pencarian & Tampilkan Seluruh Nota</span>
+              </button>
+            </>
+          ) : filterType === 'Nota' ? (
+            <>
+              <Receipt className="w-12 h-12 text-slate-600 mx-auto" />
+              <h3 className="text-sm font-bold text-slate-200">
+                Belum ada nota atau kuitansi yang diunggah
+              </h3>
+              <p className="text-xs text-slate-400 max-w-md mx-auto">
+                Unggah berkas fisik nota belanja ATK / ARK atau ambil foto kuitansi secara langsung.
+              </p>
+              {canManageDocuments && (
+                <button
+                  onClick={() => setIsUploadNotaOpen(true)}
+                  className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded-xl inline-flex items-center gap-1.5 shadow-lg shadow-amber-600/20"
+                >
+                  <Receipt className="w-4 h-4" />
+                  Upload Nota Belanja
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <FileText className="w-12 h-12 text-slate-600 mx-auto" />
+              <h3 className="text-sm font-bold text-slate-200">
+                Belum ada dokumen yang diunggah
+              </h3>
+              <p className="text-xs text-slate-400 max-w-md mx-auto">
+                Belum ada arsip digital untuk kategori "{filterType === 'all' ? 'Semua Berkas' : filterType}".
+              </p>
+              {canManageDocuments && (
+                <button
+                  onClick={() => setIsUploadOpen(true)}
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded-xl inline-flex items-center gap-1.5 shadow-lg shadow-purple-600/20"
+                >
+                  <Upload className="w-4 h-4" />
+                  Unggah / Import Dokumen
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {pager.pageItems.map(doc => (
+            <div
+              key={doc.id}
+              className="p-4 rounded-2xl bg-slate-900 border border-slate-800 hover:border-slate-700 transition-all flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={selectedDocumentIds.has(doc.id)}
+                      onChange={() => toggleDocumentSelection(doc.id)}
+                      className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-purple-500 focus:ring-purple-500"
+                      aria-label={`Pilih dokumen ${doc.judul}`}
+                    />
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/10 text-purple-300 border border-purple-500/20 font-bold">
+                      {doc.jenis}
+                    </span>
+                  </div>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                      doc.status === 'Sah' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'
+                    }`}>
+                    {doc.status}
                   </span>
                 </div>
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                    doc.status === 'Sah' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'
-                  }`}>
-                  {doc.status}
-                </span>
-              </div>
 
-              <h4 className="text-xs font-bold text-white mt-2 leading-snug line-clamp-2">
-                {doc.judul}
-              </h4>
+                <h4 className="text-xs font-bold text-white mt-2 leading-snug line-clamp-2">
+                  {doc.judul}
+                </h4>
 
-              <div className="text-[11px] font-mono text-slate-400 mt-1">
-                {doc.nomorDokumen}
-              </div>
+                <div className="text-[11px] font-mono text-slate-400 mt-1">
+                  {doc.nomorDokumen}
+                </div>
 
-              <div className="mt-3 flex items-center justify-between text-[11px] text-slate-400">
-                <span>{doc.tanggal}</span>
-                <span>{doc.fileSize}</span>
-              </div>
-            </div>
-
-            <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between">
-              <span className="text-[10px] text-slate-400 truncate mr-2">Oleh: {doc.uploader}</span>
-              <div className="flex items-center gap-1.5">
-                <button
-                  onClick={() => setPreviewDoc(doc)}
-                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-blue-400 transition-colors"
-                  title="Lihat Pratinjau Dokumen"
-                >
-                  <Eye className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={() => handleDownloadDoc(doc)}
-                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-400 transition-colors"
-                  title="Unduh Berkas Asli"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                </button>
-                {canManageDocuments && (
-                  <button
-                    onClick={() => {
-                      void handleDeleteDocument(doc);
-                    }}
-                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-950 text-slate-400 hover:text-rose-400 transition-colors"
-                    title="Hapus Dokumen"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                {doc.namaToko && (
+                  <div className="mt-2 flex items-center gap-1.5 text-[11px] text-emerald-400 font-medium truncate">
+                    <Store className="w-3.5 h-3.5 shrink-0" />
+                    <span className="truncate">{doc.namaToko}</span>
+                  </div>
                 )}
+
+                {doc.totalNilaiNota != null && (
+                  <div className="mt-1 flex items-center gap-1.5 text-xs text-amber-300 font-bold">
+                    <DollarSign className="w-3.5 h-3.5 shrink-0" />
+                    <span>Rp {Number(doc.totalNilaiNota).toLocaleString('id-ID')}</span>
+                    {doc.items && doc.items.length > 0 && (
+                      <span className="text-[10px] font-normal text-slate-400">({doc.items.length} item)</span>
+                    )}
+                  </div>
+                )}
+
+                {doc.fileName && (
+                  <div className="mt-1.5 text-[10px] font-mono text-slate-400 truncate">
+                    📎 {doc.fileName}
+                  </div>
+                )}
+
+                <div className="mt-3 flex items-center justify-between text-[11px] text-slate-400">
+                  <span>{doc.tanggal}</span>
+                  <span>{doc.fileSize}</span>
+                </div>
+              </div>
+
+              <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between">
+                <span className="text-[10px] text-slate-400 truncate mr-2">Oleh: {doc.uploader}</span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => setPreviewDoc(doc)}
+                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-blue-400 transition-colors"
+                    title="Lihat Pratinjau Dokumen"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => handleDownloadDoc(doc)}
+                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-400 transition-colors"
+                    title="Unduh Berkas Asli"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                  </button>
+                  {canManageDocuments && (
+                    <button
+                      onClick={() => {
+                        void handleDeleteDocument(doc);
+                      }}
+                      className="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-950 text-slate-400 hover:text-rose-400 transition-colors"
+                      title="Hapus Dokumen"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
         <ListPager {...pager} onPageChange={pager.setPage} onPageSizeChange={pager.setPageSize} label="dokumen" />
       </div>
@@ -323,7 +572,7 @@ export const DocumentsView: React.FC = () => {
       {/* Document Preview Modal */}
       {previewDoc && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-150">
-          <div className="w-full max-w-2xl bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+          <div className="w-full max-w-3xl bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
             <div className="p-4 border-b border-slate-800 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <FileText className="w-5 h-5 text-purple-400" />
@@ -372,8 +621,8 @@ export const DocumentsView: React.FC = () => {
                   <span className="font-semibold text-white">{previewDoc.uploader}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Status Validasi:</span>
-                  <span className="font-bold text-emerald-400">{previewDoc.status}</span>
+                  <span className="text-slate-400">Status Dokumen:</span>
+                  <span className="font-semibold text-emerald-400">{previewDoc.status}</span>
                 </div>
                 {previewDoc.uploadedAt && (
                   <div className="flex justify-between">
@@ -391,6 +640,12 @@ export const DocumentsView: React.FC = () => {
                   <div className="flex justify-between">
                     <span className="text-slate-400">Nama Berkas:</span>
                     <span className="font-mono text-cyan-300">{previewDoc.fileName}</span>
+                  </div>
+                )}
+                {previewDoc.fileSize && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Ukuran Berkas:</span>
+                    <span className="font-mono text-slate-300">{previewDoc.fileSize}</span>
                   </div>
                 )}
               </div>
@@ -448,24 +703,120 @@ export const DocumentsView: React.FC = () => {
                 </div>
               )}
 
-              {(previewDoc.fileDataUrl || previewDoc.storageBackend === 'hostinger') &&
-              previewDoc.fileType?.startsWith('image/') ? (
-                <div className="p-2 bg-slate-950 rounded-xl border border-slate-800 text-center">
-                  <img
-                    src={previewDoc.fileDataUrl || `/api/documents/${encodeURIComponent(previewDoc.id)}/file`}
-                    alt={previewDoc.judul}
-                    className="max-h-56 mx-auto rounded-lg object-contain"
-                  />
-                </div>
-              ) : (
-                <div className="p-6 bg-slate-950/80 rounded-xl border border-slate-800 text-center space-y-2">
-                  <FileCheck className="w-12 h-12 text-purple-400 mx-auto" />
-                  <div className="font-bold text-white">Dokumen Terverifikasi & Ditandatangani Elektronik</div>
-                  <p className="text-slate-400 text-[11px]">
-                    Telah diregistrasi pada Arsip Digital BPS Kabupaten Minahasa Utara TA 2026.
-                  </p>
-                </div>
-              )}
+              {/* Bukti Berkas Fisik: Image, PDF, or Other Format */}
+              {(() => {
+                const fileUrl = previewDoc.storageBackend === 'hostinger'
+                  ? `/api/documents/${encodeURIComponent(previewDoc.id)}/file`
+                  : previewDoc.fileDataUrl;
+                const isImage =
+                  previewDoc.fileType?.startsWith('image/') ||
+                  /\.(jpe?g|png|webp|gif|bmp)$/i.test(previewDoc.fileName || '');
+                const isPdf =
+                  previewDoc.fileType === 'application/pdf' ||
+                  /\.pdf$/i.test(previewDoc.fileName || '');
+
+                if (isImage && fileUrl) {
+                  return (
+                    <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800 space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-semibold text-slate-200 flex items-center gap-1.5">
+                          <Eye className="w-3.5 h-3.5 text-emerald-400" />
+                          Bukti Berkas Fisik Nota / Kuitansi (Gambar)
+                        </span>
+                        <a
+                          href={fileUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-400 hover:text-blue-300 flex items-center gap-1 text-[11px] font-medium"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          Buka Ukuran Penuh
+                        </a>
+                      </div>
+                      <div className="max-h-[500px] overflow-auto rounded-lg border border-slate-800 bg-slate-900/60 p-2 flex items-center justify-center">
+                        <img
+                          src={fileUrl}
+                          alt={previewDoc.judul}
+                          className="max-h-[460px] w-auto max-w-full object-contain rounded-md"
+                        />
+                      </div>
+                    </div>
+                  );
+                }
+
+                if (isPdf && fileUrl) {
+                  return (
+                    <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800 space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-semibold text-slate-200 flex items-center gap-1.5">
+                          <FileText className="w-3.5 h-3.5 text-purple-400" />
+                          Bukti Berkas Fisik Nota / Kuitansi (Dokumen PDF)
+                        </span>
+                        <a
+                          href={fileUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-400 hover:text-blue-300 flex items-center gap-1 text-[11px] font-medium"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          Buka PDF di Tab Baru
+                        </a>
+                      </div>
+                      <div className="w-full h-80 sm:h-96 rounded-lg overflow-hidden border border-slate-800 bg-slate-900">
+                        <iframe
+                          src={fileUrl}
+                          title={`Pratinjau PDF - ${previewDoc.judul}`}
+                          className="w-full h-full border-0"
+                        />
+                      </div>
+                      <div className="text-right">
+                        <a
+                          href={fileUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[11px] text-slate-400 hover:text-slate-200 inline-flex items-center gap-1"
+                        >
+                          <span>PDF tidak tampil di browser? Klik untuk membuka atau unduh langsung.</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      </div>
+                    </div>
+                  );
+                }
+
+                if (fileUrl) {
+                  return (
+                    <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <FileText className="w-8 h-8 text-slate-400 shrink-0" />
+                        <div>
+                          <div className="font-medium text-white text-xs">{previewDoc.fileName || 'Berkas Dokumen'}</div>
+                          <div className="text-[11px] text-slate-400">{previewDoc.fileSize} • {previewDoc.fileType || 'Berkas Terlampir'}</div>
+                        </div>
+                      </div>
+                      <a
+                        href={fileUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-blue-400 text-xs font-semibold rounded-lg flex items-center gap-1.5"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        Lihat Dokumen
+                      </a>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="p-5 bg-slate-950/60 rounded-xl border border-slate-800 text-center space-y-1">
+                    <FileText className="w-8 h-8 text-slate-600 mx-auto" />
+                    <div className="font-semibold text-slate-300 text-xs">Tidak Ada Bukti Berkas Fisik Terlampir</div>
+                    <p className="text-slate-500 text-[11px]">
+                      Dokumen ini dicatat sebagai data arsip tanpa berkas fisik terlampir.
+                    </p>
+                  </div>
+                );
+              })()}
             </div>
 
             <div className="p-4 border-t border-slate-800 bg-slate-900 flex justify-end gap-2">
@@ -486,7 +837,7 @@ export const DocumentsView: React.FC = () => {
                 className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl flex items-center gap-1.5"
               >
                 <Eye className="w-3.5 h-3.5" />
-                <span>Lihat Berkas</span>
+                <span>Lihat Dokumen</span>
               </button>
               <button
                 onClick={() => {
@@ -496,7 +847,7 @@ export const DocumentsView: React.FC = () => {
                 className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded-xl flex items-center gap-1.5"
               >
                 <Download className="w-3.5 h-3.5" />
-                <span>Unduh Berkas</span>
+                <span>Unduh</span>
               </button>
             </div>
           </div>

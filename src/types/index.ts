@@ -302,6 +302,7 @@ export interface ReceiptItem {
   id: string;
   itemId?: string;
   namaBarang: string;
+  kodeBarang?: string;
   kategori: InventoryType; // 'ATK' | 'ARK'
   satuan: string;
   jumlah: number;
