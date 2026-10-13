@@ -10,18 +10,18 @@ Untuk development lokal, `DB_PASSWORD` boleh kosong hanya jika akun MariaDB loka
 
 Jalankan `npm install`, `npm run dev`, lalu buka `http://localhost:3000`. Pilih administrator, lalu gunakan **Manajemen Pengguna** untuk menetapkan kata sandi minimal 12 karakter bagi tiap pegawai. Data aplikasi, sesi, dan catatan WhatsApp disimpan di MySQL, bukan di file lokal.
 
-## Arsip dokumen privat di Google Drive
+## Arsip dokumen privat di backend
 
-Upload Nota, Berita Acara, dan Dokumen Lainnya dikirim dari backend ke Google Drive; berkas baru tidak disalin ke penyimpanan lokal atau `document_files`. Dokumen disimpan privat di bawah `GOOGLE_DRIVE_FOLDER_ID`, dengan subfolder kategori dan tahun yang dibuat/dipakai ulang oleh server. Lihat dan unduh dilakukan melalui endpoint aplikasi yang memeriksa sesi dan izin pengguna; server tidak membuat tautan berbagi publik.
+Upload dokumen disimpan oleh backend pada disk privat, di luar folder `public` dan `dist`. MySQL hanya menyimpan metadata, checksum SHA-256, ukuran, dan kunci file acak; backend tidak mengirim berkas sebagai base64 pada sinkronisasi state. Akses lihat, unduh, dan hapus memakai endpoint aplikasi dengan pemeriksaan sesi dan izin. Berkas tidak disajikan sebagai file statis dan tidak memiliki tautan publik.
 
-Sebelum mengaktifkan fitur:
+Untuk menjalankan fitur:
 
-1. Aktifkan Google Drive API pada Google Cloud project akun layanan.
-2. Buat folder arsip privat, isi ID folder tersebut di `GOOGLE_DRIVE_FOLDER_ID`, lalu bagikan folder kepada `GOOGLE_SERVICE_ACCOUNT_EMAIL` dengan izin Editor. Gunakan Drive bersama bila sesuai dan pastikan akun layanan memang memiliki akses.
-3. Simpan private key akun layanan hanya pada `.env` server lokal atau secret manager hosting sebagai `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY`. Nilai dengan baris baru yang di-escape (`\n`) juga didukung. Jangan commit private key atau memasukkannya ke variabel frontend.
-4. Atur `GOOGLE_DRIVE_MAX_FILE_SIZE_MB` sesuai batas memori, timeout, dan batas request pada hosting/reverse proxy. Default `25`; nilai yang diizinkan `1`–`100` MB. Batas proxy harus sekurang-kurangnya sama dengan batas aplikasi.
-5. Pada database operasional yang disetujui, terapkan satu kali migrasi aditif `migrations/document-google-drive-v1.sql` sebelum menjalankan versi aplikasi ini. Uji migrasi dan upload di staging terlebih dahulu.
-6. Setelah konfigurasi tersedia, uji unggah PDF dan gambar non-rahasia, pastikan berkas tampil di folder Drive yang benar dan dapat dilihat/diunduh melalui aplikasi. Tanpa kredensial, izin folder, migrasi, serta uji staging yang berhasil, integrasi belum dapat dinyatakan aktif.
+1. Atur `DOCUMENT_STORAGE_DIR` ke folder privat yang persisten dan dapat ditulis oleh proses Node.js. Jika tidak diatur, backend memakai `data/documents` di direktori aplikasi. Di Hostinger, gunakan folder persisten di luar direktori web publik dan direktori rilis/build; pastikan deploy atau pergantian release tidak menghapusnya.
+2. Atur `DOCUMENT_MAX_FILE_SIZE_MB` sesuai batas memori, timeout, dan batas request pada hosting/reverse proxy. Default `25`; nilai yang diizinkan `1`–`100` MB. Batas proxy harus sekurang-kurangnya sama dengan batas aplikasi.
+3. Pada database operasional yang disetujui, terapkan satu kali migrasi aditif `migrations/document-host-storage-v1.sql` sebelum menjalankan versi aplikasi ini. Server tidak menjalankan DDL otomatis. Uji migrasi serta upload, unduh, dan hapus di staging terlebih dahulu.
+4. Backup database dan folder penyimpanan dokumen secara terkoordinasi. Prosedur pemulihan harus mengembalikan keduanya ke titik waktu yang sama; jangan membersihkan atau mengganti folder tersebut saat deploy.
+
+Backend membuat direktori/file dengan permission privat (`0700`/`0600` pada platform yang mendukungnya), menerima format dokumen yang diizinkan saja, memakai nama file acak di disk, dan memeriksa checksum ketika berkas diunduh. Konfigurasi Hostinger yang sebenarnya, persistensi setelah deploy, backup/restore, serta upload langsung ke hosting masih harus diverifikasi sebelum fitur dinyatakan aktif. Folder yang pernah dibuat di Google Drive tidak dihapus, tetapi tidak lagi digunakan aplikasi.
 
 ## Deployment Node.js ke Hostinger
 
@@ -29,7 +29,7 @@ Sebelum mengaktifkan fitur:
 
 Project ini adalah aplikasi React/Vite dengan backend Node.js/Express dan MySQL melalui driver `mysql2/promise`. Backend memerlukan Node.js 22.5 atau lebih baru. `src/db/schema.sql` adalah skema rancangan PostgreSQL dan **bukan** skema aplikasi yang berjalan. Production memakai skema operasional yang sudah disiapkan manual; server tidak membuat atau memigrasikan skema saat startup.
 
-Hostinger menyebut Node.js web app tersedia untuk paket Business dan Cloud; fitur/limitasi dapat berubah. Verifikasi paket aktif, kemampuan menjalankan proses Express berkelanjutan, port yang disediakan, konektivitas ke MySQL Hostinger, kuota koneksi, dan opsi backup. Aplikasi tidak memerlukan penyimpanan disk persisten untuk database. Lihat [panduan Node.js app Hostinger](https://www.hostinger.com/support/how-to-deploy-a-nodejs-website-in-hostinger/) dan [versi Node.js yang didukung](https://www.hostinger.com/support/how-to-select-the-node-js-version-for-your-application/).
+Hostinger menyebut Node.js web app tersedia untuk paket Business dan Cloud; fitur/limitasi dapat berubah. Verifikasi paket aktif, kemampuan menjalankan proses Express berkelanjutan, port yang disediakan, konektivitas ke MySQL Hostinger, kuota koneksi, penyimpanan file yang persisten, dan opsi backup. Aplikasi membutuhkan disk privat yang tetap tersedia melewati deploy untuk menyimpan dokumen. Lihat [panduan Node.js app Hostinger](https://www.hostinger.com/support/how-to-deploy-a-nodejs-website-in-hostinger/) dan [versi Node.js yang didukung](https://www.hostinger.com/support/how-to-select-the-node-js-version-for-your-application/).
 
 ### Pengaturan build dan start
 
@@ -45,12 +45,12 @@ Server membaca `PORT` dari environment hosting dan, saat `NODE_ENV=production`, 
 
 1. Jangan membuat database produksi kosong atau menunjuk aplikasi ke database produksi sebagai bagian dari runbook ini. Pastikan target staging/prod, host, port, nama database, dan akun koneksi telah diperiksa terpisah.
 2. Terapkan ekstensi skema hanya melalui prosedur migrasi manual yang disetujui dan diuji di staging. Jangan mengimpor data contoh. Backup yang tersedia saat ini schema-only, jadi pengujian data nyata tetap belum dapat dilakukan. Akun awal harus berasal dari pengguna operasional aktif dan diprovisikan secara eksplisit; startup tidak membuat akun.
-   - Fitur arsip Google Drive memerlukan migrasi tambahan `migrations/document-google-drive-v1.sql` pada database operasional yang disetujui. Migrasi ini hanya menambahkan metadata nullable dan indeks unik; server production tidak menjalankan DDL otomatis.
+   - Arsip dokumen backend memerlukan migrasi tambahan `migrations/document-host-storage-v1.sql` pada database operasional yang disetujui. Migrasi menambahkan metadata nullable dan indeks unik; server production tidak menjalankan DDL otomatis.
 3. Isi environment variables di hPanel/secret manager, bukan di source code:
    - `NODE_ENV=production` dan `DATA_BACKEND=operational`.
    - `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, dan `DB_NAME` dari target database yang disetujui. `DB_CONNECTION_LIMIT` opsional (default `10`, maksimum `100`). Jangan gunakan `ADMIN_NIP`/`ADMIN_PASSWORD` untuk bootstrap production.
    - `CLOUDFLARE_ACCESS_TEAM_DOMAIN` dan `CLOUDFLARE_ACCESS_AUD` dari administrator Cloudflare. Production gagal startup bila keduanya belum diisi.
-   - `GOOGLE_DRIVE_FOLDER_ID`, `GOOGLE_SERVICE_ACCOUNT_EMAIL`, dan `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` untuk akun layanan yang hanya diberi akses ke folder arsip privat; simpan private key sebagai rahasia backend, bukan variabel `VITE_*`. `GOOGLE_DRIVE_MAX_FILE_SIZE_MB` opsional (default `25`, maksimum `100`). Upload/unduh Google Drive baru akan berfungsi setelah folder dibagikan ke akun tersebut dan konfigurasi diuji.
+   - `DOCUMENT_STORAGE_DIR` ke folder dokumen privat yang persisten, writable oleh proses Node.js, dan di luar folder publik/release. Kosongkan hanya untuk memakai `data/documents` di direktori aplikasi. `DOCUMENT_MAX_FILE_SIZE_MB` opsional (default `25`, maksimum `100`). Atur limit request reverse proxy paling sedikit sama besar.
    - `APP_PUBLIC_URL=https://<domain-anda>` agar tautan notifikasi tidak menunjuk ke localhost.
    - Variabel WhatsApp provider yang telah dipilih hanya jika integrasi dikonfigurasi dan diuji. Jangan kirim pesan nyata selama pengujian tanpa persetujuan terpisah; jangan menaruh rahasia pada command build atau variable berawalan `VITE_`.
    - `PORT` biasanya disediakan hosting. Jangan override kecuali petunjuk Hostinger pada aplikasi Anda meminta nilai tertentu. `HOST` biasanya tidak perlu diisi karena production default ke `0.0.0.0`.

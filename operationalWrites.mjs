@@ -908,7 +908,10 @@ async function writeDocuments(executor, previous, next) {
       assertText(document.uploader, 'Document uploader', 150),
       assertText(document.status, 'Document status', 30),
       JSON.stringify(tags),
-      nullableText(document.googleDriveFileId, 'Google Drive file ID', 255),
+      nullableText(document.storageBackend, 'Document storage backend', 30),
+      nullableText(document.storageKey, 'Document storage key', 36),
+      document.storageSize == null ? null : assertNumber(document.storageSize, 'Document storage size', true, 0),
+      nullableText(document.sha256, 'Document SHA-256', 64),
       nullableText(document.fileName, 'Document filename', 255),
       nullableText(document.fileType, 'Document MIME type', 127),
       document.uploadedAt || null,
@@ -917,10 +920,10 @@ async function writeDocuments(executor, previous, next) {
     ];
     if (!previousDocument || stable(previousDocument) !== stable(document)) {
       await upsert(executor, 'documents',
-        ['id', 'nomor_dokumen', 'judul', 'jenis', 'tanggal', 'tahun', 'file_size', 'uploader', 'status', 'tags_json', 'google_drive_file_id', 'file_name', 'mime_type', 'uploaded_at', 'description', 'idempotency_key'],
+        ['id', 'nomor_dokumen', 'judul', 'jenis', 'tanggal', 'tahun', 'file_size', 'uploader', 'status', 'tags_json', 'storage_backend', 'storage_key', 'storage_size_bytes', 'sha256', 'file_name', 'mime_type', 'uploaded_at', 'description', 'idempotency_key'],
         values);
     }
-    const file = document.googleDriveFileId ? null : parseDataUrl(document);
+    const file = document.storageBackend === 'hostinger' ? null : parseDataUrl(document);
     if (file && (!previousDocument ||
         previousDocument.fileDataUrl !== document.fileDataUrl ||
         previousDocument.fileName !== document.fileName ||

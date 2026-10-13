@@ -313,7 +313,10 @@ export interface DocumentItem {
   fileType?: string;
   fileDataUrl?: string;
   description?: string;
-  googleDriveFileId?: string;
+  storageBackend?: 'hostinger';
+  storageKey?: string;
+  storageSize?: number;
+  sha256?: string;
   uploadedAt?: string;
   idempotencyKey?: string;
 }

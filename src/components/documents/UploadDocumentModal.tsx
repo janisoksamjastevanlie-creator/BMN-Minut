@@ -187,7 +187,7 @@ export const UploadDocumentModal: React.FC<UploadDocumentModalProps> = ({ isOpen
               <div>
                 <h3 className="text-lg font-bold text-white">Dokumen Berhasil Diunggah!</h3>
                 <p className="text-xs text-slate-300 mt-1 max-w-sm mx-auto">
-                  Berkas <span className="text-white font-semibold">"{selectedFile?.name}"</span> telah tersimpan di Google Drive privat dan arsip aplikasi.
+                  Berkas <span className="text-white font-semibold">"{selectedFile?.name}"</span> telah tersimpan di penyimpanan privat backend dan arsip aplikasi.
                 </p>
               </div>
 
@@ -437,7 +437,7 @@ export const UploadDocumentModal: React.FC<UploadDocumentModalProps> = ({ isOpen
               }`}
             >
               {isUploading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <FileCheck className="w-4 h-4" />}
-              <span>{isUploading ? 'Mengunggah ke Google Drive...' : 'Simpan ke Arsip Dokumen'}</span>
+              <span>{isUploading ? 'Menyimpan ke backend...' : 'Simpan ke Arsip Dokumen'}</span>
             </button>
           )}
         </div>

@@ -1899,7 +1899,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     pushNotification(
       'TRANSAKSI',
       '📄 Dokumen Digital Diunggah',
-      `${document.judul} berhasil disimpan ke Google Drive dan arsip aplikasi.`,
+      `${document.judul} berhasil disimpan ke penyimpanan backend dan arsip aplikasi.`,
       'documents'
     );
   };

@@ -59,7 +59,7 @@ export const DocumentsView: React.FC = () => {
   };
 
   const deleteSelectedDocument = async (doc: DocumentItem) => {
-    if (!doc.googleDriveFileId) {
+    if (doc.storageBackend !== 'hostinger') {
       deleteDocument(doc.id);
       return;
     }
@@ -73,7 +73,7 @@ export const DocumentsView: React.FC = () => {
   };
 
   const handleDeleteDocument = async (doc: DocumentItem) => {
-    if (!window.confirm(`Hapus berkas "${doc.judul}" dari arsip digital dan Google Drive?`)) return;
+    if (!window.confirm(`Hapus berkas "${doc.judul}" dari arsip digital dan penyimpanan backend?`)) return;
     try {
       await deleteSelectedDocument(doc);
     } catch (error) {
@@ -109,7 +109,7 @@ export const DocumentsView: React.FC = () => {
   };
 
   const handleDownloadDoc = (doc: DocumentItem) => {
-    if (doc.googleDriveFileId) {
+    if (doc.storageBackend === 'hostinger') {
       window.open(`/api/documents/${encodeURIComponent(doc.id)}/file?download=1`, '_blank', 'noopener');
       return;
     }
@@ -361,10 +361,11 @@ export const DocumentsView: React.FC = () => {
                 )}
               </div>
 
-              {previewDoc.fileDataUrl && previewDoc.fileType?.startsWith('image/') ? (
+              {(previewDoc.fileDataUrl || previewDoc.storageBackend === 'hostinger') &&
+              previewDoc.fileType?.startsWith('image/') ? (
                 <div className="p-2 bg-slate-950 rounded-xl border border-slate-800 text-center">
                   <img
-                    src={previewDoc.fileDataUrl}
+                    src={previewDoc.fileDataUrl || `/api/documents/${encodeURIComponent(previewDoc.id)}/file`}
                     alt={previewDoc.judul}
                     className="max-h-56 mx-auto rounded-lg object-contain"
                   />
@@ -389,7 +390,7 @@ export const DocumentsView: React.FC = () => {
               </button>
               <button
                 onClick={() => {
-                  if (previewDoc.googleDriveFileId) {
+                  if (previewDoc.storageBackend === 'hostinger') {
                     window.open(`/api/documents/${encodeURIComponent(previewDoc.id)}/file`, '_blank', 'noopener');
                   } else {
                     handleDownloadDoc(previewDoc);

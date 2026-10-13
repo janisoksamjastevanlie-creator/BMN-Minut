@@ -18,18 +18,40 @@ import { buildFonnteRequestNotification } from './whatsapp/request-notification.
 import { createWebChat, WEB_CHAT_ERRORS } from './ai/webchat.mjs';
 import { getWebChatConfig } from './ai/webchatConfig.mjs';
 import { buildRequestEvents, createN8nIntegration } from './automation/n8n/integration.mjs';
-import {
-  createOrFindDriveFile,
-  deleteDriveFile,
-  DocumentUploadError,
-  downloadDriveFile,
-  DriveIntegrationError,
-  getDriveConfiguration,
-  validateDocumentFile
-} from './googleDrive.mjs';
+import { createDocumentStorage, DocumentStorageError, validateStoredFile } from './documentStorage.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(root, '.env') });
+class DocumentUploadError extends Error {
+  constructor(message, status = 400) {
+    super(message);
+    this.status = status;
+  }
+}
+
+const documentMaxFileSizeMb = Number(process.env.DOCUMENT_MAX_FILE_SIZE_MB || 25);
+if (!Number.isInteger(documentMaxFileSizeMb) || documentMaxFileSizeMb < 1 || documentMaxFileSizeMb > 100) {
+  throw new Error('DOCUMENT_MAX_FILE_SIZE_MB harus berupa bilangan bulat antara 1 dan 100.');
+}
+const documentMaxFileSize = documentMaxFileSizeMb * 1024 * 1024;
+const documentStorageDirectory = path.resolve(root, process.env.DOCUMENT_STORAGE_DIR || path.join(root, 'data', 'documents'));
+const publicDirectories = [path.join(root, 'public'), path.join(root, 'dist')];
+function assertPrivateDocumentStorageDirectory(storageDirectory) {
+  for (const publicDirectory of publicDirectories) {
+    const resolvedPublicDirectory = fs.existsSync(publicDirectory)
+      ? fs.realpathSync(publicDirectory)
+      : path.resolve(publicDirectory);
+    const relative = path.relative(resolvedPublicDirectory, storageDirectory);
+    if (relative === '' || (!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`))) {
+      throw new Error('DOCUMENT_STORAGE_DIR harus berada di luar folder public dan dist.');
+    }
+  }
+}
+assertPrivateDocumentStorageDirectory(documentStorageDirectory);
+const documentStorage = createDocumentStorage(documentStorageDirectory);
+await documentStorage.initialize();
+const resolvedDocumentStorageDirectory = fs.realpathSync(documentStorageDirectory);
+assertPrivateDocumentStorageDirectory(resolvedDocumentStorageDirectory);
 const n8nIntegration = createN8nIntegration(process.env);
 if (n8nIntegration.configurationError) {
   console.error(`n8n integration disabled: ${n8nIntegration.configurationError}`);
@@ -43,12 +65,6 @@ const whatsappProvider = process.env.WHATSAPP_PROVIDER?.trim().toLowerCase() || 
 const whatsappPhoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID?.trim();
 const whatsappAccessToken = process.env.WHATSAPP_ACCESS_TOKEN;
 const whatsappRecipientNumber = process.env.WHATSAPP_RECIPIENT_NUMBER?.trim().replace(/\D/g, '');
-const googleDriveMaxFileSizeMb = Number(process.env.GOOGLE_DRIVE_MAX_FILE_SIZE_MB || 25);
-if (!Number.isInteger(googleDriveMaxFileSizeMb) || googleDriveMaxFileSizeMb < 1 || googleDriveMaxFileSizeMb > 100) {
-  throw new Error('GOOGLE_DRIVE_MAX_FILE_SIZE_MB harus berupa bilangan bulat antara 1 dan 100.');
-}
-const googleDriveMaxFileSize = googleDriveMaxFileSizeMb * 1024 * 1024;
-
 if (!['meta', 'twilio', 'fonnte'].includes(whatsappProvider)) {
   throw new Error('WHATSAPP_PROVIDER harus bernilai meta, twilio, atau fonnte.');
 }
@@ -235,14 +251,14 @@ function safeDocumentName(fileName) {
 async function readLimitedRequest(request, maximumBytes) {
   const contentLength = Number(request.get('content-length'));
   if (Number.isFinite(contentLength) && contentLength > maximumBytes) {
-    throw new DocumentUploadError(`Ukuran berkas melebihi batas ${googleDriveMaxFileSizeMb} MB.`, 413);
+    throw new DocumentUploadError(`Ukuran berkas melebihi batas ${documentMaxFileSizeMb} MB.`, 413);
   }
   const chunks = [];
   let size = 0;
   for await (const chunk of request) {
     size += chunk.length;
     if (size > maximumBytes) {
-      throw new DocumentUploadError(`Ukuran berkas melebihi batas ${googleDriveMaxFileSizeMb} MB.`, 413);
+      throw new DocumentUploadError(`Ukuran berkas melebihi batas ${documentMaxFileSizeMb} MB.`, 413);
     }
     chunks.push(chunk);
   }
@@ -294,10 +310,6 @@ function parseUploadKey(request) {
   return uploadKey;
 }
 
-function documentFolder(category) {
-  return ['Nota', 'Berita Acara', 'Dokumen Lainnya'].includes(category) ? category : 'Dokumen Lainnya';
-}
-
 function documentAuditRecord(user, document, timestamp, ipAddress) {
   const localDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(timestamp);
   const localTime = new Intl.DateTimeFormat('en-GB', {
@@ -308,16 +320,16 @@ function documentAuditRecord(user, document, timestamp, ipAddress) {
     userId: user.id,
     userName: user.name,
     userRole: user.role,
-    aktivitas: 'Unggah Dokumen Google Drive',
+    aktivitas: 'Unggah Dokumen Backend',
     modul: 'DOKUMEN',
     tanggal: localDate,
     waktu: localTime,
     ipAddress: String(ipAddress || '').slice(0, 50),
-    detail: `Mengunggah ${document.judul} (${document.nomorDokumen}) ke Google Drive.`
+    detail: `Mengunggah ${document.judul} (${document.nomorDokumen}) ke penyimpanan backend.`
   };
 }
 
-async function persistDriveDocument(document, auditLog) {
+async function persistHostDocument(document, auditLog) {
   return withTransaction(async connection => {
     const revisionRow = await queryOne(connection, "SELECT value FROM app_meta WHERE `key` = 'revision' FOR UPDATE");
     const revision = Number(revisionRow?.value || 0);
@@ -326,7 +338,7 @@ async function persistDriveDocument(document, auditLog) {
     if (existing) {
       const existingAuditLog = (currentState.auditLogs || []).find(log =>
         log.userId === auditLog.userId &&
-        log.aktivitas === 'Unggah Dokumen Google Drive' &&
+        log.aktivitas === 'Unggah Dokumen Backend' &&
         log.detail === auditLog.detail
       );
       return { document: existing, auditLog: existingAuditLog, revision };
@@ -336,12 +348,12 @@ async function persistDriveDocument(document, auditLog) {
       await execute(connection, `
         INSERT INTO documents
           (id, nomor_dokumen, judul, jenis, tanggal, tahun, file_size, uploader, status, tags_json,
-           google_drive_file_id, file_name, mime_type, uploaded_at, description, idempotency_key)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           storage_backend, storage_key, storage_size_bytes, sha256, file_name, mime_type, uploaded_at, description, idempotency_key)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
         document.id, document.nomorDokumen, document.judul, document.jenis, document.tanggal,
         document.tahun, document.fileSize, document.uploader, document.status, JSON.stringify(document.tags),
-        document.googleDriveFileId, document.fileName, document.fileType, new Date(document.uploadedAt),
+        document.storageBackend, document.storageKey, document.storageSize, document.sha256, document.fileName, document.fileType, new Date(document.uploadedAt),
         document.description || null, document.idempotencyKey
       ]);
       await execute(connection, `
@@ -371,13 +383,13 @@ async function persistDriveDocument(document, auditLog) {
   });
 }
 
-async function persistDriveDocumentDeletion(documentId, auditLog) {
+async function persistHostDocumentDeletion(documentId, auditLog) {
   return withTransaction(async connection => {
     const revisionRow = await queryOne(connection, "SELECT value FROM app_meta WHERE `key` = 'revision' FOR UPDATE");
     const revision = Number(revisionRow?.value || 0);
     const currentState = await readCollections(connection);
     const document = (currentState.documents || []).find(item => item.id === documentId);
-    if (!document) return { deleted: true, revision };
+    if (!document) return { deleted: false, revision };
     if (dataBackend === 'operational') {
       await execute(connection, 'DELETE FROM documents WHERE id = ?', [documentId]);
       await execute(connection, `
@@ -444,7 +456,6 @@ const permissionsByCollection = {
 const collections = Object.keys(permissionsByCollection);
 const loginAttempts = new Map();
 const collectionCache = Object.fromEntries(collections.map(key => [key, null]));
-const driveUploadInProgress = new Map();
 
 async function refreshCollections(executor = db) {
   const state = dataBackend === 'operational'
@@ -1173,7 +1184,6 @@ app.post('/api/documents', requireUser, asyncRoute(async (request, response) => 
   let file;
   let fileBytes;
   try {
-    getDriveConfiguration();
     metadata = parseDocumentUploadMetadata(request);
     uploadKey = parseUploadKey(request);
     let fileName;
@@ -1182,35 +1192,38 @@ app.post('/api/documents', requireUser, asyncRoute(async (request, response) => 
     } catch {
       throw new DocumentUploadError('Nama berkas tidak valid.');
     }
-    fileBytes = await readLimitedRequest(request, googleDriveMaxFileSize);
-    file = validateDocumentFile({
+    fileBytes = await readLimitedRequest(request, documentMaxFileSize);
+    file = validateStoredFile({
       fileName,
       mimeType: request.get('content-type'),
       bytes: fileBytes,
-      maxBytes: googleDriveMaxFileSize
+      maxBytes: documentMaxFileSize
     });
   } catch (error) {
-    if (error instanceof DocumentUploadError || error instanceof DriveIntegrationError) {
+    if (error instanceof DocumentUploadError) {
       return response.status(error.status).json({ error: error.message });
+    }
+    if (error instanceof DocumentStorageError) {
+      return response.status(error.code === 'DOCUMENT_TOO_LARGE' ? 413 : 400).json({ error: error.message });
     }
     throw error;
   }
 
-  const duplicate = (getCollection('documents') || []).find(document => document.idempotencyKey === uploadKey);
-  if (duplicate) {
-    const revisionRow = await queryOne(db, "SELECT value FROM app_meta WHERE `key` = 'revision'");
-    return response.json({
-      document: duplicate,
-      auditLog: (getCollection('auditLogs') || []).find(log =>
-        log.userId === request.user.id &&
-        log.aktivitas === 'Unggah Dokumen Google Drive' &&
-        log.detail.includes(`(${duplicate.nomorDokumen})`)
-      ),
-      revision: Number(revisionRow?.value || 0)
-    });
+  const year = Number(metadata.date.slice(0, 4));
+  const fileSha256 = crypto.createHash('sha256').update(fileBytes).digest('hex');
+  try {
+    await documentStorage.save(uploadKey, fileBytes, fileSha256);
+  } catch (error) {
+    if (error instanceof DocumentStorageError) {
+      const status = error.code === 'UPLOAD_ID_CONFLICT' ? 409 : 500;
+      if (status === 500) console.error('Backend document storage failed:', error.code);
+      return response.status(status).json({
+        error: status === 409 ? error.message : 'Berkas tidak dapat disimpan pada penyimpanan backend.'
+      });
+    }
+    throw error;
   }
 
-  const year = Number(metadata.date.slice(0, 4));
   const document = {
     id: crypto.randomUUID(),
     nomorDokumen: metadata.number || `BMN/${year}/${uploadKey.slice(0, 8).toUpperCase()}`,
@@ -1226,44 +1239,25 @@ app.post('/api/documents', requireUser, asyncRoute(async (request, response) => 
     status: metadata.status,
     fileName: file.fileName,
     fileType: file.mimeType,
+    storageBackend: 'hostinger',
+    storageKey: uploadKey,
+    storageSize: fileBytes.length,
+    sha256: fileSha256,
     description: metadata.description || undefined,
     uploadedAt: new Date().toISOString(),
     idempotencyKey: uploadKey
   };
-  const fileSha256 = crypto.createHash('sha256').update(fileBytes).digest('hex');
-
-  let driveFile;
-  let uploadPromise = driveUploadInProgress.get(uploadKey);
-  if (!uploadPromise) {
-    uploadPromise = createOrFindDriveFile({
-      uploadKey,
-      category: documentFolder(metadata.category),
-      year,
-      fileName: file.fileName,
-      mimeType: file.mimeType,
-      sha256: fileSha256,
-      bytes: fileBytes
-    });
-    driveUploadInProgress.set(uploadKey, uploadPromise);
-  }
-  try {
-    driveFile = await uploadPromise;
-  } catch (error) {
-    driveUploadInProgress.delete(uploadKey);
-    const knownError = error instanceof DriveIntegrationError;
-    console.error('Google Drive document upload failed:', knownError ? error.code : 'DRIVE_UPSTREAM_ERROR');
-    return response.status(knownError ? error.status : 502).json({
-      error: knownError ? error.message : 'Upload ke Google Drive gagal. Dokumen belum dicatat dalam arsip.'
-    });
-  }
-  driveUploadInProgress.delete(uploadKey);
-  if (driveFile.createdTime && Number.isFinite(Date.parse(driveFile.createdTime))) {
-    document.uploadedAt = new Date(driveFile.createdTime).toISOString();
-  }
-  document.googleDriveFileId = driveFile.id;
   const auditLog = documentAuditRecord(request.user, document, new Date(document.uploadedAt), request.ip);
   try {
-    const result = await persistDriveDocument(document, auditLog);
+    const result = await persistHostDocument(document, auditLog);
+    if (result.document.id !== document.id) {
+      const revisionRow = await queryOne(db, "SELECT value FROM app_meta WHERE `key` = 'revision'");
+      return response.json({
+        document: result.document,
+        auditLog: result.auditLog,
+        revision: Number(revisionRow?.value || result.revision)
+      });
+    }
     await refreshCollections();
     return response.status(201).json({
       document: result.document,
@@ -1271,14 +1265,14 @@ app.post('/api/documents', requireUser, asyncRoute(async (request, response) => 
       revision: result.revision
     });
   } catch (error) {
-    console.error('Google Drive upload metadata persistence failed:', error?.code || 'DATABASE_ERROR');
+    console.error('Backend document metadata persistence failed:', error?.code || 'DATABASE_ERROR');
     if (error?.code === 'ER_DUP_ENTRY') {
       return response.status(409).json({
-        error: 'Nomor dokumen tersebut sudah digunakan. Perbarui nomor dokumen lalu kirim kembali; berkas yang sama tidak akan diunggah ulang.'
+        error: 'Nomor dokumen tersebut sudah digunakan. Perbarui nomor dokumen lalu kirim kembali.'
       });
     }
     return response.status(500).json({
-      error: 'Berkas sudah diterima Google Drive, tetapi metadata arsip belum tersimpan. Ulangi permintaan yang sama untuk menyelesaikan pencatatan tanpa membuat berkas duplikat.'
+      error: 'Berkas telah tersimpan di disk backend, tetapi metadata arsip belum tersimpan. Ulangi permintaan yang sama untuk menyelesaikan pencatatan.'
     });
   }
 }));
@@ -1288,19 +1282,27 @@ app.get('/api/documents/:id/file', requireUser, asyncRoute(async (request, respo
     return response.status(403).json({ error: 'Tidak memiliki izin melihat dokumen.' });
   }
   const document = (getCollection('documents') || []).find(item => item.id === request.params.id);
-  if (!document?.googleDriveFileId) {
-    return response.status(404).json({ error: 'Berkas Google Drive tidak ditemukan.' });
+  if (!document || document.storageBackend !== 'hostinger' || !document.storageKey) {
+    return response.status(404).json({ error: 'Berkas penyimpanan backend tidak ditemukan.' });
   }
-  let fileResponse;
+  let bytes;
   try {
-    fileResponse = await downloadDriveFile(document.googleDriveFileId);
+    bytes = await documentStorage.read(document.storageKey);
   } catch (error) {
-    if (error instanceof DriveIntegrationError) {
-      return response.status(error.status).json({ error: error.message });
+    if (error instanceof DocumentStorageError) {
+      if (error.code === 'DOCUMENT_FILE_MISSING') {
+        console.error(`Stored document file is missing for document ${document.id}.`);
+        return response.status(500).json({ error: 'Berkas tidak tersedia pada penyimpanan backend. Hubungi administrator.' });
+      }
+      return response.status(500).json({ error: 'Berkas tidak dapat dibaca dari penyimpanan backend.' });
     }
     throw error;
   }
-  const bytes = Buffer.from(await fileResponse.arrayBuffer());
+  const digest = crypto.createHash('sha256').update(bytes).digest('hex');
+  if (digest !== document.sha256 || bytes.length !== document.storageSize) {
+    console.error(`Stored document integrity check failed for document ${document.id}.`);
+    return response.status(500).json({ error: 'Pemeriksaan integritas berkas gagal. Hubungi administrator.' });
+  }
   const filename = safeDocumentName(document.fileName);
   const disposition = request.query.download === '1' ? 'attachment' : 'inline';
   response.setHeader('Content-Type', document.fileType || 'application/octet-stream');
@@ -1317,33 +1319,63 @@ app.delete('/api/documents/:id', requireUser, asyncRoute(async (request, respons
   }
   const document = (getCollection('documents') || []).find(item => item.id === request.params.id);
   if (!document) return response.status(404).json({ error: 'Dokumen tidak ditemukan.' });
-  if (!document.googleDriveFileId) {
-    return response.status(400).json({ error: 'Penghapusan dokumen lama harus dilakukan melalui alur arsip yang tersedia.' });
+  if (document.storageBackend !== 'hostinger' || !document.storageKey) {
+    return response.status(400).json({ error: 'Dokumen lama harus dihapus melalui alur arsip yang tersedia.' });
   }
+  let preparedFile;
   try {
-    await deleteDriveFile(document.googleDriveFileId);
+    preparedFile = await documentStorage.prepareDelete(document.storageKey);
   } catch (error) {
-    if (!(error instanceof DriveIntegrationError && error.status === 404)) {
-      if (error instanceof DriveIntegrationError) {
-        return response.status(error.status).json({ error: error.message });
-      }
-      throw error;
+    if (error instanceof DocumentStorageError) {
+      console.error('Backend document deletion could not stage file:', error.code);
+      return response.status(500).json({
+        error: 'Berkas tidak dapat dipersiapkan untuk penghapusan. Data arsip tidak diubah.'
+      });
     }
+    throw error;
   }
   const timestamp = new Date();
   const auditLog = documentAuditRecord(request.user, document, timestamp, request.ip);
-  auditLog.aktivitas = 'Hapus Dokumen Google Drive';
-  auditLog.detail = `Menghapus ${document.judul} (${document.nomorDokumen}) dari arsip dan Google Drive.`;
+  auditLog.aktivitas = 'Hapus Dokumen Backend';
+  auditLog.detail = `Menghapus ${document.judul} (${document.nomorDokumen}) dari penyimpanan backend.`;
+  let metadataDeleted = false;
+  let deletionResult;
   try {
-    const result = await persistDriveDocumentDeletion(document.id, auditLog);
+    const result = await persistHostDocumentDeletion(document.id, auditLog);
+    if (!result.deleted) {
+      await documentStorage.restoreDelete(preparedFile);
+      return response.status(404).json({ error: 'Dokumen tidak ditemukan.' });
+    }
+    metadataDeleted = true;
+    deletionResult = result;
     await refreshCollections();
-    return response.json({ success: true, auditLog, revision: result.revision });
   } catch (error) {
-    console.error('Google Drive document deletion metadata persistence failed:', error?.code || 'DATABASE_ERROR');
+    if (metadataDeleted) {
+      console.error('Backend document cache refresh failed after metadata deletion:', error?.code || 'DATABASE_ERROR');
+      return response.status(500).json({ error: 'Metadata arsip telah dihapus, tetapi cache belum diperbarui. Muat ulang halaman atau hubungi administrator.' });
+    }
+    try {
+      await documentStorage.restoreDelete(preparedFile);
+    } catch (restoreError) {
+      console.error('Backend document rollback failed:', restoreError?.code || 'FILESYSTEM_ERROR');
+      return response.status(500).json({
+        error: 'Penghapusan gagal dan pemulihan berkas otomatis tidak berhasil. Hubungi administrator.'
+      });
+    }
+    console.error('Backend document deletion failed:', error?.code || 'DATABASE_ERROR');
     return response.status(500).json({
-      error: 'Berkas telah dihapus di Google Drive, tetapi metadata arsip belum diperbarui. Ulangi penghapusan yang sama untuk menyelesaikan pencatatan.'
+      error: 'Penghapusan dokumen gagal. Metadata arsip tidak diubah dan berkas telah dipulihkan.'
     });
   }
+  try {
+    await documentStorage.commitDelete(preparedFile);
+  } catch (error) {
+    console.error('Backend document cleanup failed after metadata deletion:', error?.code || 'FILESYSTEM_ERROR');
+    return response.status(500).json({
+      error: 'Metadata arsip telah dihapus, tetapi berkas sementara tidak dapat dibersihkan. Hubungi administrator.'
+    });
+  }
+  return response.json({ success: true, auditLog, revision: deletionResult.revision });
 }));
 
 const webChatAiConfig = getWhatsAppConfig();
@@ -1421,25 +1453,28 @@ app.put('/api/state', requireUser, asyncRoute(async (request, response) => {
       const currentDocuments = currentState.documents || [];
       const nextDocuments = Array.isArray(state.documents) ? state.documents : [];
       for (const previousDocument of currentDocuments) {
-        if (!previousDocument.googleDriveFileId) continue;
+        if (previousDocument.storageBackend !== 'hostinger') continue;
         const nextDocument = nextDocuments.find(item => item?.id === previousDocument.id);
         if (!nextDocument) {
           return {
             status: 409,
-            body: { error: 'Dokumen Google Drive harus dihapus melalui aksi Hapus agar file dan metadata tetap konsisten.', revision }
+            body: { error: 'Dokumen pada penyimpanan backend harus dihapus melalui aksi Hapus agar file dan metadata tetap konsisten.', revision }
           };
         }
-        for (const field of ['googleDriveFileId', 'idempotencyKey', 'fileName', 'fileType', 'uploadedAt']) {
+        for (const field of [
+          'storageBackend', 'storageKey', 'storageSize', 'sha256',
+          'idempotencyKey', 'fileName', 'fileType', 'uploadedAt'
+        ]) {
           if (nextDocument[field] !== previousDocument[field]) {
-            return { status: 403, body: { error: 'Metadata berkas Google Drive hanya dapat diubah oleh server.', revision } };
+            return { status: 403, body: { error: 'Metadata berkas penyimpanan backend hanya dapat diubah oleh server.', revision } };
           }
         }
       }
       if (nextDocuments.some(document =>
         document &&
-        !currentDocuments.some(previous => previous.id === document.id) && document.googleDriveFileId
+        !currentDocuments.some(previous => previous.id === document.id) && document.storageBackend === 'hostinger'
       )) {
-        return { status: 403, body: { error: 'Referensi Google Drive hanya dapat dibuat melalui endpoint unggah dokumen.', revision } };
+        return { status: 403, body: { error: 'Referensi penyimpanan backend hanya dapat dibuat melalui endpoint unggah dokumen.', revision } };
       }
       if (!authorizeChangedCollections(request.user, state, currentState)) {
         return { status: 403, body: { error: 'Role Anda tidak memiliki izin untuk menyimpan perubahan ini.' } };
