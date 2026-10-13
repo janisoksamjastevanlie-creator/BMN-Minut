@@ -21,7 +21,9 @@ import {
 } from 'lucide-react';
 
 export const DocumentsView: React.FC = () => {
-  const { documents, deleteDocument } = useApp();
+  const { documents, deleteDocument, registerDeletedDocument, hasPermission } = useApp();
+  const canManageDocuments =
+    hasPermission('manageAssets') || hasPermission('manageInventory') || hasPermission('systemSettings');
 
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
@@ -56,7 +58,30 @@ export const DocumentsView: React.FC = () => {
     setSelectedDocumentIds(areAllDocumentsSelected ? new Set() : new Set(filteredDocs.map(doc => doc.id)));
   };
 
-  const handleBulkDeleteDocuments = () => {
+  const deleteSelectedDocument = async (doc: DocumentItem) => {
+    if (!doc.googleDriveFileId) {
+      deleteDocument(doc.id);
+      return;
+    }
+    const response = await fetch(`/api/documents/${encodeURIComponent(doc.id)}`, { method: 'DELETE' });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Gagal menghapus dokumen.');
+    if (!Number.isInteger(result.revision) || !result.auditLog) {
+      throw new Error('Respons server untuk penghapusan dokumen tidak valid.');
+    }
+    registerDeletedDocument(doc.id, result.revision, result.auditLog);
+  };
+
+  const handleDeleteDocument = async (doc: DocumentItem) => {
+    if (!window.confirm(`Hapus berkas "${doc.judul}" dari arsip digital dan Google Drive?`)) return;
+    try {
+      await deleteSelectedDocument(doc);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Gagal menghapus dokumen.');
+    }
+  };
+
+  const handleBulkDeleteDocuments = async () => {
     const selectedDocuments = documents.filter(doc => selectedDocumentIds.has(doc.id));
     if (selectedDocuments.length === 0) {
       window.alert('Pilih data dokumen yang ingin dihapus terlebih dahulu.');
@@ -66,14 +91,14 @@ export const DocumentsView: React.FC = () => {
 
     let deletedCount = 0;
     const errors: string[] = [];
-    selectedDocuments.forEach(doc => {
+    for (const doc of selectedDocuments) {
       try {
-        deleteDocument(doc.id);
+        await deleteSelectedDocument(doc);
         deletedCount += 1;
       } catch (error) {
         errors.push(`${doc.judul}: ${error instanceof Error ? error.message : 'terjadi kesalahan saat menghapus.'}`);
       }
-    });
+    }
     setSelectedDocumentIds(new Set());
 
     if (errors.length > 0) {
@@ -84,6 +109,10 @@ export const DocumentsView: React.FC = () => {
   };
 
   const handleDownloadDoc = (doc: DocumentItem) => {
+    if (doc.googleDriveFileId) {
+      window.open(`/api/documents/${encodeURIComponent(doc.id)}/file?download=1`, '_blank', 'noopener');
+      return;
+    }
     if (doc.fileDataUrl) {
       const link = document.createElement('a');
       link.href = doc.fileDataUrl;
@@ -122,13 +151,15 @@ export const DocumentsView: React.FC = () => {
           </p>
         </div>
 
-        <button
-          onClick={() => setIsUploadOpen(true)}
-          className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors shadow-lg shadow-purple-600/20 w-fit"
-        >
-          <Upload className="w-4 h-4" />
-          <span>Unggah / Import Dokumen</span>
-        </button>
+        {canManageDocuments && (
+          <button
+            onClick={() => setIsUploadOpen(true)}
+            className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors shadow-lg shadow-purple-600/20 w-fit"
+          >
+            <Upload className="w-4 h-4" />
+            <span>Unggah / Import Dokumen</span>
+          </button>
+        )}
       </div>
 
       {/* Filter and Search */}
@@ -136,7 +167,9 @@ export const DocumentsView: React.FC = () => {
         <div className="flex items-center gap-1.5 overflow-x-auto w-full md:w-auto pb-1 md:pb-0">
           {[
             'all',
+            'Nota',
             'Berita Acara',
+            'Dokumen Lainnya',
             'Dokumen Perolehan',
             'Dokumen Pemindahan',
             'Dokumen Pemeliharaan',
@@ -183,14 +216,16 @@ export const DocumentsView: React.FC = () => {
         </label>
         <div className="flex items-center gap-3">
           <span className="text-xs text-slate-400">{selectedDocumentIds.size} dokumen dipilih</span>
-          <button
-            onClick={handleBulkDeleteDocuments}
-            disabled={selectedDocumentIds.size === 0}
-            className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-rose-400 text-xs font-semibold flex items-center gap-1.5 border border-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <Trash2 className="w-4 h-4" />
-            Hapus Terpilih
-          </button>
+          {canManageDocuments && (
+            <button
+              onClick={() => void handleBulkDeleteDocuments()}
+              disabled={selectedDocumentIds.size === 0}
+              className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-rose-400 text-xs font-semibold flex items-center gap-1.5 border border-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Trash2 className="w-4 h-4" />
+              Hapus Terpilih
+            </button>
+          )}
         </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -251,17 +286,17 @@ export const DocumentsView: React.FC = () => {
                 >
                   <Download className="w-3.5 h-3.5" />
                 </button>
-                <button
-                  onClick={() => {
-                    if (confirm(`Hapus berkas "${doc.judul}" dari arsip digital?`)) {
-                      deleteDocument(doc.id);
-                    }
-                  }}
-                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-950 text-slate-400 hover:text-rose-400 transition-colors"
-                  title="Hapus Dokumen"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+                {canManageDocuments && (
+                  <button
+                    onClick={() => {
+                      void handleDeleteDocument(doc);
+                    }}
+                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-950 text-slate-400 hover:text-rose-400 transition-colors"
+                    title="Hapus Dokumen"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -306,6 +341,18 @@ export const DocumentsView: React.FC = () => {
                   <span className="text-slate-400">Status Validasi:</span>
                   <span className="font-bold text-emerald-400">{previewDoc.status}</span>
                 </div>
+                {previewDoc.uploadedAt && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Waktu Upload:</span>
+                    <span className="font-semibold text-white">{new Date(previewDoc.uploadedAt).toLocaleString('id-ID')}</span>
+                  </div>
+                )}
+                {previewDoc.description && (
+                  <div>
+                    <span className="text-slate-400">Keterangan:</span>
+                    <p className="mt-1 text-slate-200">{previewDoc.description}</p>
+                  </div>
+                )}
                 {previewDoc.fileName && (
                   <div className="flex justify-between">
                     <span className="text-slate-400">Nama Berkas:</span>
@@ -342,6 +389,19 @@ export const DocumentsView: React.FC = () => {
               </button>
               <button
                 onClick={() => {
+                  if (previewDoc.googleDriveFileId) {
+                    window.open(`/api/documents/${encodeURIComponent(previewDoc.id)}/file`, '_blank', 'noopener');
+                  } else {
+                    handleDownloadDoc(previewDoc);
+                  }
+                }}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl flex items-center gap-1.5"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                <span>Lihat Berkas</span>
+              </button>
+              <button
+                onClick={() => {
                   handleDownloadDoc(previewDoc);
                   setPreviewDoc(null);
                 }}
@@ -356,7 +416,7 @@ export const DocumentsView: React.FC = () => {
       )}
 
       {/* Real Upload & Import Modal */}
-      {isUploadOpen && (
+      {isUploadOpen && canManageDocuments && (
         <UploadDocumentModal
           isOpen={isUploadOpen}
           onClose={() => setIsUploadOpen(false)}

@@ -10,6 +10,19 @@ Untuk development lokal, `DB_PASSWORD` boleh kosong hanya jika akun MariaDB loka
 
 Jalankan `npm install`, `npm run dev`, lalu buka `http://localhost:3000`. Pilih administrator, lalu gunakan **Manajemen Pengguna** untuk menetapkan kata sandi minimal 12 karakter bagi tiap pegawai. Data aplikasi, sesi, dan catatan WhatsApp disimpan di MySQL, bukan di file lokal.
 
+## Arsip dokumen privat di Google Drive
+
+Upload Nota, Berita Acara, dan Dokumen Lainnya dikirim dari backend ke Google Drive; berkas baru tidak disalin ke penyimpanan lokal atau `document_files`. Dokumen disimpan privat di bawah `GOOGLE_DRIVE_FOLDER_ID`, dengan subfolder kategori dan tahun yang dibuat/dipakai ulang oleh server. Lihat dan unduh dilakukan melalui endpoint aplikasi yang memeriksa sesi dan izin pengguna; server tidak membuat tautan berbagi publik.
+
+Sebelum mengaktifkan fitur:
+
+1. Aktifkan Google Drive API pada Google Cloud project akun layanan.
+2. Buat folder arsip privat, isi ID folder tersebut di `GOOGLE_DRIVE_FOLDER_ID`, lalu bagikan folder kepada `GOOGLE_SERVICE_ACCOUNT_EMAIL` dengan izin Editor. Gunakan Drive bersama bila sesuai dan pastikan akun layanan memang memiliki akses.
+3. Simpan private key akun layanan hanya pada `.env` server lokal atau secret manager hosting sebagai `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY`. Nilai dengan baris baru yang di-escape (`\n`) juga didukung. Jangan commit private key atau memasukkannya ke variabel frontend.
+4. Atur `GOOGLE_DRIVE_MAX_FILE_SIZE_MB` sesuai batas memori, timeout, dan batas request pada hosting/reverse proxy. Default `25`; nilai yang diizinkan `1`–`100` MB. Batas proxy harus sekurang-kurangnya sama dengan batas aplikasi.
+5. Pada database operasional yang disetujui, terapkan satu kali migrasi aditif `migrations/document-google-drive-v1.sql` sebelum menjalankan versi aplikasi ini. Uji migrasi dan upload di staging terlebih dahulu.
+6. Setelah konfigurasi tersedia, uji unggah PDF dan gambar non-rahasia, pastikan berkas tampil di folder Drive yang benar dan dapat dilihat/diunduh melalui aplikasi. Tanpa kredensial, izin folder, migrasi, serta uji staging yang berhasil, integrasi belum dapat dinyatakan aktif.
+
 ## Deployment Node.js ke Hostinger
 
 > **Deployment belum diaktifkan.** Catatan Hostinger di bawah hanya menjelaskan bentuk runtime; jangan gunakan langkah lama yang membuat database kosong atau bootstrap akun. Production wajib memakai `DATA_BACKEND=operational`, skema operasional yang sudah disetujui, akun yang diprovisikan untuk pengguna nyata, Cloudflare Access, dan origin HTTPS yang diverifikasi. Jangan menghubungkan instance ini ke produksi atau mengaktifkan DNS/cutover sebelum ada persetujuan eksplisit.
@@ -32,10 +45,12 @@ Server membaca `PORT` dari environment hosting dan, saat `NODE_ENV=production`, 
 
 1. Jangan membuat database produksi kosong atau menunjuk aplikasi ke database produksi sebagai bagian dari runbook ini. Pastikan target staging/prod, host, port, nama database, dan akun koneksi telah diperiksa terpisah.
 2. Terapkan ekstensi skema hanya melalui prosedur migrasi manual yang disetujui dan diuji di staging. Jangan mengimpor data contoh. Backup yang tersedia saat ini schema-only, jadi pengujian data nyata tetap belum dapat dilakukan. Akun awal harus berasal dari pengguna operasional aktif dan diprovisikan secara eksplisit; startup tidak membuat akun.
+   - Fitur arsip Google Drive memerlukan migrasi tambahan `migrations/document-google-drive-v1.sql` pada database operasional yang disetujui. Migrasi ini hanya menambahkan metadata nullable dan indeks unik; server production tidak menjalankan DDL otomatis.
 3. Isi environment variables di hPanel/secret manager, bukan di source code:
    - `NODE_ENV=production` dan `DATA_BACKEND=operational`.
    - `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, dan `DB_NAME` dari target database yang disetujui. `DB_CONNECTION_LIMIT` opsional (default `10`, maksimum `100`). Jangan gunakan `ADMIN_NIP`/`ADMIN_PASSWORD` untuk bootstrap production.
    - `CLOUDFLARE_ACCESS_TEAM_DOMAIN` dan `CLOUDFLARE_ACCESS_AUD` dari administrator Cloudflare. Production gagal startup bila keduanya belum diisi.
+   - `GOOGLE_DRIVE_FOLDER_ID`, `GOOGLE_SERVICE_ACCOUNT_EMAIL`, dan `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` untuk akun layanan yang hanya diberi akses ke folder arsip privat; simpan private key sebagai rahasia backend, bukan variabel `VITE_*`. `GOOGLE_DRIVE_MAX_FILE_SIZE_MB` opsional (default `25`, maksimum `100`). Upload/unduh Google Drive baru akan berfungsi setelah folder dibagikan ke akun tersebut dan konfigurasi diuji.
    - `APP_PUBLIC_URL=https://<domain-anda>` agar tautan notifikasi tidak menunjuk ke localhost.
    - Variabel WhatsApp provider yang telah dipilih hanya jika integrasi dikonfigurasi dan diuji. Jangan kirim pesan nyata selama pengujian tanpa persetujuan terpisah; jangan menaruh rahasia pada command build atau variable berawalan `VITE_`.
    - `PORT` biasanya disediakan hosting. Jangan override kecuali petunjuk Hostinger pada aplikasi Anda meminta nilai tertentu. `HOST` biasanya tidak perlu diisi karena production default ke `0.0.0.0`.

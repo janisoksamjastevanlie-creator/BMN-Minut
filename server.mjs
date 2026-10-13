@@ -18,6 +18,15 @@ import { buildFonnteRequestNotification } from './whatsapp/request-notification.
 import { createWebChat, WEB_CHAT_ERRORS } from './ai/webchat.mjs';
 import { getWebChatConfig } from './ai/webchatConfig.mjs';
 import { buildRequestEvents, createN8nIntegration } from './automation/n8n/integration.mjs';
+import {
+  createOrFindDriveFile,
+  deleteDriveFile,
+  DocumentUploadError,
+  downloadDriveFile,
+  DriveIntegrationError,
+  getDriveConfiguration,
+  validateDocumentFile
+} from './googleDrive.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(root, '.env') });
@@ -34,6 +43,11 @@ const whatsappProvider = process.env.WHATSAPP_PROVIDER?.trim().toLowerCase() || 
 const whatsappPhoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID?.trim();
 const whatsappAccessToken = process.env.WHATSAPP_ACCESS_TOKEN;
 const whatsappRecipientNumber = process.env.WHATSAPP_RECIPIENT_NUMBER?.trim().replace(/\D/g, '');
+const googleDriveMaxFileSizeMb = Number(process.env.GOOGLE_DRIVE_MAX_FILE_SIZE_MB || 25);
+if (!Number.isInteger(googleDriveMaxFileSizeMb) || googleDriveMaxFileSizeMb < 1 || googleDriveMaxFileSizeMb > 100) {
+  throw new Error('GOOGLE_DRIVE_MAX_FILE_SIZE_MB harus berupa bilangan bulat antara 1 dan 100.');
+}
+const googleDriveMaxFileSize = googleDriveMaxFileSizeMb * 1024 * 1024;
 
 if (!['meta', 'twilio', 'fonnte'].includes(whatsappProvider)) {
   throw new Error('WHATSAPP_PROVIDER harus bernilai meta, twilio, atau fonnte.');
@@ -205,6 +219,192 @@ function asyncRoute(handler) {
   return (request, response, next) => Promise.resolve(handler(request, response, next)).catch(next);
 }
 
+function canManageDocuments(user) {
+  return ['manageAssets', 'manageInventory', 'systemSettings']
+    .some(permission => userHasPermission(user, permission));
+}
+
+function canViewDocuments(user) {
+  return userHasPermission(user, 'viewReports') || canManageDocuments(user);
+}
+
+function safeDocumentName(fileName) {
+  return String(fileName || 'document').replace(/[\\/\r\n"]/g, '_');
+}
+
+async function readLimitedRequest(request, maximumBytes) {
+  const contentLength = Number(request.get('content-length'));
+  if (Number.isFinite(contentLength) && contentLength > maximumBytes) {
+    throw new DocumentUploadError(`Ukuran berkas melebihi batas ${googleDriveMaxFileSizeMb} MB.`, 413);
+  }
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > maximumBytes) {
+      throw new DocumentUploadError(`Ukuran berkas melebihi batas ${googleDriveMaxFileSizeMb} MB.`, 413);
+    }
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks, size);
+}
+
+function parseDocumentUploadMetadata(request) {
+  const encoded = request.get('x-document-metadata');
+  if (!encoded || encoded.length > 8192) throw new DocumentUploadError('Metadata dokumen tidak valid.');
+  let metadata;
+  try {
+    metadata = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
+  } catch {
+    throw new DocumentUploadError('Metadata dokumen tidak valid.');
+  }
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    throw new DocumentUploadError('Metadata dokumen tidak valid.');
+  }
+  const title = String(metadata.title || '').trim();
+  const category = String(metadata.category || '');
+  const number = String(metadata.number || '').trim();
+  const date = String(metadata.date || '');
+  const status = String(metadata.status || 'Arsip');
+  const description = String(metadata.description || '').trim();
+  const tags = metadata.tags;
+  const categories = new Set([
+    'Nota', 'Berita Acara', 'Dokumen Lainnya', 'Dokumen Perolehan',
+    'Dokumen Pemindahan', 'Dokumen Pemeliharaan', 'Dokumen Penghapusan',
+    'Dokumen Barang Masuk', 'Dokumen Barang Keluar', 'Dokumen Stock Opname',
+    'Dokumen Pengadaan'
+  ]);
+  const dateObject = /^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(`${date}T00:00:00.000Z`) : null;
+  if (!title || title.length > 200 || !categories.has(category) ||
+      !dateObject || Number.isNaN(dateObject.getTime()) || dateObject.toISOString().slice(0, 10) !== date ||
+      !['Sah', 'Menunggu TTD', 'Arsip'].includes(status) ||
+      number.length > 100 || description.length > 2000 ||
+      !Array.isArray(tags) || tags.length > 20 ||
+      tags.some(tag => typeof tag !== 'string' || tag.length > 80)) {
+    throw new DocumentUploadError('Lengkapi metadata dokumen dengan format yang valid.');
+  }
+  return { title, category, number, date, status, description, tags: tags.map(tag => tag.trim()).filter(Boolean) };
+}
+
+function parseUploadKey(request) {
+  const uploadKey = String(request.get('x-upload-id') || '');
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uploadKey)) {
+    throw new DocumentUploadError('ID upload tidak valid. Pilih kembali berkas sebelum mencoba lagi.');
+  }
+  return uploadKey;
+}
+
+function documentFolder(category) {
+  return ['Nota', 'Berita Acara', 'Dokumen Lainnya'].includes(category) ? category : 'Dokumen Lainnya';
+}
+
+function documentAuditRecord(user, document, timestamp, ipAddress) {
+  const localDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(timestamp);
+  const localTime = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Makassar', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+  }).format(timestamp);
+  return {
+    id: crypto.randomUUID(),
+    userId: user.id,
+    userName: user.name,
+    userRole: user.role,
+    aktivitas: 'Unggah Dokumen Google Drive',
+    modul: 'DOKUMEN',
+    tanggal: localDate,
+    waktu: localTime,
+    ipAddress: String(ipAddress || '').slice(0, 50),
+    detail: `Mengunggah ${document.judul} (${document.nomorDokumen}) ke Google Drive.`
+  };
+}
+
+async function persistDriveDocument(document, auditLog) {
+  return withTransaction(async connection => {
+    const revisionRow = await queryOne(connection, "SELECT value FROM app_meta WHERE `key` = 'revision' FOR UPDATE");
+    const revision = Number(revisionRow?.value || 0);
+    const currentState = await readCollections(connection);
+    const existing = (currentState.documents || []).find(item => item.idempotencyKey === document.idempotencyKey);
+    if (existing) {
+      const existingAuditLog = (currentState.auditLogs || []).find(log =>
+        log.userId === auditLog.userId &&
+        log.aktivitas === 'Unggah Dokumen Google Drive' &&
+        log.detail === auditLog.detail
+      );
+      return { document: existing, auditLog: existingAuditLog, revision };
+    }
+
+    if (dataBackend === 'operational') {
+      await execute(connection, `
+        INSERT INTO documents
+          (id, nomor_dokumen, judul, jenis, tanggal, tahun, file_size, uploader, status, tags_json,
+           google_drive_file_id, file_name, mime_type, uploaded_at, description, idempotency_key)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        document.id, document.nomorDokumen, document.judul, document.jenis, document.tanggal,
+        document.tahun, document.fileSize, document.uploader, document.status, JSON.stringify(document.tags),
+        document.googleDriveFileId, document.fileName, document.fileType, new Date(document.uploadedAt),
+        document.description || null, document.idempotencyKey
+      ]);
+      await execute(connection, `
+        INSERT INTO audit_logs (id, user_id, user_name, user_role, aktivitas, modul, tanggal, waktu, ip_address, detail)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        auditLog.id, auditLog.userId, auditLog.userName, auditLog.userRole, auditLog.aktivitas,
+        auditLog.modul, auditLog.tanggal, auditLog.waktu, auditLog.ipAddress, auditLog.detail
+      ]);
+    } else {
+      const documents = [document, ...(currentState.documents || [])];
+      const auditLogs = [...(currentState.auditLogs || []), auditLog];
+      await execute(connection, `
+        INSERT INTO app_data (\`key\`, value_json) VALUES ('documents', ?)
+        ON DUPLICATE KEY UPDATE value_json = VALUES(value_json)
+      `, [JSON.stringify(documents)]);
+      await execute(connection, `
+        INSERT INTO app_data (\`key\`, value_json) VALUES ('auditLogs', ?)
+        ON DUPLICATE KEY UPDATE value_json = VALUES(value_json)
+      `, [JSON.stringify(auditLogs)]);
+    }
+    await execute(connection, `
+      INSERT INTO app_meta (\`key\`, value) VALUES ('revision', ?)
+      ON DUPLICATE KEY UPDATE value = VALUES(value)
+    `, [String(revision + 1)]);
+    return { document, auditLog, revision: revision + 1 };
+  });
+}
+
+async function persistDriveDocumentDeletion(documentId, auditLog) {
+  return withTransaction(async connection => {
+    const revisionRow = await queryOne(connection, "SELECT value FROM app_meta WHERE `key` = 'revision' FOR UPDATE");
+    const revision = Number(revisionRow?.value || 0);
+    const currentState = await readCollections(connection);
+    const document = (currentState.documents || []).find(item => item.id === documentId);
+    if (!document) return { deleted: true, revision };
+    if (dataBackend === 'operational') {
+      await execute(connection, 'DELETE FROM documents WHERE id = ?', [documentId]);
+      await execute(connection, `
+        INSERT INTO audit_logs (id, user_id, user_name, user_role, aktivitas, modul, tanggal, waktu, ip_address, detail)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        auditLog.id, auditLog.userId, auditLog.userName, auditLog.userRole, auditLog.aktivitas,
+        auditLog.modul, auditLog.tanggal, auditLog.waktu, auditLog.ipAddress, auditLog.detail
+      ]);
+    } else {
+      await execute(connection, `
+        INSERT INTO app_data (\`key\`, value_json) VALUES ('documents', ?)
+        ON DUPLICATE KEY UPDATE value_json = VALUES(value_json)
+      `, [JSON.stringify(currentState.documents.filter(item => item.id !== documentId))]);
+      await execute(connection, `
+        INSERT INTO app_data (\`key\`, value_json) VALUES ('auditLogs', ?)
+        ON DUPLICATE KEY UPDATE value_json = VALUES(value_json)
+      `, [JSON.stringify([...(currentState.auditLogs || []), auditLog])]);
+    }
+    await execute(connection, `
+      INSERT INTO app_meta (\`key\`, value) VALUES ('revision', ?)
+      ON DUPLICATE KEY UPDATE value = VALUES(value)
+    `, [String(revision + 1)]);
+    return { deleted: true, revision: revision + 1 };
+  });
+}
+
 if (dataBackend === 'legacy') {
   const adminProfile = {
     id: 'usr-4',
@@ -244,6 +444,7 @@ const permissionsByCollection = {
 const collections = Object.keys(permissionsByCollection);
 const loginAttempts = new Map();
 const collectionCache = Object.fromEntries(collections.map(key => [key, null]));
+const driveUploadInProgress = new Map();
 
 async function refreshCollections(executor = db) {
   const state = dataBackend === 'operational'
@@ -962,6 +1163,189 @@ app.get('/api/state', requireUser, asyncRoute(async (_request, response) => {
   response.json({ state, initialized: state.users !== null, revision, dataBackend });
 }));
 
+app.post('/api/documents', requireUser, asyncRoute(async (request, response) => {
+  if (!canManageDocuments(request.user)) {
+    return response.status(403).json({ error: 'Tidak memiliki izin mengunggah dokumen.' });
+  }
+
+  let metadata;
+  let uploadKey;
+  let file;
+  let fileBytes;
+  try {
+    getDriveConfiguration();
+    metadata = parseDocumentUploadMetadata(request);
+    uploadKey = parseUploadKey(request);
+    let fileName;
+    try {
+      fileName = decodeURIComponent(request.get('x-file-name') || '');
+    } catch {
+      throw new DocumentUploadError('Nama berkas tidak valid.');
+    }
+    fileBytes = await readLimitedRequest(request, googleDriveMaxFileSize);
+    file = validateDocumentFile({
+      fileName,
+      mimeType: request.get('content-type'),
+      bytes: fileBytes,
+      maxBytes: googleDriveMaxFileSize
+    });
+  } catch (error) {
+    if (error instanceof DocumentUploadError || error instanceof DriveIntegrationError) {
+      return response.status(error.status).json({ error: error.message });
+    }
+    throw error;
+  }
+
+  const duplicate = (getCollection('documents') || []).find(document => document.idempotencyKey === uploadKey);
+  if (duplicate) {
+    const revisionRow = await queryOne(db, "SELECT value FROM app_meta WHERE `key` = 'revision'");
+    return response.json({
+      document: duplicate,
+      auditLog: (getCollection('auditLogs') || []).find(log =>
+        log.userId === request.user.id &&
+        log.aktivitas === 'Unggah Dokumen Google Drive' &&
+        log.detail.includes(`(${duplicate.nomorDokumen})`)
+      ),
+      revision: Number(revisionRow?.value || 0)
+    });
+  }
+
+  const year = Number(metadata.date.slice(0, 4));
+  const document = {
+    id: crypto.randomUUID(),
+    nomorDokumen: metadata.number || `BMN/${year}/${uploadKey.slice(0, 8).toUpperCase()}`,
+    judul: metadata.title,
+    jenis: metadata.category,
+    tanggal: metadata.date,
+    tahun: year,
+    fileSize: fileBytes.length < 1024 * 1024
+      ? `${(fileBytes.length / 1024).toFixed(1)} KB`
+      : `${(fileBytes.length / (1024 * 1024)).toFixed(1)} MB`,
+    uploader: request.user.name,
+    tags: metadata.tags,
+    status: metadata.status,
+    fileName: file.fileName,
+    fileType: file.mimeType,
+    description: metadata.description || undefined,
+    uploadedAt: new Date().toISOString(),
+    idempotencyKey: uploadKey
+  };
+  const fileSha256 = crypto.createHash('sha256').update(fileBytes).digest('hex');
+
+  let driveFile;
+  let uploadPromise = driveUploadInProgress.get(uploadKey);
+  if (!uploadPromise) {
+    uploadPromise = createOrFindDriveFile({
+      uploadKey,
+      category: documentFolder(metadata.category),
+      year,
+      fileName: file.fileName,
+      mimeType: file.mimeType,
+      sha256: fileSha256,
+      bytes: fileBytes
+    });
+    driveUploadInProgress.set(uploadKey, uploadPromise);
+  }
+  try {
+    driveFile = await uploadPromise;
+  } catch (error) {
+    driveUploadInProgress.delete(uploadKey);
+    const knownError = error instanceof DriveIntegrationError;
+    console.error('Google Drive document upload failed:', knownError ? error.code : 'DRIVE_UPSTREAM_ERROR');
+    return response.status(knownError ? error.status : 502).json({
+      error: knownError ? error.message : 'Upload ke Google Drive gagal. Dokumen belum dicatat dalam arsip.'
+    });
+  }
+  driveUploadInProgress.delete(uploadKey);
+  if (driveFile.createdTime && Number.isFinite(Date.parse(driveFile.createdTime))) {
+    document.uploadedAt = new Date(driveFile.createdTime).toISOString();
+  }
+  document.googleDriveFileId = driveFile.id;
+  const auditLog = documentAuditRecord(request.user, document, new Date(document.uploadedAt), request.ip);
+  try {
+    const result = await persistDriveDocument(document, auditLog);
+    await refreshCollections();
+    return response.status(201).json({
+      document: result.document,
+      auditLog: result.auditLog || auditLog,
+      revision: result.revision
+    });
+  } catch (error) {
+    console.error('Google Drive upload metadata persistence failed:', error?.code || 'DATABASE_ERROR');
+    if (error?.code === 'ER_DUP_ENTRY') {
+      return response.status(409).json({
+        error: 'Nomor dokumen tersebut sudah digunakan. Perbarui nomor dokumen lalu kirim kembali; berkas yang sama tidak akan diunggah ulang.'
+      });
+    }
+    return response.status(500).json({
+      error: 'Berkas sudah diterima Google Drive, tetapi metadata arsip belum tersimpan. Ulangi permintaan yang sama untuk menyelesaikan pencatatan tanpa membuat berkas duplikat.'
+    });
+  }
+}));
+
+app.get('/api/documents/:id/file', requireUser, asyncRoute(async (request, response) => {
+  if (!canViewDocuments(request.user)) {
+    return response.status(403).json({ error: 'Tidak memiliki izin melihat dokumen.' });
+  }
+  const document = (getCollection('documents') || []).find(item => item.id === request.params.id);
+  if (!document?.googleDriveFileId) {
+    return response.status(404).json({ error: 'Berkas Google Drive tidak ditemukan.' });
+  }
+  let fileResponse;
+  try {
+    fileResponse = await downloadDriveFile(document.googleDriveFileId);
+  } catch (error) {
+    if (error instanceof DriveIntegrationError) {
+      return response.status(error.status).json({ error: error.message });
+    }
+    throw error;
+  }
+  const bytes = Buffer.from(await fileResponse.arrayBuffer());
+  const filename = safeDocumentName(document.fileName);
+  const disposition = request.query.download === '1' ? 'attachment' : 'inline';
+  response.setHeader('Content-Type', document.fileType || 'application/octet-stream');
+  response.setHeader('Content-Disposition', `${disposition}; filename*=UTF-8''${encodeURIComponent(filename)}`);
+  response.setHeader('Content-Length', String(bytes.length));
+  response.setHeader('Cache-Control', 'private, no-store');
+  response.setHeader('X-Content-Type-Options', 'nosniff');
+  response.send(bytes);
+}));
+
+app.delete('/api/documents/:id', requireUser, asyncRoute(async (request, response) => {
+  if (!canManageDocuments(request.user)) {
+    return response.status(403).json({ error: 'Tidak memiliki izin menghapus dokumen.' });
+  }
+  const document = (getCollection('documents') || []).find(item => item.id === request.params.id);
+  if (!document) return response.status(404).json({ error: 'Dokumen tidak ditemukan.' });
+  if (!document.googleDriveFileId) {
+    return response.status(400).json({ error: 'Penghapusan dokumen lama harus dilakukan melalui alur arsip yang tersedia.' });
+  }
+  try {
+    await deleteDriveFile(document.googleDriveFileId);
+  } catch (error) {
+    if (!(error instanceof DriveIntegrationError && error.status === 404)) {
+      if (error instanceof DriveIntegrationError) {
+        return response.status(error.status).json({ error: error.message });
+      }
+      throw error;
+    }
+  }
+  const timestamp = new Date();
+  const auditLog = documentAuditRecord(request.user, document, timestamp, request.ip);
+  auditLog.aktivitas = 'Hapus Dokumen Google Drive';
+  auditLog.detail = `Menghapus ${document.judul} (${document.nomorDokumen}) dari arsip dan Google Drive.`;
+  try {
+    const result = await persistDriveDocumentDeletion(document.id, auditLog);
+    await refreshCollections();
+    return response.json({ success: true, auditLog, revision: result.revision });
+  } catch (error) {
+    console.error('Google Drive document deletion metadata persistence failed:', error?.code || 'DATABASE_ERROR');
+    return response.status(500).json({
+      error: 'Berkas telah dihapus di Google Drive, tetapi metadata arsip belum diperbarui. Ulangi penghapusan yang sama untuk menyelesaikan pencatatan.'
+    });
+  }
+}));
+
 const webChatAiConfig = getWhatsAppConfig();
 const webChatConfig = { ...webChatAiConfig, ...getWebChatConfig(process.env, webChatAiConfig) };
 if (webChatConfig.n8nChatConfigurationError) {
@@ -1034,6 +1418,29 @@ app.put('/api/state', requireUser, asyncRoute(async (request, response) => {
         return { status: 409, body: { error: 'Data berubah di perangkat lain. Muat ulang halaman sebelum menyimpan lagi.', revision } };
       }
       currentState = await readCollections(connection);
+      const currentDocuments = currentState.documents || [];
+      const nextDocuments = Array.isArray(state.documents) ? state.documents : [];
+      for (const previousDocument of currentDocuments) {
+        if (!previousDocument.googleDriveFileId) continue;
+        const nextDocument = nextDocuments.find(item => item?.id === previousDocument.id);
+        if (!nextDocument) {
+          return {
+            status: 409,
+            body: { error: 'Dokumen Google Drive harus dihapus melalui aksi Hapus agar file dan metadata tetap konsisten.', revision }
+          };
+        }
+        for (const field of ['googleDriveFileId', 'idempotencyKey', 'fileName', 'fileType', 'uploadedAt']) {
+          if (nextDocument[field] !== previousDocument[field]) {
+            return { status: 403, body: { error: 'Metadata berkas Google Drive hanya dapat diubah oleh server.', revision } };
+          }
+        }
+      }
+      if (nextDocuments.some(document =>
+        document &&
+        !currentDocuments.some(previous => previous.id === document.id) && document.googleDriveFileId
+      )) {
+        return { status: 403, body: { error: 'Referensi Google Drive hanya dapat dibuat melalui endpoint unggah dokumen.', revision } };
+      }
       if (!authorizeChangedCollections(request.user, state, currentState)) {
         return { status: 403, body: { error: 'Role Anda tidak memiliki izin untuk menyimpan perubahan ini.' } };
       }

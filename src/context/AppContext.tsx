@@ -194,6 +194,8 @@ interface AppContextType {
   
   addDocument: (doc: Omit<DocumentItem, 'id'>) => void;
   deleteDocument: (id: string) => void;
+  registerUploadedDocument: (document: DocumentItem, revision: number, auditLog?: AuditLog) => void;
+  registerDeletedDocument: (id: string, revision: number, auditLog: AuditLog) => void;
   importSystemBackup: (data: { assets?: BmnAsset[]; inventoryItems?: InventoryItem[]; documents?: DocumentItem[] }) => void;
   
   markNotificationRead: (id: string) => void;
@@ -1876,6 +1878,47 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     logAudit('Penghapusan Dokumen Digital', 'DOKUMEN', `Arsip ${target.judul} (${target.nomorDokumen}) dihapus.`);
   };
 
+  const registerUploadedDocument = (document: DocumentItem, revision: number, auditLog?: AuditLog) => {
+    if (!Number.isInteger(revision)) throw new Error('Revisi penyimpanan dokumen tidak valid.');
+    revisionRef.current = revision;
+    const baseline = lastSyncedStateRef.current || cloneSharedState(sharedState);
+    const baselineDocuments = Array.isArray(baseline.documents) ? baseline.documents as DocumentItem[] : [];
+    const baselineAuditLogs = Array.isArray(baseline.auditLogs) ? baseline.auditLogs as AuditLog[] : [];
+    const nextDocuments = [document, ...baselineDocuments.filter(item => item.id !== document.id)]
+      .sort((left, right) => right.tanggal.localeCompare(left.tanggal) || left.id.localeCompare(right.id));
+    lastSyncedStateRef.current = cloneSharedState({
+      ...baseline,
+      documents: nextDocuments,
+      auditLogs: auditLog
+        ? [auditLog, ...baselineAuditLogs.filter(item => item.id !== auditLog.id)]
+        : baselineAuditLogs
+    });
+    setDocuments(prev => [document, ...prev.filter(item => item.id !== document.id)]
+      .sort((left, right) => right.tanggal.localeCompare(left.tanggal) || left.id.localeCompare(right.id)));
+    if (auditLog) setAuditLogs(prev => [auditLog, ...prev.filter(item => item.id !== auditLog.id)]);
+    pushNotification(
+      'TRANSAKSI',
+      '📄 Dokumen Digital Diunggah',
+      `${document.judul} berhasil disimpan ke Google Drive dan arsip aplikasi.`,
+      'documents'
+    );
+  };
+
+  const registerDeletedDocument = (id: string, revision: number, auditLog: AuditLog) => {
+    if (!Number.isInteger(revision)) throw new Error('Revisi penghapusan dokumen tidak valid.');
+    revisionRef.current = revision;
+    const baseline = lastSyncedStateRef.current || cloneSharedState(sharedState);
+    const baselineDocuments = Array.isArray(baseline.documents) ? baseline.documents as DocumentItem[] : [];
+    const baselineAuditLogs = Array.isArray(baseline.auditLogs) ? baseline.auditLogs as AuditLog[] : [];
+    lastSyncedStateRef.current = cloneSharedState({
+      ...baseline,
+      documents: baselineDocuments.filter(item => item.id !== id),
+      auditLogs: [auditLog, ...baselineAuditLogs.filter(item => item.id !== auditLog.id)]
+    });
+    setDocuments(prev => prev.filter(item => item.id !== id));
+    setAuditLogs(prev => [auditLog, ...prev.filter(item => item.id !== auditLog.id)]);
+  };
+
   const importSystemBackup = (data: { assets?: BmnAsset[]; inventoryItems?: InventoryItem[]; documents?: DocumentItem[] }) => {
     if (data.assets && Array.isArray(data.assets)) {
       setAssets(data.assets);
@@ -1967,6 +2010,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         approveStockOpname,
         addDocument,
         deleteDocument,
+        registerUploadedDocument,
+        registerDeletedDocument,
         importSystemBackup,
         markNotificationRead,
         markAllNotificationsRead,

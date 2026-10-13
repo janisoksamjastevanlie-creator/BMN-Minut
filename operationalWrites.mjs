@@ -907,14 +907,20 @@ async function writeDocuments(executor, previous, next) {
       nullableText(document.fileSize, 'Document file size', 30),
       assertText(document.uploader, 'Document uploader', 150),
       assertText(document.status, 'Document status', 30),
-      JSON.stringify(tags)
+      JSON.stringify(tags),
+      nullableText(document.googleDriveFileId, 'Google Drive file ID', 255),
+      nullableText(document.fileName, 'Document filename', 255),
+      nullableText(document.fileType, 'Document MIME type', 127),
+      document.uploadedAt || null,
+      nullableText(document.description, 'Document description', 65_535),
+      nullableText(document.idempotencyKey, 'Document idempotency key', 36)
     ];
     if (!previousDocument || stable(previousDocument) !== stable(document)) {
       await upsert(executor, 'documents',
-        ['id', 'nomor_dokumen', 'judul', 'jenis', 'tanggal', 'tahun', 'file_size', 'uploader', 'status', 'tags_json'],
+        ['id', 'nomor_dokumen', 'judul', 'jenis', 'tanggal', 'tahun', 'file_size', 'uploader', 'status', 'tags_json', 'google_drive_file_id', 'file_name', 'mime_type', 'uploaded_at', 'description', 'idempotency_key'],
         values);
     }
-    const file = parseDataUrl(document);
+    const file = document.googleDriveFileId ? null : parseDataUrl(document);
     if (file && (!previousDocument ||
         previousDocument.fileDataUrl !== document.fileDataUrl ||
         previousDocument.fileName !== document.fileName ||

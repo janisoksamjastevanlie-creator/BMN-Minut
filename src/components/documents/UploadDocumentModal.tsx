@@ -24,11 +24,11 @@ interface UploadDocumentModalProps {
 }
 
 export const UploadDocumentModal: React.FC<UploadDocumentModalProps> = ({ isOpen, onClose }) => {
-  const { currentUser, addDocument } = useApp();
+  const { registerUploadedDocument } = useApp();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadKeyRef = useRef('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [fileDataUrl, setFileDataUrl] = useState<string | undefined>(undefined);
   const [isDragging, setIsDragging] = useState(false);
 
   const today = new Date().toISOString().split('T')[0];
@@ -38,13 +38,18 @@ export const UploadDocumentModal: React.FC<UploadDocumentModalProps> = ({ isOpen
   const [tanggal, setTanggal] = useState(today);
   const [status, setStatus] = useState<DocumentItem['status']>('Sah');
   const [tagInput, setTagInput] = useState('Rekonsiliasi, Minahasa Utara');
+  const [description, setDescription] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
   const [isSuccess, setIsSuccess] = useState(false);
 
   if (!isOpen) return null;
 
   const generateDocNumber = (selectedType: string) => {
     const codeMap: Record<string, string> = {
+      'Nota': 'NOTA',
       'Berita Acara': 'BA-REKON',
+      'Dokumen Lainnya': 'DOC',
       'Dokumen Perolehan': 'BAST-PEROLEHAN',
       'Dokumen Pemindahan': 'BA-MUTASI',
       'Dokumen Pemeliharaan': 'BA-MNT',
@@ -55,27 +60,20 @@ export const UploadDocumentModal: React.FC<UploadDocumentModalProps> = ({ isOpen
       'Dokumen Pengadaan': 'SPK-PENGADAAN'
     };
     const prefix = codeMap[selectedType] || 'BA';
-    const rand = Math.floor(1000 + Math.random() * 9000);
-    return `${prefix}/BPS-7106/2026/${rand}`;
+    return `${prefix}/BPS-7106/${new Date().getFullYear()}/${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
   };
 
   const handleFile = (file: File) => {
     setSelectedFile(file);
+    uploadKeyRef.current = crypto.randomUUID();
+    setUploadError('');
     if (!judul) {
-      // Remove file extension for clean title
       const cleanTitle = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
       setJudul(cleanTitle.charAt(0).toUpperCase() + cleanTitle.slice(1));
     }
     if (!nomorDokumen) {
       setNomorDokumen(generateDocNumber(jenis));
     }
-
-    // Read as Data URL for browser preview & download
-    const reader = new FileReader();
-    reader.onload = e => {
-      setFileDataUrl(e.target?.result as string);
-    };
-    reader.readAsDataURL(file);
   };
 
   const formatFileSize = (bytes: number): string => {
@@ -84,39 +82,60 @@ export const UploadDocumentModal: React.FC<UploadDocumentModalProps> = ({ isOpen
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedFile || !judul.trim()) return;
+    if (!selectedFile || !judul.trim() || isUploading) return;
 
     const tags = tagInput
       .split(',')
       .map(t => t.trim())
       .filter(Boolean);
-
-    addDocument({
-      nomorDokumen: nomorDokumen.trim() || generateDocNumber(jenis),
-      judul: judul.trim(),
-      jenis,
-      tanggal,
-      tahun: new Date(tanggal).getFullYear(),
-      fileSize: formatFileSize(selectedFile.size),
-      uploader: currentUser?.name || 'Operator BMN',
-      tags: tags.length > 0 ? tags : ['SIMAN-BMN'],
+    const metadata = {
+      title: judul.trim(),
+      category: jenis,
+      number: nomorDokumen.trim(),
+      date: tanggal,
       status,
-      fileName: selectedFile.name,
-      fileType: selectedFile.type || selectedFile.name.split('.').pop() || 'unknown',
-      fileDataUrl
-    });
+      description: description.trim(),
+      tags: tags.length > 0 ? tags : ['SIMAN-BMN']
+    };
+    const encodedMetadata = btoa(
+      Array.from(new TextEncoder().encode(JSON.stringify(metadata)), byte => String.fromCharCode(byte)).join('')
+    ).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 
-    setIsSuccess(true);
+    setIsUploading(true);
+    setUploadError('');
     try {
-      confetti({
-        particleCount: 70,
-        spread: 60,
-        origin: { y: 0.6 }
+      const response = await fetch('/api/documents', {
+        method: 'POST',
+        headers: {
+          'Content-Type': selectedFile.type || 'application/octet-stream',
+          'X-Document-Metadata': encodedMetadata,
+          'X-File-Name': encodeURIComponent(selectedFile.name),
+          'X-Upload-Id': uploadKeyRef.current
+        },
+        body: selectedFile
       });
-    } catch {
-      // fallback
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Unggah dokumen gagal.');
+      if (!result.document || !Number.isInteger(result.revision)) {
+        throw new Error('Respons server untuk dokumen tidak valid.');
+      }
+      registerUploadedDocument(result.document, result.revision, result.auditLog);
+      setIsSuccess(true);
+      try {
+        confetti({
+          particleCount: 70,
+          spread: 60,
+          origin: { y: 0.6 }
+        });
+      } catch {
+        // Success does not depend on the optional animation.
+      }
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : 'Unggah dokumen gagal. Periksa koneksi lalu coba kembali.');
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -168,7 +187,7 @@ export const UploadDocumentModal: React.FC<UploadDocumentModalProps> = ({ isOpen
               <div>
                 <h3 className="text-lg font-bold text-white">Dokumen Berhasil Diunggah!</h3>
                 <p className="text-xs text-slate-300 mt-1 max-w-sm mx-auto">
-                  Berkas <span className="text-white font-semibold">"{selectedFile?.name}"</span> telah tersimpan dalam repositori arsip digital SIMAN-BMN.
+                  Berkas <span className="text-white font-semibold">"{selectedFile?.name}"</span> telah tersimpan di Google Drive privat dan arsip aplikasi.
                 </p>
               </div>
 
@@ -177,9 +196,11 @@ export const UploadDocumentModal: React.FC<UploadDocumentModalProps> = ({ isOpen
                   type="button"
                   onClick={() => {
                     setSelectedFile(null);
-                    setFileDataUrl(undefined);
+                    uploadKeyRef.current = '';
                     setJudul('');
                     setNomorDokumen('');
+                    setDescription('');
+                    setUploadError('');
                     setIsSuccess(false);
                   }}
                   className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl"
@@ -237,7 +258,7 @@ export const UploadDocumentModal: React.FC<UploadDocumentModalProps> = ({ isOpen
                     Pilih atau Seret Dokumen PDF / Excel / Word ke Sini
                   </h4>
                   <p className="text-[11px] text-slate-400 mt-1">
-                    Format: PDF, Word (DOC/DOCX), Excel (XLS/XLSX), Gambar (PNG/JPG) hingga 25 MB
+                    Format: PDF, DOC/DOCX, XLS/XLSX, JPG/JPEG, PNG hingga batas server (default 25 MB)
                   </p>
                 </div>
               ) : (
@@ -260,7 +281,8 @@ export const UploadDocumentModal: React.FC<UploadDocumentModalProps> = ({ isOpen
                     type="button"
                     onClick={() => {
                       setSelectedFile(null);
-                      setFileDataUrl(undefined);
+                      uploadKeyRef.current = '';
+                      setUploadError('');
                     }}
                     className="text-xs text-rose-400 hover:text-rose-300 flex items-center gap-1 px-2.5 py-1 rounded-lg hover:bg-rose-500/10 transition-colors"
                   >
@@ -285,7 +307,9 @@ export const UploadDocumentModal: React.FC<UploadDocumentModalProps> = ({ isOpen
                     }}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-purple-500"
                   >
+                    <option value="Nota">Nota</option>
                     <option value="Berita Acara">Berita Acara Rekonsiliasi / BAST</option>
+                    <option value="Dokumen Lainnya">Dokumen Lainnya</option>
                     <option value="Dokumen Perolehan">Dokumen Perolehan / Pengadaan</option>
                     <option value="Dokumen Pemindahan">Dokumen Pemindahan / Mutasi</option>
                     <option value="Dokumen Pemeliharaan">Dokumen Pemeliharaan / Perawatan</option>
@@ -307,6 +331,20 @@ export const UploadDocumentModal: React.FC<UploadDocumentModalProps> = ({ isOpen
                     value={judul}
                     onChange={e => setJudul(e.target.value)}
                     placeholder="Contoh: Berita Acara Rekonsiliasi BMN Semester I TA 2026"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 font-semibold mb-1">
+                    Keterangan / Deskripsi
+                  </label>
+                  <textarea
+                    value={description}
+                    onChange={e => setDescription(e.target.value)}
+                    maxLength={2000}
+                    rows={2}
+                    placeholder="Keterangan singkat dokumen (opsional)"
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-purple-500"
                   />
                 </div>
@@ -336,6 +374,11 @@ export const UploadDocumentModal: React.FC<UploadDocumentModalProps> = ({ isOpen
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-purple-500"
                     />
                   </div>
+                  {uploadError && (
+                    <div role="alert" className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
+                      {uploadError}
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -386,15 +429,15 @@ export const UploadDocumentModal: React.FC<UploadDocumentModalProps> = ({ isOpen
             <button
               type="submit"
               form="uploadDocForm"
-              disabled={!selectedFile || !judul.trim()}
+              disabled={!selectedFile || !judul.trim() || isUploading}
               className={`px-5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${
-                !selectedFile || !judul.trim()
+                !selectedFile || !judul.trim() || isUploading
                   ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
                   : 'bg-purple-600 hover:bg-purple-500 text-white shadow-lg shadow-purple-600/30'
               }`}
             >
-              <FileCheck className="w-4 h-4" />
-              <span>Simpan ke Arsip Dokumen</span>
+              {isUploading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <FileCheck className="w-4 h-4" />}
+              <span>{isUploading ? 'Mengunggah ke Google Drive...' : 'Simpan ke Arsip Dokumen'}</span>
             </button>
           )}
         </div>

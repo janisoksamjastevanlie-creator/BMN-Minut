@@ -302,7 +302,7 @@ export interface DocumentItem {
   id: string;
   nomorDokumen: string;
   judul: string;
-  jenis: 'Berita Acara' | 'Dokumen Perolehan' | 'Dokumen Pemindahan' | 'Dokumen Pemeliharaan' | 'Dokumen Penghapusan' | 'Dokumen Barang Masuk' | 'Dokumen Barang Keluar' | 'Dokumen Stock Opname' | 'Dokumen Pengadaan';
+  jenis: 'Nota' | 'Berita Acara' | 'Dokumen Lainnya' | 'Dokumen Perolehan' | 'Dokumen Pemindahan' | 'Dokumen Pemeliharaan' | 'Dokumen Penghapusan' | 'Dokumen Barang Masuk' | 'Dokumen Barang Keluar' | 'Dokumen Stock Opname' | 'Dokumen Pengadaan';
   tanggal: string;
   tahun: number;
   fileSize: string;
@@ -312,6 +312,10 @@ export interface DocumentItem {
   fileName?: string;
   fileType?: string;
   fileDataUrl?: string;
+  description?: string;
+  googleDriveFileId?: string;
+  uploadedAt?: string;
+  idempotencyKey?: string;
 }
 
 export interface AuditLog {

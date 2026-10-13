@@ -36,7 +36,7 @@ const REQUIRED_COLUMNS = {
   asset_movements: ['id', 'nomor_transaksi', 'asset_id', 'ruangan_asal_id', 'ruangan_tujuan_id', 'tanggal', 'alasan', 'pemohon', 'penanggung_jawab', 'status', 'catatan', 'created_at', 'updated_at'],
   asset_maintenance: ['id', 'nomor_tiket', 'asset_id', 'jenis_pemeliharaan', 'tanggal_mulai', 'tanggal_selesai', 'teknisi', 'vendor', 'biaya', 'keterangan', 'status', 'created_at'],
   asset_disposals: ['id', 'nomor_pengajuan', 'asset_id', 'alasan', 'kondisi_terakhir', 'nilai_buku', 'dokumen_pendukung', 'status', 'tanggal_pengajuan', 'penyetuju', 'created_at'],
-  documents: ['id', 'nomor_dokumen', 'judul', 'jenis', 'tanggal', 'tahun', 'file_size', 'uploader', 'status', 'tags_json'],
+  documents: ['id', 'nomor_dokumen', 'judul', 'jenis', 'tanggal', 'tahun', 'file_size', 'uploader', 'status', 'tags_json', 'google_drive_file_id', 'file_name', 'mime_type', 'uploaded_at', 'description', 'idempotency_key'],
   document_files: ['document_id', 'file_name', 'mime_type', 'file_size_bytes', 'sha256', 'file_data'],
   audit_logs: ['id', 'user_id', 'user_name', 'user_role', 'aktivitas', 'modul', 'tanggal', 'waktu', 'ip_address', 'detail'],
   notifications: ['id', 'type', 'title', 'message', 'read', 'link', 'created_at'],
@@ -648,9 +648,13 @@ export async function readOperationalState(executor) {
       uploader: row.uploader,
       tags,
       status: row.status,
-      fileName: file?.file_name,
-      fileType: file?.mime_type,
-      fileDataUrl: dataUrlFromFile(file)
+      fileName: row.file_name || file?.file_name,
+      fileType: row.mime_type || file?.mime_type,
+      fileDataUrl: row.google_drive_file_id ? undefined : dataUrlFromFile(file),
+      description: row.description || undefined,
+      googleDriveFileId: row.google_drive_file_id || undefined,
+      uploadedAt: timestampValue(row.uploaded_at) || undefined,
+      idempotencyKey: row.idempotency_key || undefined
     };
   });
 
