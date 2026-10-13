@@ -12,7 +12,7 @@ Jalankan `npm install`, `npm run dev`, lalu buka `http://localhost:3000`. Pilih 
 
 ## Arsip dokumen privat di backend
 
-Upload dokumen disimpan oleh backend pada disk privat, di luar folder `public` dan `dist`. MySQL hanya menyimpan metadata, checksum SHA-256, ukuran, dan kunci file acak; backend tidak mengirim berkas sebagai base64 pada sinkronisasi state. Akses lihat, unduh, dan hapus memakai endpoint aplikasi dengan pemeriksaan sesi dan izin. Berkas tidak disajikan sebagai file statis dan tidak memiliki tautan publik.
+Upload dokumen disimpan oleh backend pada disk privat, di luar folder `public` dan `dist`, dengan salinan cadangan biner pada tabel MySQL `document_files`. Metadata dan cadangan disimpan dalam transaksi yang sama; upload tidak dianggap berhasil jika cadangan gagal disimpan. Backend tidak mengirim cadangan sebagai base64 pada sinkronisasi state. Akses lihat, unduh, pulihkan, dan hapus memakai endpoint aplikasi dengan pemeriksaan sesi dan izin. Berkas tidak disajikan sebagai file statis dan tidak memiliki tautan publik.
 
 Untuk menjalankan fitur:
 
@@ -20,6 +20,13 @@ Untuk menjalankan fitur:
 2. Atur `DOCUMENT_MAX_FILE_SIZE_MB` sesuai batas memori, timeout, dan batas request pada hosting/reverse proxy. Default `25`; nilai yang diizinkan `1`–`100` MB. Batas proxy harus sekurang-kurangnya sama dengan batas aplikasi.
 3. Pada database operasional yang disetujui, terapkan satu kali migrasi aditif `migrations/document-host-storage-v1.sql` sebelum menjalankan versi aplikasi ini. Server tidak menjalankan DDL otomatis. Uji migrasi serta upload, unduh, dan hapus di staging terlebih dahulu.
 4. Backup database dan folder penyimpanan dokumen secara terkoordinasi. Prosedur pemulihan harus mengembalikan keduanya ke titik waktu yang sama; jangan membersihkan atau mengganti folder tersebut saat deploy.
+5. Pastikan `max_allowed_packet` MySQL cukup besar untuk ukuran lampiran ditambah overhead query, serta kuota database mencukupi. Mode operasional menggunakan tabel `document_files` dari migrasi adapter yang sudah tersedia; mode legacy membuat tabel cadangan ini saat inisialisasi. Tidak ada startup DDL tambahan di mode operasional.
+
+Jika berkas disk tidak ditemukan, endpoint membaca salinan MySQL dengan pemeriksaan checksum dan ukuran sebelum mengirim PDF/gambar. Berkas lama yang masih ada di disk dicadangkan saat pertama kali dibuka; ini bukan backup massal, jadi jangan hapus disk lama sebelum seluruh lampiran dicadangkan. Hapus dokumen juga menghapus salinan cadangannya.
+
+Jika disk **dan** cadangan sama-sama tidak tersedia, data nota tetap ditampilkan tetapi viewer tidak memuat pesan JSON sebagai PDF/gambar. Pengelola dokumen dapat memilih **Unggah ulang berkas asli** pada detail nota (`PUT /api/documents/:id/file`). Endpoint hanya menerima file dengan checksum dan ukuran identik dengan lampiran awal; nomor nota, item, tanggal, dan nilai tidak diubah. Tanpa file asli, pulihkan folder `DOCUMENT_STORAGE_DIR` dari backup hosting; metadata saja tidak dapat mengembalikan isi berkas yang hilang. Preview dan unduh memeriksa respons API terlebih dahulu, lalu memakai URL Blob lokal dengan cleanup saat modal ditutup.
+
+Tes integrasi `tests/document-api.integration.test.mjs` bersifat opt-in (`BMN_DOCUMENT_INTEGRATION=1`), hanya menerima konfigurasi MySQL localhost dari `.env`, dan membuat/menghapus database uji unik serta folder sementara miliknya sendiri. Tes memerlukan izin membuat database lokal; tidak memakai database aplikasi yang sudah ada.
 
 Backend membuat direktori/file dengan permission privat (`0700`/`0600` pada platform yang mendukungnya), menerima format dokumen yang diizinkan saja, memakai nama file acak di disk, dan memeriksa checksum ketika berkas diunduh. Konfigurasi Hostinger yang sebenarnya, persistensi setelah deploy, backup/restore, serta upload langsung ke hosting masih harus diverifikasi sebelum fitur dinyatakan aktif. Folder yang pernah dibuat di Google Drive tidak dihapus, tetapi tidak lagi digunakan aplikasi.
 

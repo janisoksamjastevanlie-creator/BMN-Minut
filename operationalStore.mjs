@@ -628,7 +628,9 @@ export async function readOperationalState(executor) {
 
   const [documentRows, documentFiles, receiptItemRows] = await Promise.all([
     queryRows(executor, 'SELECT * FROM documents ORDER BY tanggal DESC, id'),
-    queryRows(executor, 'SELECT * FROM document_files'),
+    queryRows(executor, `SELECT f.* FROM document_files f
+      JOIN documents d ON d.id = f.document_id
+      WHERE d.storage_backend IS NULL OR d.storage_backend <> 'hostinger'`),
     queryRows(executor, 'SELECT * FROM document_receipt_items ORDER BY document_id, created_at, id').catch(() => [])
   ]);
   const documentFileById = new Map(documentFiles.map(file => [file.document_id, file]));

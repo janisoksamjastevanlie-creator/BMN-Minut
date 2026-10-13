@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import test from 'node:test';
 import {
   assertOperationalSchema,
@@ -79,4 +80,31 @@ test('operational user lookup rejects ambiguous active email mappings', async ()
     }), 'employee@example.gov'),
     /Multiple active operational users/
   );
+});
+
+test('operational state excludes host disk backups from bulk reads and keeps legacy attachments', async () => {
+  const executor = {
+    async execute(sql) {
+      if (sql.includes('SELECT * FROM documents')) {
+        return [[
+          { id: 'host', nomor_dokumen: 'HOST', judul: 'Host', jenis: 'Nota',
+            tanggal: '2026-10-14', tahun: 2026, uploader: 'Admin', status: 'Sah', storage_backend: 'hostinger' },
+          { id: 'legacy', nomor_dokumen: 'LEGACY', judul: 'Legacy', jenis: 'Nota',
+            tanggal: '2026-10-14', tahun: 2026, uploader: 'Admin', status: 'Sah' }
+        ]];
+      }
+      if (sql.includes('FROM document_files')) {
+        assert.match(sql, /JOIN documents d ON d\.id = f\.document_id/);
+        assert.match(sql, /d\.storage_backend IS NULL OR d\.storage_backend <> 'hostinger'/);
+        return [[{ document_id: 'legacy', file_name: 'nota.pdf',
+          mime_type: 'application/pdf', file_data: Buffer.from('%PDF-1.7'),
+          sha256: crypto.createHash('sha256').update('%PDF-1.7').digest('hex') }]];
+      }
+      return [[]];
+    }
+  };
+  const state = await readOperationalState(executor);
+  assert.equal(state.documents.find(doc => doc.id === 'host').fileDataUrl, undefined);
+  assert.equal(state.documents.find(doc => doc.id === 'legacy').fileDataUrl,
+    `data:application/pdf;base64,${Buffer.from('%PDF-1.7').toString('base64')}`);
 });

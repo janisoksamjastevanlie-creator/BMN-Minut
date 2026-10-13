@@ -19,6 +19,7 @@ import { createWebChat, WEB_CHAT_ERRORS } from './ai/webchat.mjs';
 import { getWebChatConfig } from './ai/webchatConfig.mjs';
 import { buildRequestEvents, createN8nIntegration } from './automation/n8n/integration.mjs';
 import { createDocumentStorage, DocumentStorageError, validateStoredFile } from './documentStorage.mjs';
+import { readDocumentWithBackup, saveDocumentBackup, verifyDocumentBytes } from './documentFileBackup.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(root, '.env') });
@@ -153,6 +154,15 @@ const schema = [
   `CREATE TABLE IF NOT EXISTS app_meta (
     \`key\` VARCHAR(100) NOT NULL PRIMARY KEY,
     value VARCHAR(255) NOT NULL
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+  `CREATE TABLE IF NOT EXISTS document_files (
+    document_id VARCHAR(36) NOT NULL PRIMARY KEY,
+    file_name VARCHAR(255) NOT NULL,
+    mime_type VARCHAR(127) NOT NULL,
+    file_size_bytes BIGINT UNSIGNED NOT NULL,
+    sha256 CHAR(64) NOT NULL,
+    file_data LONGBLOB NOT NULL,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
   `CREATE TABLE IF NOT EXISTS whatsapp_notification_events (
     event_id CHAR(36) NOT NULL PRIMARY KEY,
@@ -396,13 +406,14 @@ function documentAuditRecord(user, document, timestamp, ipAddress) {
   };
 }
 
-async function persistHostDocument(document, auditLog) {
+async function persistHostDocument(document, auditLog, fileBytes) {
   return withTransaction(async connection => {
     const revisionRow = await queryOne(connection, "SELECT value FROM app_meta WHERE `key` = 'revision' FOR UPDATE");
     const revision = Number(revisionRow?.value || 0);
     const currentState = await readCollections(connection);
     const existing = (currentState.documents || []).find(item => item.idempotencyKey === document.idempotencyKey);
     if (existing) {
+      await saveDocumentBackup(connection, existing, fileBytes);
       const existingAuditLog = (currentState.auditLogs || []).find(log =>
         log.userId === auditLog.userId &&
         log.aktivitas === 'Unggah Dokumen Backend' &&
@@ -463,6 +474,7 @@ async function persistHostDocument(document, auditLog) {
         ON DUPLICATE KEY UPDATE value_json = VALUES(value_json)
       `, [JSON.stringify(auditLogs)]);
     }
+    await saveDocumentBackup(connection, document, fileBytes);
     await execute(connection, `
       INSERT INTO app_meta (\`key\`, value) VALUES ('revision', ?)
       ON DUPLICATE KEY UPDATE value = VALUES(value)
@@ -488,6 +500,7 @@ async function persistHostDocumentDeletion(documentId, auditLog) {
         auditLog.modul, auditLog.tanggal, auditLog.waktu, auditLog.ipAddress, auditLog.detail
       ]);
     } else {
+      await execute(connection, 'DELETE FROM document_files WHERE document_id = ?', [documentId]);
       await execute(connection, `
         INSERT INTO app_data (\`key\`, value_json) VALUES ('documents', ?)
         ON DUPLICATE KEY UPDATE value_json = VALUES(value_json)
@@ -1341,7 +1354,7 @@ app.post('/api/documents', requireUser, asyncRoute(async (request, response) => 
   };
   const auditLog = documentAuditRecord(request.user, document, new Date(document.uploadedAt), request.ip);
   try {
-    const result = await persistHostDocument(document, auditLog);
+    const result = await persistHostDocument(document, auditLog, fileBytes);
     if (result.document.id !== document.id) {
       const revisionRow = await queryOne(db, "SELECT value FROM app_meta WHERE `key` = 'revision'");
       return response.json({
@@ -1364,7 +1377,7 @@ app.post('/api/documents', requireUser, asyncRoute(async (request, response) => 
       });
     }
     return response.status(500).json({
-      error: 'Berkas telah tersimpan di disk backend, tetapi metadata arsip belum tersimpan. Ulangi permintaan yang sama untuk menyelesaikan pencatatan.'
+      error: 'Penyimpanan metadata atau cadangan MySQL belum selesai. Berkas ada di disk backend; ulangi permintaan yang sama untuk menyelesaikan pencatatan.'
     });
   }
 }));
@@ -1379,21 +1392,23 @@ app.get('/api/documents/:id/file', requireUser, asyncRoute(async (request, respo
   }
   let bytes;
   try {
-    bytes = await documentStorage.read(document.storageKey);
+    bytes = await readDocumentWithBackup(documentStorage, db, document);
   } catch (error) {
     if (error instanceof DocumentStorageError) {
       if (error.code === 'DOCUMENT_FILE_MISSING') {
         console.error(`Stored document file is missing for document ${document.id}.`);
-        return response.status(500).json({ error: 'Berkas tidak tersedia pada penyimpanan backend. Hubungi administrator.' });
+        return response.status(404).json({
+          code: 'DOCUMENT_FILE_MISSING',
+          error: 'Berkas asli tidak ditemukan di disk maupun cadangan MySQL. Pulihkan folder dokumen dari backup hosting atau unggah ulang berkas asli pada nota ini.'
+        });
       }
-      return response.status(500).json({ error: 'Berkas tidak dapat dibaca dari penyimpanan backend.' });
+      console.error('Backend document read failed:', error.code);
+      return response.status(500).json({
+        error: error.code === 'DOCUMENT_INTEGRITY_ERROR'
+          ? error.message : 'Berkas tidak dapat dibaca dari penyimpanan backend.'
+      });
     }
     throw error;
-  }
-  const digest = crypto.createHash('sha256').update(bytes).digest('hex');
-  if (digest !== document.sha256 || bytes.length !== document.storageSize) {
-    console.error(`Stored document integrity check failed for document ${document.id}.`);
-    return response.status(500).json({ error: 'Pemeriksaan integritas berkas gagal. Hubungi administrator.' });
   }
   const filename = safeDocumentName(document.fileName);
   const disposition = request.query.download === '1' ? 'attachment' : 'inline';
@@ -1403,6 +1418,59 @@ app.get('/api/documents/:id/file', requireUser, asyncRoute(async (request, respo
   response.setHeader('Cache-Control', 'private, no-store');
   response.setHeader('X-Content-Type-Options', 'nosniff');
   response.send(bytes);
+}));
+
+app.put('/api/documents/:id/file', requireUser, asyncRoute(async (request, response) => {
+  if (!canManageDocuments(request.user)) {
+    return response.status(403).json({ error: 'Tidak memiliki izin memulihkan lampiran dokumen.' });
+  }
+  const document = (getCollection('documents') || []).find(item => item.id === request.params.id);
+  if (!document || document.storageBackend !== 'hostinger' || !document.storageKey) {
+    return response.status(404).json({ error: 'Dokumen backend tidak ditemukan.' });
+  }
+  let bytes;
+  try {
+    bytes = await readLimitedRequest(request, documentMaxFileSize);
+    validateStoredFile({
+      fileName: decodeURIComponent(request.get('x-file-name') || ''),
+      mimeType: request.get('content-type'), bytes, maxBytes: documentMaxFileSize
+    });
+    verifyDocumentBytes(document, bytes);
+  } catch (error) {
+    if (error instanceof DocumentUploadError) {
+      return response.status(error.status).json({ error: error.message });
+    }
+    if (error instanceof URIError) {
+      return response.status(400).json({ error: 'Nama berkas tidak valid.' });
+    }
+    if (error instanceof DocumentStorageError) {
+      return response.status(error.code === 'DOCUMENT_TOO_LARGE' ? 413 : 400).json({
+        error: error.code === 'DOCUMENT_INTEGRITY_ERROR'
+          ? 'Berkas berbeda dari lampiran asli. Pilih file asli yang sama; rincian nota tidak diubah.'
+          : error.message
+      });
+    }
+    throw error;
+  }
+  try {
+    await withTransaction(async connection => {
+      await queryOne(connection, "SELECT value FROM app_meta WHERE `key` = 'revision' FOR UPDATE");
+      const state = await readCollections(connection);
+      const current = (state.documents || []).find(item => item.id === document.id);
+      if (!current || current.storageKey !== document.storageKey || current.sha256 !== document.sha256) {
+        throw new DocumentUploadError('Dokumen telah berubah atau dihapus. Muat ulang halaman.', 409);
+      }
+      await documentStorage.save(current.storageKey, bytes, current.sha256);
+      await saveDocumentBackup(connection, current, bytes);
+    });
+  } catch (error) {
+    if (error instanceof DocumentUploadError) {
+      return response.status(error.status).json({ error: error.message });
+    }
+    console.error('Backend document restoration failed:', error?.code || 'DATABASE_ERROR');
+    return response.status(500).json({ error: 'Pemulihan lampiran atau cadangan MySQL belum selesai. Silakan coba lagi; rincian nota tidak diubah.' });
+  }
+  response.json({ success: true });
 }));
 
 app.delete('/api/documents/:id', requireUser, asyncRoute(async (request, response) => {
@@ -1416,6 +1484,8 @@ app.delete('/api/documents/:id', requireUser, asyncRoute(async (request, respons
   }
   let preparedFile;
   try {
+    const bytes = await readDocumentWithBackup(documentStorage, db, document);
+    await documentStorage.save(document.storageKey, bytes, document.sha256);
     preparedFile = await documentStorage.prepareDelete(document.storageKey);
   } catch (error) {
     if (error instanceof DocumentStorageError) {

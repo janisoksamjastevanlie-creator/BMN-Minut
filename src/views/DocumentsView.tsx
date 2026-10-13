@@ -1,9 +1,10 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { DocumentItem, ReceiptItem } from '../types';
 import { UploadDocumentModal } from '../components/documents/UploadDocumentModal';
 import { UploadNotaModal } from '../components/documents/UploadNotaModal';
 import { ListPager, usePagedList } from '../components/common/ListPager';
+import { DocumentFileError, fetchDocumentFile } from '../utils/documentFiles';
 import {
   FileText,
   Search,
@@ -36,6 +37,63 @@ export const DocumentsView: React.FC = () => {
   const [previewDoc, setPreviewDoc] = useState<DocumentItem | null>(null);
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [isUploadNotaOpen, setIsUploadNotaOpen] = useState(false);
+  const [previewFile, setPreviewFile] = useState<{ documentId: string; url?: string; error?: string; code?: string } | null>(null);
+  const [previewReload, setPreviewReload] = useState(0);
+  const [isRestoringFile, setIsRestoringFile] = useState(false);
+  const [restoreError, setRestoreError] = useState('');
+  const hasPreviewAttachment = Boolean(previewDoc && (previewDoc.storageBackend === 'hostinger' || previewDoc.fileDataUrl));
+  const currentPreviewFile = previewFile?.documentId === previewDoc?.id ? previewFile : null;
+
+  useEffect(() => {
+    setRestoreError('');
+    if (!previewDoc || !hasPreviewAttachment) {
+      setPreviewFile(null);
+      return;
+    }
+    const controller = new AbortController();
+    let objectUrl: string | undefined;
+    setPreviewFile(null);
+    fetchDocumentFile(previewDoc, controller.signal).then(blob => {
+      if (controller.signal.aborted) return;
+      objectUrl = URL.createObjectURL(blob);
+      setPreviewFile({ documentId: previewDoc.id, url: objectUrl });
+    }).catch(error => {
+      if (controller.signal.aborted) return;
+      setPreviewFile({
+        documentId: previewDoc.id,
+        error: error instanceof Error ? error.message : 'Gagal membuka lampiran dokumen.',
+        code: error instanceof DocumentFileError ? error.code : undefined
+      });
+    });
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [previewDoc, hasPreviewAttachment, previewReload]);
+
+  const handleRestoreFile = async (doc: DocumentItem, file: File) => {
+    setIsRestoringFile(true);
+    setRestoreError('');
+    try {
+      const response = await fetch(`/api/documents/${encodeURIComponent(doc.id)}/file`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': file.type || 'application/octet-stream',
+          'X-File-Name': encodeURIComponent(file.name)
+        },
+        body: file
+      });
+      const result = await response.json();
+      if (!response.ok || result.success !== true) {
+        throw new Error(result.error || 'Gagal memulihkan lampiran. Silakan coba lagi.');
+      }
+      setPreviewReload(value => value + 1);
+    } catch (error) {
+      setRestoreError(error instanceof Error ? error.message : 'Gagal memulihkan lampiran.');
+    } finally {
+      setIsRestoringFile(false);
+    }
+  };
 
   const normalizedSearch = search.trim().toLowerCase();
 
@@ -175,18 +233,21 @@ export const DocumentsView: React.FC = () => {
     }
   };
 
-  const handleDownloadDoc = (doc: DocumentItem) => {
-    if (doc.storageBackend === 'hostinger') {
-      window.open(`/api/documents/${encodeURIComponent(doc.id)}/file?download=1`, '_blank', 'noopener');
-      return;
-    }
-    if (doc.fileDataUrl) {
-      const link = document.createElement('a');
-      link.href = doc.fileDataUrl;
-      link.download = doc.fileName || `${doc.nomorDokumen.replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+  const handleDownloadDoc = async (doc: DocumentItem) => {
+    if (doc.storageBackend === 'hostinger' || doc.fileDataUrl) {
+      try {
+        const blob = await fetchDocumentFile(doc);
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = doc.fileName || `${doc.nomorDokumen.replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      } catch (error) {
+        window.alert(error instanceof Error ? error.message : 'Gagal mengunduh lampiran dokumen.');
+      }
     } else {
       // Generate official text document
       const docContent = `==========================================================\nBADAN PUSAT STATISTIK KABUPATEN MINAHASA UTARA\nARSIP DOKUMEN ELEKTRONIK SIMAN-BMN TA 2026\n==========================================================\n\nNomor Dokumen : ${doc.nomorDokumen}\nJudul Berkas  : ${doc.judul}\nJenis         : ${doc.jenis}\nTanggal       : ${doc.tanggal}\nStatus        : ${doc.status}\nPengunggah    : ${doc.uploader}\n\nTelah diregistrasi sah dan terarsip dalam database BPS Minahasa Utara.`;
@@ -705,15 +766,48 @@ export const DocumentsView: React.FC = () => {
 
               {/* Bukti Berkas Fisik: Image, PDF, or Other Format */}
               {(() => {
-                const fileUrl = previewDoc.storageBackend === 'hostinger'
-                  ? `/api/documents/${encodeURIComponent(previewDoc.id)}/file`
-                  : previewDoc.fileDataUrl;
+                const fileUrl = currentPreviewFile?.url;
                 const isImage =
                   previewDoc.fileType?.startsWith('image/') ||
                   /\.(jpe?g|png|webp|gif|bmp)$/i.test(previewDoc.fileName || '');
                 const isPdf =
                   previewDoc.fileType === 'application/pdf' ||
                   /\.pdf$/i.test(previewDoc.fileName || '');
+
+                if (hasPreviewAttachment && !fileUrl) {
+                  return (
+                    <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-3" role="status">
+                      {!currentPreviewFile?.error ? (
+                        <p className="text-xs text-slate-300">Memuat berkas lampiran...</p>
+                      ) : (
+                        <>
+                          <p className="font-semibold text-amber-300 text-sm">Lampiran belum dapat dibuka</p>
+                          <p className="text-xs text-slate-300">{currentPreviewFile.error}</p>
+                          <button type="button" disabled={isRestoringFile}
+                            onClick={() => setPreviewReload(value => value + 1)}
+                            className="px-3 py-2 bg-slate-800 text-blue-300 text-xs rounded-lg disabled:opacity-50">
+                            Coba Lagi
+                          </button>
+                          {canManageDocuments && currentPreviewFile.code === 'DOCUMENT_FILE_MISSING' && (
+                            <label className="block text-xs text-slate-300 space-y-2">
+                              <span>Unggah ulang berkas asli yang sama. Nomor nota dan rincian barang tidak berubah.</span>
+                              <input type="file" disabled={isRestoringFile}
+                                accept={previewDoc.fileType || undefined}
+                                onChange={event => {
+                                  const file = event.target.files?.[0];
+                                  event.target.value = '';
+                                  if (file) void handleRestoreFile(previewDoc, file);
+                                }}
+                                className="block w-full text-xs text-slate-300" />
+                            </label>
+                          )}
+                          {isRestoringFile && <p className="text-xs text-blue-300">Memulihkan lampiran dan cadangan MySQL...</p>}
+                          {restoreError && <p role="alert" className="text-xs text-red-300">{restoreError}</p>}
+                        </>
+                      )}
+                    </div>
+                  );
+                }
 
                 if (isImage && fileUrl) {
                   return (
@@ -738,6 +832,7 @@ export const DocumentsView: React.FC = () => {
                           src={fileUrl}
                           alt={previewDoc.judul}
                           className="max-h-[460px] w-auto max-w-full object-contain rounded-md"
+                          onError={() => setPreviewFile({ documentId: previewDoc.id, error: 'Gambar tidak dapat ditampilkan. Coba lagi atau hubungi administrator untuk memeriksa berkas asli.' })}
                         />
                       </div>
                     </div>
@@ -827,24 +922,25 @@ export const DocumentsView: React.FC = () => {
                 Tutup
               </button>
               <button
+                disabled={hasPreviewAttachment && !currentPreviewFile?.url}
                 onClick={() => {
-                  if (previewDoc.storageBackend === 'hostinger') {
-                    window.open(`/api/documents/${encodeURIComponent(previewDoc.id)}/file`, '_blank', 'noopener');
+                  if (currentPreviewFile?.url) {
+                    window.open(currentPreviewFile.url, '_blank', 'noopener');
                   } else {
                     handleDownloadDoc(previewDoc);
                   }
                 }}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl flex items-center gap-1.5"
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl flex items-center gap-1.5 disabled:opacity-50"
               >
                 <Eye className="w-3.5 h-3.5" />
                 <span>Lihat Dokumen</span>
               </button>
               <button
+                disabled={hasPreviewAttachment && !currentPreviewFile?.url}
                 onClick={() => {
-                  handleDownloadDoc(previewDoc);
-                  setPreviewDoc(null);
+                  void handleDownloadDoc(previewDoc);
                 }}
-                className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded-xl flex items-center gap-1.5"
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 disabled:opacity-50"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>Unduh</span>
