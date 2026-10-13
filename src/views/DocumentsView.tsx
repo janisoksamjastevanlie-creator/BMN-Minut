@@ -427,7 +427,7 @@ export const DocumentsView: React.FC = () => {
                               Rp {Number(item.hargaSatuan || 0).toLocaleString('id-ID')}
                             </td>
                             <td className="py-1.5 px-2 text-right font-semibold text-emerald-400">
-                              Rp {Number(item.subtotal || 0).toLocaleString('id-ID')}
+                              Rp {Number(item.subtotal !== undefined ? item.subtotal : item.totalHarga || 0).toLocaleString('id-ID')}
                             </td>
                           </tr>
                         ))}
@@ -438,7 +438,7 @@ export const DocumentsView: React.FC = () => {
                           <td className="py-2 px-2 text-right text-amber-300">
                             Rp {(
                               previewDoc.totalNilaiNota ||
-                              previewDoc.items.reduce((acc, it) => acc + (Number(it.subtotal) || 0), 0)
+                              previewDoc.items.reduce((acc, it) => acc + (Number(it.subtotal !== undefined ? it.subtotal : it.totalHarga) || 0), 0)
                             ).toLocaleString('id-ID')}
                           </td>
                         </tr>

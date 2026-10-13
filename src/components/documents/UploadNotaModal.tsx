@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { DocumentItem, InventoryType, ReceiptItem } from '../../types';
 import confetti from 'canvas-confetti';
@@ -16,7 +16,11 @@ import {
   AlertCircle,
   HelpCircle,
   Tag,
-  DollarSign
+  DollarSign,
+  Camera,
+  RotateCcw,
+  Check,
+  SwitchCamera
 } from 'lucide-react';
 
 interface UploadNotaModalProps {
@@ -84,6 +88,238 @@ export const UploadNotaModal: React.FC<UploadNotaModalProps> = ({ isOpen, onClos
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const [isSuccess, setIsSuccess] = useState(false);
+
+  // Camera State & Refs
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [isCameraLoading, setIsCameraLoading] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [capturedPreviewUrl, setCapturedPreviewUrl] = useState<string | null>(null);
+  const [capturedBlob, setCapturedBlob] = useState<Blob | null>(null);
+  const [availableCameras, setAvailableCameras] = useState<MediaDeviceInfo[]>([]);
+  const [currentCameraId, setCurrentCameraId] = useState<string>('');
+
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => {
+        try {
+          track.stop();
+        } catch {
+          // ignore
+        }
+      });
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setIsCameraOpen(false);
+    setIsCameraLoading(false);
+    setCameraError(null);
+    if (capturedPreviewUrl) {
+      URL.revokeObjectURL(capturedPreviewUrl);
+      setCapturedPreviewUrl(null);
+    }
+    setCapturedBlob(null);
+  };
+
+  const handleModalClose = () => {
+    stopCamera();
+    onClose();
+  };
+
+  useEffect(() => {
+    if (!isOpen) {
+      stopCamera();
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => {
+          try {
+            track.stop();
+          } catch {
+            // ignore
+          }
+        });
+        streamRef.current = null;
+      }
+      if (capturedPreviewUrl) {
+        URL.revokeObjectURL(capturedPreviewUrl);
+      }
+    };
+  }, [capturedPreviewUrl]);
+
+  // Keep video source in sync when video element mounts or camera stream is updated
+  useEffect(() => {
+    if (isCameraOpen && !capturedPreviewUrl && videoRef.current && streamRef.current) {
+      if (videoRef.current.srcObject !== streamRef.current) {
+        videoRef.current.srcObject = streamRef.current;
+        videoRef.current.play().catch(() => {});
+      }
+    }
+  }, [isCameraOpen, capturedPreviewUrl, isCameraLoading]);
+
+  const startCamera = async (deviceId?: string) => {
+    setCameraError(null);
+    setIsCameraLoading(true);
+    setIsCameraOpen(true);
+    if (capturedPreviewUrl) {
+      URL.revokeObjectURL(capturedPreviewUrl);
+      setCapturedPreviewUrl(null);
+    }
+    setCapturedBlob(null);
+
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => {
+        try {
+          track.stop();
+        } catch {
+          // ignore
+        }
+      });
+      streamRef.current = null;
+    }
+
+    if (!navigator?.mediaDevices?.getUserMedia) {
+      setIsCameraLoading(false);
+      setCameraError(
+        'Browser Anda tidak mendukung akses kamera langsung atau koneksi tidak berada pada secure context (HTTPS/localhost).'
+      );
+      return;
+    }
+
+    try {
+      const constraints: MediaStreamConstraints = {
+        video: deviceId
+          ? { deviceId: { exact: deviceId } }
+          : {
+              facingMode: { ideal: 'environment' },
+              width: { ideal: 1920 },
+              height: { ideal: 1080 }
+            },
+        audio: false
+      };
+
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (err: any) {
+        if (!deviceId) {
+          // Fallback to basic video track if environment constraint is unsupported
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        } else {
+          throw err;
+        }
+      }
+
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play().catch(() => {});
+      }
+
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(d => d.kind === 'videoinput');
+        setAvailableCameras(videoDevices);
+        const activeTrack = stream.getVideoTracks()[0];
+        const activeSettings = activeTrack?.getSettings();
+        if (activeSettings?.deviceId) {
+          setCurrentCameraId(activeSettings.deviceId);
+        }
+      } catch {
+        // Ignore enumerateDevices error
+      }
+    } catch (err: any) {
+      let msg = 'Gagal mengakses kamera.';
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        msg = 'Izin akses kamera ditolak. Silakan izinkan akses kamera di pengaturan browser atau gunakan tombol "Pilih File".';
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        msg = 'Tidak ditemukan perangkat kamera pada perangkat ini. Silakan gunakan opsi "Pilih File".';
+      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+        msg = 'Kamera sedang digunakan oleh aplikasi lain. Tutup aplikasi tersebut dan coba lagi.';
+      } else if (err.name === 'OverconstrainedError') {
+        msg = 'Konfigurasi kamera tidak didukung oleh perangkat.';
+      } else if (err.message) {
+        msg = `Akses kamera gagal: ${err.message}`;
+      }
+      setCameraError(msg);
+    } finally {
+      setIsCameraLoading(false);
+    }
+  };
+
+  const handleSwitchCamera = () => {
+    if (availableCameras.length <= 1) return;
+    const currentIndex = availableCameras.findIndex(c => c.deviceId === currentCameraId);
+    const nextIndex = (currentIndex + 1) % availableCameras.length;
+    const nextCamera = availableCameras[nextIndex];
+    if (nextCamera) {
+      setCurrentCameraId(nextCamera.deviceId);
+      startCamera(nextCamera.deviceId);
+    }
+  };
+
+  const handleCapturePhoto = () => {
+    if (!videoRef.current) return;
+    const video = videoRef.current;
+    const width = video.videoWidth || 1280;
+    const height = video.videoHeight || 720;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.drawImage(video, 0, 0, width, height);
+
+    canvas.toBlob(
+      blob => {
+        if (!blob) {
+          setCameraError('Gagal memproses hasil jepretan kamera.');
+          return;
+        }
+        const previewUrl = URL.createObjectURL(blob);
+        setCapturedBlob(blob);
+        setCapturedPreviewUrl(previewUrl);
+        video.pause();
+      },
+      'image/jpeg',
+      0.9
+    );
+  };
+
+  const handleRetakePhoto = () => {
+    if (capturedPreviewUrl) {
+      URL.revokeObjectURL(capturedPreviewUrl);
+      setCapturedPreviewUrl(null);
+    }
+    setCapturedBlob(null);
+    if (videoRef.current) {
+      videoRef.current.play().catch(() => {});
+    }
+  };
+
+  const handleUsePhoto = () => {
+    if (!capturedBlob) return;
+    const timestamp = new Date()
+      .toISOString()
+      .replace(/[-:T.]/g, '')
+      .slice(0, 14);
+    const fileName = `nota_kamera_${timestamp}.jpg`;
+    const file = new File([capturedBlob], fileName, { type: 'image/jpeg' });
+    handleFile(file);
+    stopCamera();
+  };
+
+  const handleCancelCamera = () => {
+    stopCamera();
+  };
 
   // Suggestions from master inventory
   const inventorySuggestions = useMemo(() => {
@@ -309,7 +545,7 @@ export const UploadNotaModal: React.FC<UploadNotaModalProps> = ({ isOpen, onClos
           </div>
 
           <button
-            onClick={onClose}
+            onClick={handleModalClose}
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
           >
             <X className="w-5 h-5" />
@@ -362,7 +598,7 @@ export const UploadNotaModal: React.FC<UploadNotaModalProps> = ({ isOpen, onClos
                 </button>
                 <button
                   type="button"
-                  onClick={onClose}
+                  onClick={handleModalClose}
                   className="px-5 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-amber-600/30"
                 >
                   Selesai & Tutup
@@ -596,77 +832,306 @@ export const UploadNotaModal: React.FC<UploadNotaModalProps> = ({ isOpen, onClos
 
               {/* Upload Bukti Berkas Fisik Nota */}
               <div className="space-y-2">
-                <label className="block text-xs font-semibold text-slate-300">
-                  Bukti Berkas Fisik Nota / Kuitansi (PDF / Gambar) <span className="text-rose-400">*</span>
-                </label>
-                {!selectedFile ? (
-                  <div
-                    onDragOver={e => {
-                      e.preventDefault();
-                      setIsDragging(true);
-                    }}
-                    onDragLeave={() => setIsDragging(false)}
-                    onDrop={e => {
-                      e.preventDefault();
-                      setIsDragging(false);
-                      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-                        handleFile(e.dataTransfer.files[0]);
-                      }
-                    }}
-                    onClick={() => fileInputRef.current?.click()}
-                    className={`p-5 border-2 border-dashed rounded-xl text-center cursor-pointer transition-all ${
-                      isDragging
-                        ? 'border-amber-500 bg-amber-500/10'
-                        : 'border-slate-700 hover:border-slate-600 bg-slate-950/60 hover:bg-slate-950'
-                    }`}
-                  >
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept=".pdf,.png,.jpg,.jpeg"
-                      className="hidden"
-                      onChange={e => {
-                        if (e.target.files && e.target.files.length > 0) {
-                          handleFile(e.target.files[0]);
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-semibold text-slate-300">
+                    Bukti Berkas Fisik Nota / Kuitansi (PDF / Gambar) <span className="text-rose-400">*</span>
+                  </label>
+                  {!isCameraOpen && (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          fileInputRef.current?.click();
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-semibold flex items-center gap-1.5 transition-colors border border-slate-700"
+                      >
+                        <UploadCloud className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Pilih File</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => startCamera()}
+                        className="px-2.5 py-1 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-[11px] font-semibold flex items-center gap-1.5 transition-colors"
+                      >
+                        <Camera className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Ambil Foto dengan Kamera</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.png,.jpg,.jpeg"
+                  className="hidden"
+                  onChange={e => {
+                    if (e.target.files && e.target.files.length > 0) {
+                      handleFile(e.target.files[0]);
+                    }
+                  }}
+                />
+
+                {isCameraOpen ? (
+                  <div className="p-4 bg-slate-950 border border-emerald-500/40 rounded-xl space-y-3 animate-in fade-in duration-200">
+                    {/* Header Sesi Kamera */}
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="relative flex h-2.5 w-2.5">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                        </span>
+                        <span className="text-xs font-bold text-white">
+                          {capturedPreviewUrl ? 'Pratinjau Hasil Foto' : 'Kamera Aktif'}
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-mono">
+                          {capturedPreviewUrl ? '(Periksa Kejelasan)' : '(Utamakan Kamera Belakang HP)'}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {!capturedPreviewUrl && availableCameras.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={handleSwitchCamera}
+                            className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-semibold flex items-center gap-1 transition-colors border border-slate-700"
+                            title="Ganti Kamera Depan/Belakang"
+                          >
+                            <SwitchCamera className="w-3.5 h-3.5 text-cyan-400" />
+                            <span>Ganti Kamera</span>
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={handleCancelCamera}
+                          className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                          title="Tutup Kamera"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Viewport Kamera / Hasil Foto */}
+                    {isCameraLoading ? (
+                      <div className="h-64 flex flex-col items-center justify-center gap-2 bg-slate-900 rounded-lg text-slate-400 text-xs">
+                        <div className="w-6 h-6 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+                        <span>Mengaktifkan kamera perangkat...</span>
+                      </div>
+                    ) : cameraError ? (
+                      <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-lg text-xs space-y-2 text-rose-300">
+                        <div className="flex items-center gap-2 font-semibold text-rose-400">
+                          <AlertCircle className="w-4 h-4 shrink-0" />
+                          <span>Gagal Membuka Kamera</span>
+                        </div>
+                        <p>{cameraError}</p>
+                        <div className="pt-2 flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => startCamera()}
+                            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded-lg font-semibold"
+                          >
+                            Coba Lagi
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              stopCamera();
+                              fileInputRef.current?.click();
+                            }}
+                            className="px-3 py-1.5 bg-amber-600/30 hover:bg-amber-600/40 text-amber-200 border border-amber-500/30 text-xs rounded-lg font-semibold"
+                          >
+                            Gunakan Pilih File
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="relative bg-black rounded-xl overflow-hidden border border-slate-800 flex items-center justify-center min-h-[220px] max-h-80 sm:max-h-96">
+                        {capturedPreviewUrl && (
+                          <img
+                            src={capturedPreviewUrl}
+                            alt="Pratinjau Hasil Foto Nota"
+                            className="w-full max-h-80 sm:max-h-96 object-contain"
+                          />
+                        )}
+                        <video
+                          ref={videoRef}
+                          autoPlay
+                          playsInline
+                          muted
+                          className={`w-full max-h-80 sm:max-h-96 object-contain bg-black ${capturedPreviewUrl ? 'hidden' : ''}`}
+                        />
+                      </div>
+                    )}
+
+                    {/* Tombol Kontrol Kamera & Konfirmasi */}
+                    {!isCameraLoading && !cameraError && (
+                      <div className="flex flex-col sm:flex-row items-center justify-between gap-2 pt-1">
+                        {capturedPreviewUrl ? (
+                          <>
+                            <p className="text-[11px] text-slate-400 text-center sm:text-left">
+                              Pastikan rincian tulisan & angka pada nota terbaca dengan jelas.
+                            </p>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={handleRetakePhoto}
+                                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-colors border border-slate-700"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+                                <span>Ulangi</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleUsePhoto}
+                                className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-lg shadow-emerald-600/30 transition-all"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                                <span>Gunakan Foto</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleCancelCamera}
+                                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white text-xs rounded-xl"
+                              >
+                                Batal
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-[11px] text-slate-400 text-center sm:text-left">
+                              Posisikan nota pada bidang datar & pencahayaan cukup.
+                            </p>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={handleCancelCamera}
+                                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl transition-colors"
+                              >
+                                Batal
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleCapturePhoto}
+                                className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-lg shadow-emerald-600/30 transition-all"
+                              >
+                                <Camera className="w-4 h-4" />
+                                <span>Ambil Foto</span>
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : !selectedFile ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* Opsi 1: Pilih File dari Perangkat */}
+                    <div
+                      onDragOver={e => {
+                        e.preventDefault();
+                        setIsDragging(true);
+                      }}
+                      onDragLeave={() => setIsDragging(false)}
+                      onDrop={e => {
+                        e.preventDefault();
+                        setIsDragging(false);
+                        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                          handleFile(e.dataTransfer.files[0]);
                         }
                       }}
-                    />
-                    <UploadCloud className="w-8 h-8 text-amber-400 mx-auto mb-2" />
-                    <p className="text-xs font-semibold text-white">
-                      Klik untuk memilih berkas foto/scan nota atau seret ke sini
-                    </p>
-                    <p className="text-[11px] text-slate-400 mt-1">
-                      Mendukung PDF, JPG, PNG (Maksimal 15 MB)
-                    </p>
+                      onClick={() => fileInputRef.current?.click()}
+                      className={`p-4 border-2 border-dashed rounded-xl text-center cursor-pointer transition-all flex flex-col items-center justify-center min-h-[130px] ${
+                        isDragging
+                          ? 'border-amber-500 bg-amber-500/10'
+                          : 'border-slate-700 hover:border-slate-600 bg-slate-950/60 hover:bg-slate-950'
+                      }`}
+                    >
+                      <UploadCloud className="w-7 h-7 text-amber-400 mb-1.5" />
+                      <p className="text-xs font-semibold text-white">
+                        Pilih File dari Perangkat
+                      </p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        PDF, JPG, PNG (Maksimal 15 MB)
+                      </p>
+                      <span className="mt-2 text-[10px] text-amber-300/80 font-mono">
+                        Klik untuk memilih berkas atau seret ke sini
+                      </span>
+                    </div>
+
+                    {/* Opsi 2: Ambil Foto dengan Kamera */}
+                    <div
+                      onClick={() => startCamera()}
+                      className="p-4 border-2 border-dashed border-emerald-500/40 hover:border-emerald-500 rounded-xl text-center cursor-pointer transition-all bg-emerald-950/10 hover:bg-emerald-950/25 flex flex-col items-center justify-center min-h-[130px] group"
+                    >
+                      <div className="w-9 h-9 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center mb-1.5 group-hover:scale-110 transition-transform">
+                        <Camera className="w-5 h-5" />
+                      </div>
+                      <p className="text-xs font-semibold text-emerald-300">
+                        Ambil Foto dengan Kamera
+                      </p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        Potret langsung nota / kuitansi fisik
+                      </p>
+                      <span className="mt-2 text-[10px] text-emerald-400/80 font-mono">
+                        Kamera Belakang HP / Webcam
+                      </span>
+                    </div>
                   </div>
                 ) : (
-                  <div className="p-3 bg-slate-950 border border-slate-700 rounded-xl flex items-center justify-between">
-                    <div className="flex items-center gap-2.5">
+                  <div className="p-3.5 bg-slate-950 border border-slate-700 rounded-xl flex items-center justify-between">
+                    <div className="flex items-center gap-3">
                       {selectedFile.type.includes('pdf') ? (
-                        <FileText className="w-6 h-6 text-rose-400" />
+                        <FileText className="w-7 h-7 text-rose-400 shrink-0" />
                       ) : (
-                        <FileImage className="w-6 h-6 text-amber-400" />
+                        <FileImage className="w-7 h-7 text-amber-400 shrink-0" />
                       )}
                       <div>
-                        <div className="text-xs font-bold text-white truncate max-w-sm">
+                        <div className="text-xs font-bold text-white truncate max-w-sm sm:max-w-md">
                           {selectedFile.name}
                         </div>
-                        <div className="text-[10px] text-slate-400">
-                          {(selectedFile.size / 1024).toFixed(1)} KB • Siap diunggah
+                        <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5">
+                          <span>{(selectedFile.size / 1024).toFixed(1)} KB</span>
+                          <span>•</span>
+                          <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3" /> Siap diunggah
+                          </span>
                         </div>
                       </div>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedFile(null);
-                        uploadKeyRef.current = '';
-                      }}
-                      className="p-1 rounded text-slate-400 hover:text-rose-400"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => startCamera()}
+                        className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-semibold flex items-center gap-1 transition-colors border border-slate-700"
+                        title="Potret Ulang dengan Kamera"
+                      >
+                        <Camera className="w-3.5 h-3.5 text-emerald-400" />
+                        <span className="hidden sm:inline">Foto Ulang</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-semibold flex items-center gap-1 transition-colors border border-slate-700"
+                        title="Ganti Berkas File"
+                      >
+                        <UploadCloud className="w-3.5 h-3.5 text-amber-400" />
+                        <span className="hidden sm:inline">Ganti File</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedFile(null);
+                          uploadKeyRef.current = '';
+                        }}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition-colors"
+                        title="Hapus Lampiran"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -696,7 +1161,7 @@ export const UploadNotaModal: React.FC<UploadNotaModalProps> = ({ isOpen, onClos
               <div className="pt-2 border-t border-slate-800 flex items-center justify-end gap-3">
                 <button
                   type="button"
-                  onClick={onClose}
+                  onClick={handleModalClose}
                   disabled={isUploading}
                   className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl transition-colors"
                 >

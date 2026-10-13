@@ -307,6 +307,7 @@ export interface ReceiptItem {
   jumlah: number;
   hargaSatuan: number;
   totalHarga: number;
+  subtotal?: number;
 }
 
 export interface DocumentItem {
