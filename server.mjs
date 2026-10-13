@@ -299,7 +299,74 @@ function parseDocumentUploadMetadata(request) {
       tags.some(tag => typeof tag !== 'string' || tag.length > 80)) {
     throw new DocumentUploadError('Lengkapi metadata dokumen dengan format yang valid.');
   }
-  return { title, category, number, date, status, description, tags: tags.map(tag => tag.trim()).filter(Boolean) };
+
+  let namaToko;
+  let kategoriNota;
+  let totalNilaiNota;
+  let receiptItems;
+  if (category === 'Nota') {
+    namaToko = String(metadata.namaToko || '').trim();
+    kategoriNota = String(metadata.kategoriNota || '').trim();
+    if (kategoriNota && !['ATK', 'ARK'].includes(kategoriNota)) {
+      throw new DocumentUploadError('Kategori nota harus ATK atau ARK.');
+    }
+    if (metadata.items !== undefined) {
+      if (!Array.isArray(metadata.items)) {
+        throw new DocumentUploadError('Daftar barang nota tidak valid.');
+      }
+      receiptItems = metadata.items.map((item, idx) => {
+        const namaBarang = String(item?.namaBarang || '').trim();
+        const kategori = String(item?.kategori || kategoriNota || 'ATK').trim();
+        const satuan = String(item?.satuan || '').trim();
+        const jumlah = Number(item?.jumlah);
+        const hargaSatuan = Number(item?.hargaSatuan);
+        const totalHarga = Number(item?.totalHarga != null ? item.totalHarga : (jumlah * hargaSatuan));
+        if (!namaBarang || namaBarang.length > 200) {
+          throw new DocumentUploadError(`Nama barang pada baris ${idx + 1} tidak valid.`);
+        }
+        if (!['ATK', 'ARK'].includes(kategori)) {
+          throw new DocumentUploadError(`Kategori barang pada baris ${idx + 1} harus ATK atau ARK.`);
+        }
+        if (!satuan || satuan.length > 30) {
+          throw new DocumentUploadError(`Satuan barang pada baris ${idx + 1} tidak valid.`);
+        }
+        if (!Number.isSafeInteger(jumlah) || jumlah <= 0) {
+          throw new DocumentUploadError(`Jumlah barang pada baris ${idx + 1} harus bilangan bulat positif.`);
+        }
+        if (!Number.isFinite(hargaSatuan) || hargaSatuan < 0) {
+          throw new DocumentUploadError(`Harga satuan pada baris ${idx + 1} tidak valid.`);
+        }
+        return {
+          id: String(item?.id || crypto.randomUUID()),
+          itemId: item?.itemId ? String(item.itemId).trim() : undefined,
+          namaBarang,
+          kategori,
+          satuan,
+          jumlah,
+          hargaSatuan,
+          totalHarga: Number.isFinite(totalHarga) && totalHarga >= 0 ? totalHarga : (jumlah * hargaSatuan)
+        };
+      });
+      totalNilaiNota = receiptItems.reduce((acc, it) => acc + it.totalHarga, 0);
+    } else if (metadata.totalNilaiNota != null) {
+      const val = Number(metadata.totalNilaiNota);
+      if (Number.isFinite(val) && val >= 0) totalNilaiNota = val;
+    }
+  }
+
+  return {
+    title,
+    category,
+    number,
+    date,
+    status,
+    description,
+    tags: tags.map(tag => tag.trim()).filter(Boolean),
+    namaToko: namaToko || undefined,
+    kategoriNota: kategoriNota || undefined,
+    totalNilaiNota: totalNilaiNota != null ? totalNilaiNota : undefined,
+    items: receiptItems
+  };
 }
 
 function parseUploadKey(request) {
@@ -348,14 +415,35 @@ async function persistHostDocument(document, auditLog) {
       await execute(connection, `
         INSERT INTO documents
           (id, nomor_dokumen, judul, jenis, tanggal, tahun, file_size, uploader, status, tags_json,
-           storage_backend, storage_key, storage_size_bytes, sha256, file_name, mime_type, uploaded_at, description, idempotency_key)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           storage_backend, storage_key, storage_size_bytes, sha256, file_name, mime_type, uploaded_at, description, idempotency_key,
+           nama_toko, kategori_nota, total_nilai_nota)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
         document.id, document.nomorDokumen, document.judul, document.jenis, document.tanggal,
         document.tahun, document.fileSize, document.uploader, document.status, JSON.stringify(document.tags),
         document.storageBackend, document.storageKey, document.storageSize, document.sha256, document.fileName, document.fileType, new Date(document.uploadedAt),
-        document.description || null, document.idempotencyKey
+        document.description || null, document.idempotencyKey,
+        document.namaToko || null, document.kategoriNota || null, document.totalNilaiNota != null ? document.totalNilaiNota : null
       ]);
+      if (Array.isArray(document.items) && document.items.length > 0) {
+        for (const item of document.items) {
+          await execute(connection, `
+            INSERT INTO document_receipt_items
+              (id, document_id, item_id, nama_barang, kategori, satuan, jumlah, harga_satuan, total_harga)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `, [
+            item.id || crypto.randomUUID(),
+            document.id,
+            item.itemId || null,
+            item.namaBarang,
+            item.kategori,
+            item.satuan,
+            item.jumlah,
+            item.hargaSatuan,
+            item.totalHarga
+          ]);
+        }
+      }
       await execute(connection, `
         INSERT INTO audit_logs (id, user_id, user_name, user_role, aktivitas, modul, tanggal, waktu, ip_address, detail)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1245,7 +1333,11 @@ app.post('/api/documents', requireUser, asyncRoute(async (request, response) => 
     sha256: fileSha256,
     description: metadata.description || undefined,
     uploadedAt: new Date().toISOString(),
-    idempotencyKey: uploadKey
+    idempotencyKey: uploadKey,
+    namaToko: metadata.namaToko,
+    kategoriNota: metadata.kategoriNota,
+    totalNilaiNota: metadata.totalNilaiNota,
+    items: metadata.items
   };
   const auditLog = documentAuditRecord(request.user, document, new Date(document.uploadedAt), request.ip);
   try {

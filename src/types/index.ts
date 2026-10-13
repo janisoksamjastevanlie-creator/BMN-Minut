@@ -298,6 +298,17 @@ export interface StockOpnameItem {
   statusPenyesuaian?: 'Belum' | 'Disesuaikan';
 }
 
+export interface ReceiptItem {
+  id: string;
+  itemId?: string;
+  namaBarang: string;
+  kategori: InventoryType; // 'ATK' | 'ARK'
+  satuan: string;
+  jumlah: number;
+  hargaSatuan: number;
+  totalHarga: number;
+}
+
 export interface DocumentItem {
   id: string;
   nomorDokumen: string;
@@ -319,6 +330,11 @@ export interface DocumentItem {
   sha256?: string;
   uploadedAt?: string;
   idempotencyKey?: string;
+  // Metadata khusus Nota Belanja ATK / ARK
+  namaToko?: string;
+  kategoriNota?: InventoryType; // 'ATK' | 'ARK'
+  totalNilaiNota?: number;
+  items?: ReceiptItem[];
 }
 
 export interface AuditLog {

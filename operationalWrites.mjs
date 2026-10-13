@@ -916,12 +916,36 @@ async function writeDocuments(executor, previous, next) {
       nullableText(document.fileType, 'Document MIME type', 127),
       document.uploadedAt || null,
       nullableText(document.description, 'Document description', 65_535),
-      nullableText(document.idempotencyKey, 'Document idempotency key', 36)
+      nullableText(document.idempotencyKey, 'Document idempotency key', 36),
+      nullableText(document.namaToko, 'Store name', 150),
+      nullableText(document.kategoriNota, 'Receipt category', 10),
+      document.totalNilaiNota == null ? null : assertNumber(document.totalNilaiNota, 'Total receipt amount', false, 0)
     ];
     if (!previousDocument || stable(previousDocument) !== stable(document)) {
       await upsert(executor, 'documents',
-        ['id', 'nomor_dokumen', 'judul', 'jenis', 'tanggal', 'tahun', 'file_size', 'uploader', 'status', 'tags_json', 'storage_backend', 'storage_key', 'storage_size_bytes', 'sha256', 'file_name', 'mime_type', 'uploaded_at', 'description', 'idempotency_key'],
+        ['id', 'nomor_dokumen', 'judul', 'jenis', 'tanggal', 'tahun', 'file_size', 'uploader', 'status', 'tags_json', 'storage_backend', 'storage_key', 'storage_size_bytes', 'sha256', 'file_name', 'mime_type', 'uploaded_at', 'description', 'idempotency_key', 'nama_toko', 'kategori_nota', 'total_nilai_nota'],
         values);
+      if (document.items !== undefined) {
+        await execute(executor, 'DELETE FROM document_receipt_items WHERE document_id = ?', [document.id]);
+        if (Array.isArray(document.items)) {
+          for (const item of document.items) {
+            await upsert(executor, 'document_receipt_items',
+              ['id', 'document_id', 'item_id', 'nama_barang', 'kategori', 'satuan', 'jumlah', 'harga_satuan', 'total_harga'],
+              [
+                assertId(item.id || uuidFromKey(`${document.id}:${item.namaBarang}`), 'Receipt item ID'),
+                document.id,
+                item.itemId ? assertId(item.itemId, 'Receipt item reference ID') : null,
+                assertText(item.namaBarang, 'Receipt item name', 200),
+                assertText(item.kategori || document.kategoriNota || 'ATK', 'Receipt item category', 10),
+                assertText(item.satuan, 'Receipt item unit', 30),
+                assertNumber(item.jumlah, 'Receipt item quantity', true, 1),
+                assertNumber(item.hargaSatuan, 'Receipt item unit price', false, 0),
+                assertNumber(item.totalHarga !== undefined ? item.totalHarga : item.subtotal, 'Receipt item total price', false, 0)
+              ]
+            );
+          }
+        }
+      }
     }
     const file = document.storageBackend === 'hostinger' ? null : parseDataUrl(document);
     if (file && (!previousDocument ||

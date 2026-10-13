@@ -626,17 +626,34 @@ export async function readOperationalState(executor) {
     penyetuju: row.penyetuju || undefined
   }));
 
-  const [documentRows, documentFiles] = await Promise.all([
+  const [documentRows, documentFiles, receiptItemRows] = await Promise.all([
     queryRows(executor, 'SELECT * FROM documents ORDER BY tanggal DESC, id'),
-    queryRows(executor, 'SELECT * FROM document_files')
+    queryRows(executor, 'SELECT * FROM document_files'),
+    queryRows(executor, 'SELECT * FROM document_receipt_items ORDER BY document_id, created_at, id').catch(() => [])
   ]);
   const documentFileById = new Map(documentFiles.map(file => [file.document_id, file]));
+  const receiptItemsByDocId = new Map();
+  for (const item of receiptItemRows) {
+    if (!receiptItemsByDocId.has(item.document_id)) receiptItemsByDocId.set(item.document_id, []);
+    receiptItemsByDocId.get(item.document_id).push({
+      id: item.id,
+      itemId: item.item_id || undefined,
+      namaBarang: item.nama_barang,
+      kategori: item.kategori,
+      satuan: item.satuan,
+      jumlah: numericValue(item.jumlah),
+      hargaSatuan: numericValue(item.harga_satuan),
+      totalHarga: numericValue(item.total_harga),
+      subtotal: numericValue(item.total_harga)
+    });
+  }
   state.documents = documentRows.map(row => {
     const file = documentFileById.get(row.id);
     const tags = row.tags_json == null ? [] : JSON.parse(row.tags_json);
     if (!Array.isArray(tags) || tags.some(tag => typeof tag !== 'string')) {
       throw new Error(`Invalid document tags for ${row.id}.`);
     }
+    const receiptItems = receiptItemsByDocId.get(row.id);
     return {
       id: row.id,
       nomorDokumen: row.nomor_dokumen,
@@ -657,7 +674,11 @@ export async function readOperationalState(executor) {
       storageSize: row.storage_size_bytes == null ? undefined : numericValue(row.storage_size_bytes),
       sha256: row.sha256 || undefined,
       uploadedAt: timestampValue(row.uploaded_at) || undefined,
-      idempotencyKey: row.idempotency_key || undefined
+      idempotencyKey: row.idempotency_key || undefined,
+      namaToko: row.nama_toko || undefined,
+      kategoriNota: row.kategori_nota || undefined,
+      totalNilaiNota: row.total_nilai_nota == null ? undefined : numericValue(row.total_nilai_nota),
+      items: receiptItems && receiptItems.length > 0 ? receiptItems : undefined
     };
   });
 

@@ -2,11 +2,13 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { DocumentItem } from '../types';
 import { UploadDocumentModal } from '../components/documents/UploadDocumentModal';
+import { UploadNotaModal } from '../components/documents/UploadNotaModal';
 import { ListPager, usePagedList } from '../components/common/ListPager';
 import {
   FileText,
   Search,
   Upload,
+  Receipt,
   Download,
   Eye,
   CheckCircle2,
@@ -17,7 +19,9 @@ import {
   Calendar,
   User,
   Trash2,
-  ExternalLink
+  ExternalLink,
+  Store,
+  DollarSign
 } from 'lucide-react';
 
 export const DocumentsView: React.FC = () => {
@@ -30,6 +34,7 @@ export const DocumentsView: React.FC = () => {
   const [filterType, setFilterType] = useState<string>('all');
   const [previewDoc, setPreviewDoc] = useState<DocumentItem | null>(null);
   const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [isUploadNotaOpen, setIsUploadNotaOpen] = useState(false);
 
   const filteredDocs = documents.filter(d => {
     const matchType = filterType === 'all' || d.jenis === filterType;
@@ -152,13 +157,22 @@ export const DocumentsView: React.FC = () => {
         </div>
 
         {canManageDocuments && (
-          <button
-            onClick={() => setIsUploadOpen(true)}
-            className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors shadow-lg shadow-purple-600/20 w-fit"
-          >
-            <Upload className="w-4 h-4" />
-            <span>Unggah / Import Dokumen</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsUploadNotaOpen(true)}
+              className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors shadow-lg shadow-amber-600/20 w-fit"
+            >
+              <Receipt className="w-4 h-4" />
+              <span>Upload Nota Belanja</span>
+            </button>
+            <button
+              onClick={() => setIsUploadOpen(true)}
+              className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors shadow-lg shadow-purple-600/20 w-fit"
+            >
+              <Upload className="w-4 h-4" />
+              <span>Unggah / Import Dokumen</span>
+            </button>
+          </div>
         )}
       </div>
 
@@ -309,7 +323,7 @@ export const DocumentsView: React.FC = () => {
       {/* Document Preview Modal */}
       {previewDoc && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-150">
-          <div className="w-full max-w-xl bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+          <div className="w-full max-w-2xl bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-4 border-b border-slate-800 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <FileText className="w-5 h-5 text-purple-400" />
@@ -323,12 +337,32 @@ export const DocumentsView: React.FC = () => {
               </button>
             </div>
 
-            <div className="p-6 space-y-4 text-xs">
+            <div className="p-6 space-y-4 text-xs overflow-y-auto">
               <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-2">
                 <div className="flex justify-between">
                   <span className="text-slate-400">Jenis Dokumen:</span>
                   <span className="font-semibold text-white">{previewDoc.jenis}</span>
                 </div>
+                {previewDoc.namaToko && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Nama Toko / Rekanan:</span>
+                    <span className="font-semibold text-emerald-400">{previewDoc.namaToko}</span>
+                  </div>
+                )}
+                {previewDoc.kategoriNota && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Kategori Nota:</span>
+                    <span className="font-semibold text-purple-300">{previewDoc.kategoriNota}</span>
+                  </div>
+                )}
+                {previewDoc.totalNilaiNota !== undefined && previewDoc.totalNilaiNota !== null && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Total Nilai Nota:</span>
+                    <span className="font-bold text-amber-300">
+                      Rp {Number(previewDoc.totalNilaiNota).toLocaleString('id-ID')}
+                    </span>
+                  </div>
+                )}
                 <div className="flex justify-between">
                   <span className="text-slate-400">Tanggal Pengesahan:</span>
                   <span className="font-semibold text-white">{previewDoc.tanggal}</span>
@@ -360,6 +394,59 @@ export const DocumentsView: React.FC = () => {
                   </div>
                 )}
               </div>
+
+              {/* Rincian Item Barang jika Nota */}
+              {previewDoc.items && previewDoc.items.length > 0 && (
+                <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-white flex items-center gap-1.5">
+                      <Receipt className="w-4 h-4 text-emerald-400" />
+                      Rincian Barang Belanja ({previewDoc.items.length} item)
+                    </span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse text-[11px]">
+                      <thead>
+                        <tr className="border-b border-slate-800 text-slate-400">
+                          <th className="py-1.5 px-2 font-medium">No</th>
+                          <th className="py-1.5 px-2 font-medium">Nama Barang</th>
+                          <th className="py-1.5 px-2 font-medium text-right">Jumlah</th>
+                          <th className="py-1.5 px-2 font-medium">Satuan</th>
+                          <th className="py-1.5 px-2 font-medium text-right">Harga Satuan</th>
+                          <th className="py-1.5 px-2 font-medium text-right">Subtotal</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60">
+                        {previewDoc.items.map((item, idx) => (
+                          <tr key={idx} className="text-slate-200 hover:bg-slate-900/40">
+                            <td className="py-1.5 px-2 text-slate-500">{idx + 1}</td>
+                            <td className="py-1.5 px-2 font-medium text-white">{item.namaBarang}</td>
+                            <td className="py-1.5 px-2 text-right">{item.jumlah}</td>
+                            <td className="py-1.5 px-2 text-slate-400">{item.satuan}</td>
+                            <td className="py-1.5 px-2 text-right text-slate-300">
+                              Rp {Number(item.hargaSatuan || 0).toLocaleString('id-ID')}
+                            </td>
+                            <td className="py-1.5 px-2 text-right font-semibold text-emerald-400">
+                              Rp {Number(item.subtotal || 0).toLocaleString('id-ID')}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="border-t border-slate-700 font-semibold text-white">
+                          <td colSpan={5} className="py-2 px-2 text-right">Total:</td>
+                          <td className="py-2 px-2 text-right text-amber-300">
+                            Rp {(
+                              previewDoc.totalNilaiNota ||
+                              previewDoc.items.reduce((acc, it) => acc + (Number(it.subtotal) || 0), 0)
+                            ).toLocaleString('id-ID')}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+              )}
 
               {(previewDoc.fileDataUrl || previewDoc.storageBackend === 'hostinger') &&
               previewDoc.fileType?.startsWith('image/') ? (
@@ -421,6 +508,14 @@ export const DocumentsView: React.FC = () => {
         <UploadDocumentModal
           isOpen={isUploadOpen}
           onClose={() => setIsUploadOpen(false)}
+        />
+      )}
+
+      {/* Upload Nota Belanja ATK / ARK Modal */}
+      {isUploadNotaOpen && canManageDocuments && (
+        <UploadNotaModal
+          isOpen={isUploadNotaOpen}
+          onClose={() => setIsUploadNotaOpen(false)}
         />
       )}
     </div>
