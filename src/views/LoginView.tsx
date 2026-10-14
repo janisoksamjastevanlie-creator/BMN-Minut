@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { Lock, User, ArrowRight } from 'lucide-react';
+import { Lock, User, ArrowRight, Eye, EyeOff } from 'lucide-react';
 
 export const LoginView: React.FC = () => {
   const { login, syncError } = useApp();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -79,13 +80,22 @@ export const LoginView: React.FC = () => {
             <div className="relative">
               <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
               <input
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 required
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 placeholder="Masukkan kata sandi"
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 font-mono"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-11 py-2.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 font-mono"
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword(value => !value)}
+                aria-label={showPassword ? 'Sembunyikan kata sandi' : 'Tampilkan kata sandi'}
+                aria-pressed={showPassword}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg text-slate-400 hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
             </div>
           </div>
 

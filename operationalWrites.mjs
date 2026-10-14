@@ -516,11 +516,12 @@ export async function writeOperationalState(executor, previous, next, actor = {}
     });
 
   deletions.inventoryItems = await syncSimple(executor, previous.inventoryItems || [], next.inventoryItems, 'inventory_items',
-    ['id', 'kode_barang', 'nama', 'kategori_id', 'subkategori', 'jenis', 'satuan', 'stok_awal', 'stok_saat_ini', 'stok_minimum', 'stok_maksimum', 'harga_satuan', 'lokasi_id', 'barcode', 'rata_rata_bulanan', 'foto_url'],
+    ['id', 'kode_barang', 'nama', 'merek', 'kategori_id', 'subkategori', 'jenis', 'satuan', 'stok_awal', 'stok_saat_ini', 'stok_minimum', 'stok_maksimum', 'harga_satuan', 'lokasi_id', 'barcode', 'rata_rata_bulanan', 'foto_url'],
     row => [
       assertId(row.id, 'Inventory item ID'),
       assertText(row.kodeBarang, 'Inventory item code', 50),
       assertText(row.nama, 'Inventory item name', 200),
+      nullableText(row.merek, 'Inventory item brand', 150),
       inventoryCategoryId(row.kategori),
       nullableText(row.subkategori, 'Inventory subcategory', 100),
       assertText(row.jenis, 'Inventory type', 10),
@@ -736,8 +737,8 @@ async function writeStockTransactions(executor, previous, next) {
       header: rows => {
         const row = rows[0];
         for (const other of rows) {
-          if (stable([other.nomorTransaksi, other.tanggal, other.unitKerja, other.ruangan, other.pemohon, other.petugas, other.keperluan, other.keterangan]) !==
-              stable([row.nomorTransaksi, row.tanggal, row.unitKerja, row.ruangan, row.pemohon, row.petugas, row.keperluan, row.keterangan])) {
+          if (stable([other.nomorTransaksi, other.tanggal, other.unitKerja, other.ruangan, other.pemohon, other.petugas, other.keperluan, other.keterangan, other.requestId]) !==
+              stable([row.nomorTransaksi, row.tanggal, row.unitKerja, row.ruangan, row.pemohon, row.petugas, row.keperluan, row.keterangan, row.requestId])) {
             fail(`Stock-out header ${row.headerId || row.id} has inconsistent detail metadata.`);
           }
         }
@@ -750,7 +751,7 @@ async function writeStockTransactions(executor, previous, next) {
           assertText(row.pemohon, 'Stock-out applicant', 150),
           assertText(row.petugas, 'Stock-out operator', 150),
           nullableText(row.keperluan, 'Stock-out purpose', 65_535),
-          json({ keterangan: row.keterangan })
+          json({ keterangan: row.keterangan, requestId: row.requestId })
         ];
       },
       detailColumnsMap: (row, headerId) => [
@@ -817,7 +818,11 @@ async function writeRequests(executor, previous, next) {
       assertText(request.keperluan, 'Request purpose', 65_535),
       assertText(request.prioritas || 'Normal', 'Request priority', 20),
       assertText(request.status, 'Request status', 30),
-      nullableText(request.catatan, 'Request note', 65_535)
+      nullableText(request.catatan, 'Request note', 65_535),
+      json({
+        pemohonUserId: request.pemohonUserId,
+        penerimaan: request.penerimaan
+      })
     ];
     const itemValues = items.map(item => [
       uuidFromKey(`${request.id}:${item.itemId}`),
@@ -834,7 +839,7 @@ async function writeRequests(executor, previous, next) {
     const old = before.get(request.id);
     if (old && stable(old) === stable(request)) continue;
     await upsert(executor, 'inventory_requests',
-      ['id', 'nomor_permintaan', 'tanggal', 'pemohon_nama', 'unit_kerja', 'ruangan', 'item_id', 'jumlah_diminta', 'jumlah_disetujui', 'satuan', 'keperluan', 'prioritas', 'status', 'catatan'],
+      ['id', 'nomor_permintaan', 'tanggal', 'pemohon_nama', 'unit_kerja', 'ruangan', 'item_id', 'jumlah_diminta', 'jumlah_disetujui', 'satuan', 'keperluan', 'prioritas', 'status', 'catatan', 'app_metadata_json'],
       headerValues);
     await execute(executor, 'DELETE FROM inventory_request_items WHERE request_id = ?', [request.id]);
     for (const values of itemValues) {

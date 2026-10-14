@@ -23,6 +23,7 @@ export const AssetDisposalView: React.FC = () => {
   const [selectedAssetId, setSelectedAssetId] = useState(assets.find(a => a.kondisi === 'Rusak Berat')?.id || assets[0]?.id || '');
   const [alasan, setAlasan] = useState('Kerusakan berat tidak ekonomis untuk diperbaiki dan teknologi usang');
   const [dokumen, setDokumen] = useState('Surat Usulan Penghapusan BMN Kemenkeu');
+  const [tanggalPengajuan, setTanggalPengajuan] = useState(() => new Date().toISOString().split('T')[0]);
 
   const pager = usePagedList(disposals);
 
@@ -41,7 +42,7 @@ export const AssetDisposalView: React.FC = () => {
       nilaiBuku: asset.nilaiBuku,
       dokumenPendukung: dokumen,
       status: 'Pengajuan',
-      tanggalPengajuan: new Date().toISOString().split('T')[0],
+      tanggalPengajuan,
       penyetuju: 'Kepala BPS Kabupaten Minahasa Utara'
     });
 
@@ -211,6 +212,17 @@ export const AssetDisposalView: React.FC = () => {
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-semibold text-slate-300 block mb-1">Tanggal Pengajuan</label>
+                <input
+                  type="date"
+                  required
+                  value={tanggalPengajuan}
+                  onChange={e => setTanggalPengajuan(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-rose-500"
+                />
               </div>
 
               <div>

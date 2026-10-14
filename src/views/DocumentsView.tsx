@@ -27,22 +27,33 @@ import {
 } from 'lucide-react';
 
 export const DocumentsView: React.FC = () => {
-  const { documents, deleteDocument, registerDeletedDocument, hasPermission } = useApp();
+  const { documents, deleteDocument, registerDeletedDocument, updateDocument, hasPermission } = useApp();
   const canManageDocuments =
     hasPermission('manageAssets') || hasPermission('manageInventory') || hasPermission('systemSettings');
+  const canViewFinancials = hasPermission('manageInventory');
 
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
+  const [minimumReceiptTotal, setMinimumReceiptTotal] = useState('');
+  const [maximumReceiptTotal, setMaximumReceiptTotal] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
   const [previewDoc, setPreviewDoc] = useState<DocumentItem | null>(null);
+  const [isEditingDescription, setIsEditingDescription] = useState(false);
+  const [descriptionDraft, setDescriptionDraft] = useState('');
+  const [descriptionError, setDescriptionError] = useState('');
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [isUploadNotaOpen, setIsUploadNotaOpen] = useState(false);
+  const [editingNota, setEditingNota] = useState<DocumentItem | null>(null);
   const [previewFile, setPreviewFile] = useState<{ documentId: string; url?: string; error?: string; code?: string } | null>(null);
   const [previewReload, setPreviewReload] = useState(0);
   const [isRestoringFile, setIsRestoringFile] = useState(false);
   const [restoreError, setRestoreError] = useState('');
-  const hasPreviewAttachment = Boolean(previewDoc && (previewDoc.storageBackend === 'hostinger' || previewDoc.fileDataUrl));
+  const hasPreviewAttachment = Boolean(previewDoc &&
+    (previewDoc.jenis !== 'Nota' || canViewFinancials) &&
+    (previewDoc.storageBackend === 'hostinger' || previewDoc.fileDataUrl));
   const currentPreviewFile = previewFile?.documentId === previewDoc?.id ? previewFile : null;
+  const canEditNota = (document: DocumentItem) =>
+    canViewFinancials && (document.status === 'Draft' || hasPermission('systemSettings'));
 
   useEffect(() => {
     setRestoreError('');
@@ -96,11 +107,22 @@ export const DocumentsView: React.FC = () => {
   };
 
   const normalizedSearch = search.trim().toLowerCase();
+  const parseReceiptAmount = (value: string) => {
+    const digits = value.replace(/\D/g, '');
+    return digits ? Number(digits) : undefined;
+  };
 
   const filteredDocs = useMemo(() => {
     return documents.filter(d => {
       const matchType = filterType === 'all' || d.jenis === filterType;
       if (!matchType) return false;
+      if (canViewFinancials && d.jenis === 'Nota') {
+        const minimum = parseReceiptAmount(minimumReceiptTotal);
+        const maximum = parseReceiptAmount(maximumReceiptTotal);
+        const total = Number(d.totalNilaiNota || 0);
+        if (minimum !== undefined && total < minimum) return false;
+        if (maximum !== undefined && total > maximum) return false;
+      }
       if (!normalizedSearch) return true;
 
       const matchDocMeta =
@@ -126,7 +148,7 @@ export const DocumentsView: React.FC = () => {
 
       return false;
     });
-  }, [documents, filterType, normalizedSearch]);
+  }, [documents, filterType, normalizedSearch, minimumReceiptTotal, maximumReceiptTotal, canViewFinancials]);
 
   const matchedReceiptItems = useMemo(() => {
     if (!normalizedSearch) return [];
@@ -234,6 +256,7 @@ export const DocumentsView: React.FC = () => {
   };
 
   const handleDownloadDoc = async (doc: DocumentItem) => {
+    if (doc.jenis === 'Nota' && !canViewFinancials) return;
     if (doc.storageBackend === 'hostinger' || doc.fileDataUrl) {
       try {
         const blob = await fetchDocumentFile(doc);
@@ -280,20 +303,22 @@ export const DocumentsView: React.FC = () => {
         </div>
 
         {canManageDocuments && (
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setIsUploadNotaOpen(true)}
-              className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors shadow-lg shadow-amber-600/20 w-fit"
-            >
-              <Receipt className="w-4 h-4" />
-              <span>Upload Nota Belanja</span>
-            </button>
+          <div className="flex w-full flex-col sm:w-auto sm:flex-row items-stretch sm:items-center gap-2">
+            {canViewFinancials && (
+              <button
+                onClick={() => setIsUploadNotaOpen(true)}
+                className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-colors shadow-lg shadow-amber-600/20 whitespace-nowrap"
+              >
+                <Receipt className="w-4 h-4" />
+                <span>Upload Nota Belanja</span>
+              </button>
+            )}
             <button
               onClick={() => setIsUploadOpen(true)}
-              className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors shadow-lg shadow-purple-600/20 w-fit"
+              className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-colors shadow-lg shadow-purple-600/20 whitespace-nowrap"
             >
               <Upload className="w-4 h-4" />
-              <span>Unggah / Import Dokumen</span>
+              <span>Import Document</span>
             </button>
           </div>
         )}
@@ -346,6 +371,34 @@ export const DocumentsView: React.FC = () => {
             </button>
           )}
         </div>
+        {canViewFinancials && (filterType === 'all' || filterType === 'Nota') && (
+          <div className="grid grid-cols-2 gap-2 w-full md:w-auto">
+            <label className="text-[10px] text-slate-400">
+              Total minimum
+              <input
+                type="text"
+                inputMode="numeric"
+                value={minimumReceiptTotal}
+                onChange={event => setMinimumReceiptTotal(event.target.value)}
+                placeholder="Rp"
+                aria-label="Total nota minimum"
+                className="mt-1 w-full md:w-32 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
+              />
+            </label>
+            <label className="text-[10px] text-slate-400">
+              Total maksimum
+              <input
+                type="text"
+                inputMode="numeric"
+                value={maximumReceiptTotal}
+                onChange={event => setMaximumReceiptTotal(event.target.value)}
+                placeholder="Rp"
+                aria-label="Total nota maksimum"
+                className="mt-1 w-full md:w-32 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
+              />
+            </label>
+          </div>
+        )}
       </div>
 
       {/* Hasil Pencarian Barang Lintas Seluruh Nota */}
@@ -377,9 +430,13 @@ export const DocumentsView: React.FC = () => {
                   <th className="py-2 px-3 font-medium">Tanggal</th>
                   <th className="py-2 px-3 font-medium text-right">Jumlah</th>
                   <th className="py-2 px-3 font-medium">Satuan</th>
-                  <th className="py-2 px-3 font-medium text-right">Harga Satuan</th>
-                  <th className="py-2 px-3 font-medium text-right">Subtotal</th>
-                  <th className="py-2 px-3 font-medium text-right">Total Nota</th>
+                  {canViewFinancials && (
+                    <>
+                      <th className="py-2 px-3 font-medium text-right">Harga Satuan</th>
+                      <th className="py-2 px-3 font-medium text-right">Subtotal</th>
+                      <th className="py-2 px-3 font-medium text-right">Total Nota</th>
+                    </>
+                  )}
                   <th className="py-2 px-3 font-medium text-center">Aksi</th>
                 </tr>
               </thead>
@@ -414,15 +471,19 @@ export const DocumentsView: React.FC = () => {
                     <td className="py-2 px-3 text-slate-400">
                       {item.satuan}
                     </td>
-                    <td className="py-2 px-3 text-right text-slate-300 whitespace-nowrap">
-                      Rp {Number(item.hargaSatuan || 0).toLocaleString('id-ID')}
-                    </td>
-                    <td className="py-2 px-3 text-right font-bold text-emerald-400 whitespace-nowrap">
-                      Rp {Number(item.subtotal !== undefined ? item.subtotal : item.totalHarga || 0).toLocaleString('id-ID')}
-                    </td>
-                    <td className="py-2 px-3 text-right font-bold text-amber-300 whitespace-nowrap">
-                      Rp {Number(doc.totalNilaiNota || 0).toLocaleString('id-ID')}
-                    </td>
+                    {canViewFinancials && (
+                      <>
+                        <td className="py-2 px-3 text-right text-slate-300 whitespace-nowrap">
+                          Rp {Number(item.hargaSatuan || 0).toLocaleString('id-ID')}
+                        </td>
+                        <td className="py-2 px-3 text-right font-bold text-emerald-400 whitespace-nowrap">
+                          Rp {Number(item.subtotal !== undefined ? item.subtotal : item.totalHarga || 0).toLocaleString('id-ID')}
+                        </td>
+                        <td className="py-2 px-3 text-right font-bold text-amber-300 whitespace-nowrap">
+                          Rp {Number(doc.totalNilaiNota || 0).toLocaleString('id-ID')}
+                        </td>
+                      </>
+                    )}
                     <td className="py-2 px-3 text-center">
                       <button
                         onClick={() => setPreviewDoc(doc)}
@@ -496,7 +557,7 @@ export const DocumentsView: React.FC = () => {
               <p className="text-xs text-slate-400 max-w-md mx-auto">
                 Unggah berkas fisik nota belanja ATK / ARK atau ambil foto kuitansi secara langsung.
               </p>
-              {canManageDocuments && (
+              {canViewFinancials && (
                 <button
                   onClick={() => setIsUploadNotaOpen(true)}
                   className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded-xl inline-flex items-center gap-1.5 shadow-lg shadow-amber-600/20"
@@ -521,7 +582,7 @@ export const DocumentsView: React.FC = () => {
                   className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded-xl inline-flex items-center gap-1.5 shadow-lg shadow-purple-600/20"
                 >
                   <Upload className="w-4 h-4" />
-                  Unggah / Import Dokumen
+                  Import Document
                 </button>
               )}
             </>
@@ -570,7 +631,7 @@ export const DocumentsView: React.FC = () => {
                   </div>
                 )}
 
-                {doc.totalNilaiNota != null && (
+                {canViewFinancials && doc.totalNilaiNota != null && (
                   <div className="mt-1 flex items-center gap-1.5 text-xs text-amber-300 font-bold">
                     <DollarSign className="w-3.5 h-3.5 shrink-0" />
                     <span>Rp {Number(doc.totalNilaiNota).toLocaleString('id-ID')}</span>
@@ -580,7 +641,7 @@ export const DocumentsView: React.FC = () => {
                   </div>
                 )}
 
-                {doc.fileName && (
+                {doc.fileName && (doc.jenis !== 'Nota' || canViewFinancials) && (
                   <div className="mt-1.5 text-[10px] font-mono text-slate-400 truncate">
                     📎 {doc.fileName}
                   </div>
@@ -602,13 +663,15 @@ export const DocumentsView: React.FC = () => {
                   >
                     <Eye className="w-3.5 h-3.5" />
                   </button>
-                  <button
-                    onClick={() => handleDownloadDoc(doc)}
-                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-400 transition-colors"
-                    title="Unduh Berkas Asli"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                  </button>
+                  {(doc.jenis !== 'Nota' || canViewFinancials) && (
+                    <button
+                      onClick={() => handleDownloadDoc(doc)}
+                      className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-400 transition-colors"
+                      title="Unduh Berkas Asli"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                   {canManageDocuments && (
                     <button
                       onClick={() => {
@@ -665,7 +728,7 @@ export const DocumentsView: React.FC = () => {
                     <span className="font-semibold text-purple-300">{previewDoc.kategoriNota}</span>
                   </div>
                 )}
-                {previewDoc.totalNilaiNota !== undefined && previewDoc.totalNilaiNota !== null && (
+                {canViewFinancials && previewDoc.totalNilaiNota !== undefined && previewDoc.totalNilaiNota !== null && (
                   <div className="flex justify-between">
                     <span className="text-slate-400">Total Nilai Nota:</span>
                     <span className="font-bold text-amber-300">
@@ -691,10 +754,70 @@ export const DocumentsView: React.FC = () => {
                     <span className="font-semibold text-white">{new Date(previewDoc.uploadedAt).toLocaleString('id-ID')}</span>
                   </div>
                 )}
-                {previewDoc.description && (
+                {previewDoc.description && !isEditingDescription && (
                   <div>
                     <span className="text-slate-400">Keterangan:</span>
                     <p className="mt-1 text-slate-200">{previewDoc.description}</p>
+                  </div>
+                )}
+                {canManageDocuments && (
+                  <div className="border-t border-slate-800 pt-2">
+                    {isEditingDescription ? (
+                      <div className="space-y-2">
+                        <label htmlFor="document-description-edit" className="block text-slate-400">Keterangan</label>
+                        <textarea
+                          id="document-description-edit"
+                          value={descriptionDraft}
+                          maxLength={500}
+                          rows={3}
+                          onChange={event => setDescriptionDraft(event.target.value)}
+                          className="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-white"
+                        />
+                        {descriptionError && <p role="alert" className="text-rose-300">{descriptionError}</p>}
+                        <div className="flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDescriptionDraft(previewDoc.description || '');
+                              setDescriptionError('');
+                              setIsEditingDescription(false);
+                            }}
+                            className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300"
+                          >
+                            Batal
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (descriptionDraft.length > 500) {
+                                setDescriptionError('Keterangan tidak boleh melebihi 500 karakter.');
+                                return;
+                              }
+                              const description = descriptionDraft.trim();
+                              updateDocument(previewDoc.id, { description });
+                              setPreviewDoc({ ...previewDoc, description });
+                              setDescriptionError('');
+                              setIsEditingDescription(false);
+                            }}
+                            className="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-semibold"
+                          >
+                            Simpan Keterangan
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDescriptionDraft(previewDoc.description || '');
+                          setDescriptionError('');
+                          setIsEditingDescription(true);
+                        }}
+                        className="text-purple-300 hover:text-purple-200 font-semibold"
+                      >
+                        Edit Keterangan
+                      </button>
+                    )}
                   </div>
                 )}
                 {previewDoc.fileName && (
@@ -728,8 +851,12 @@ export const DocumentsView: React.FC = () => {
                           <th className="py-1.5 px-2 font-medium">Nama Barang</th>
                           <th className="py-1.5 px-2 font-medium text-right">Jumlah</th>
                           <th className="py-1.5 px-2 font-medium">Satuan</th>
-                          <th className="py-1.5 px-2 font-medium text-right">Harga Satuan</th>
-                          <th className="py-1.5 px-2 font-medium text-right">Subtotal</th>
+                          {canViewFinancials && (
+                            <>
+                              <th className="py-1.5 px-2 font-medium text-right">Harga Satuan</th>
+                              <th className="py-1.5 px-2 font-medium text-right">Subtotal</th>
+                            </>
+                          )}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800/60">
@@ -739,24 +866,30 @@ export const DocumentsView: React.FC = () => {
                             <td className="py-1.5 px-2 font-medium text-white">{item.namaBarang}</td>
                             <td className="py-1.5 px-2 text-right">{item.jumlah}</td>
                             <td className="py-1.5 px-2 text-slate-400">{item.satuan}</td>
-                            <td className="py-1.5 px-2 text-right text-slate-300">
-                              Rp {Number(item.hargaSatuan || 0).toLocaleString('id-ID')}
-                            </td>
-                            <td className="py-1.5 px-2 text-right font-semibold text-emerald-400">
-                              Rp {Number(item.subtotal !== undefined ? item.subtotal : item.totalHarga || 0).toLocaleString('id-ID')}
-                            </td>
+                            {canViewFinancials && (
+                              <>
+                                <td className="py-1.5 px-2 text-right text-slate-300">
+                                  Rp {Number(item.hargaSatuan || 0).toLocaleString('id-ID')}
+                                </td>
+                                <td className="py-1.5 px-2 text-right font-semibold text-emerald-400">
+                                  Rp {Number(item.subtotal !== undefined ? item.subtotal : item.totalHarga || 0).toLocaleString('id-ID')}
+                                </td>
+                              </>
+                            )}
                           </tr>
                         ))}
                       </tbody>
                       <tfoot>
                         <tr className="border-t border-slate-700 font-semibold text-white">
-                          <td colSpan={5} className="py-2 px-2 text-right">Total:</td>
-                          <td className="py-2 px-2 text-right text-amber-300">
-                            Rp {(
-                              previewDoc.totalNilaiNota ||
-                              previewDoc.items.reduce((acc, it) => acc + (Number(it.subtotal !== undefined ? it.subtotal : it.totalHarga) || 0), 0)
-                            ).toLocaleString('id-ID')}
-                          </td>
+                          <td colSpan={canViewFinancials ? 5 : 3} className="py-2 px-2 text-right">Total:</td>
+                          {canViewFinancials && (
+                            <td className="py-2 px-2 text-right text-amber-300">
+                              Rp {(
+                                previewDoc.totalNilaiNota ||
+                                previewDoc.items.reduce((acc, it) => acc + (Number(it.subtotal !== undefined ? it.subtotal : it.totalHarga) || 0), 0)
+                              ).toLocaleString('id-ID')}
+                            </td>
+                          )}
                         </tr>
                       </tfoot>
                     </table>
@@ -766,6 +899,13 @@ export const DocumentsView: React.FC = () => {
 
               {/* Bukti Berkas Fisik: Image, PDF, or Other Format */}
               {(() => {
+                if (previewDoc.jenis === 'Nota' && !canViewFinancials) {
+                  return (
+                    <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 text-xs text-slate-400" role="status">
+                      Lampiran dan rincian nilai nota hanya dapat diakses oleh role yang berwenang atas persediaan.
+                    </div>
+                  );
+                }
                 const fileUrl = currentPreviewFile?.url;
                 const isImage =
                   previewDoc.fileType?.startsWith('image/') ||
@@ -915,36 +1055,53 @@ export const DocumentsView: React.FC = () => {
             </div>
 
             <div className="p-4 border-t border-slate-800 bg-slate-900 flex justify-end gap-2">
+              {previewDoc.jenis === 'Nota' && canEditNota(previewDoc) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingNota(previewDoc);
+                    setPreviewDoc(null);
+                    setIsUploadNotaOpen(true);
+                  }}
+                  className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold rounded-xl"
+                >
+                  Edit Nota
+                </button>
+              )}
               <button
                 onClick={() => setPreviewDoc(null)}
                 className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl"
               >
                 Tutup
               </button>
-              <button
-                disabled={hasPreviewAttachment && !currentPreviewFile?.url}
-                onClick={() => {
-                  if (currentPreviewFile?.url) {
-                    window.open(currentPreviewFile.url, '_blank', 'noopener');
-                  } else {
-                    handleDownloadDoc(previewDoc);
-                  }
-                }}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl flex items-center gap-1.5 disabled:opacity-50"
-              >
-                <Eye className="w-3.5 h-3.5" />
-                <span>Lihat Dokumen</span>
-              </button>
-              <button
-                disabled={hasPreviewAttachment && !currentPreviewFile?.url}
-                onClick={() => {
-                  void handleDownloadDoc(previewDoc);
-                }}
-                className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 disabled:opacity-50"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Unduh</span>
-              </button>
+              {(previewDoc.jenis !== 'Nota' || canViewFinancials) && (
+                <>
+                  <button
+                    disabled={hasPreviewAttachment && !currentPreviewFile?.url}
+                    onClick={() => {
+                      if (currentPreviewFile?.url) {
+                        window.open(currentPreviewFile.url, '_blank', 'noopener');
+                      } else {
+                        handleDownloadDoc(previewDoc);
+                      }
+                    }}
+                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>Lihat Dokumen</span>
+                  </button>
+                  <button
+                    disabled={hasPreviewAttachment && !currentPreviewFile?.url}
+                    onClick={() => {
+                      void handleDownloadDoc(previewDoc);
+                    }}
+                    className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Unduh</span>
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -959,10 +1116,14 @@ export const DocumentsView: React.FC = () => {
       )}
 
       {/* Upload Nota Belanja ATK / ARK Modal */}
-      {isUploadNotaOpen && canManageDocuments && (
+      {isUploadNotaOpen && canViewFinancials && (
         <UploadNotaModal
           isOpen={isUploadNotaOpen}
-          onClose={() => setIsUploadNotaOpen(false)}
+          initialDocument={editingNota || undefined}
+          onClose={() => {
+            setIsUploadNotaOpen(false);
+            setEditingNota(null);
+          }}
         />
       )}
     </div>

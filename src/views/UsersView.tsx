@@ -41,7 +41,9 @@ import {
   Calendar,
   Layers,
   HelpCircle,
-  RotateCcw
+  RotateCcw,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 
 const AVATAR_PRESETS = [
@@ -337,6 +339,7 @@ export const UsersView: React.FC = () => {
     password: ''
   });
   const [formError, setFormError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [isSavingUser, setIsSavingUser] = useState(false);
   const [copiedNip, setCopiedNip] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -1847,16 +1850,27 @@ export const UsersView: React.FC = () => {
                 <label className="block text-xs font-bold text-slate-300 mb-1">
                   Kata Sandi Login {formMode === 'create' && <span className="text-rose-400">*</span>}
                 </label>
-                <input
-                  type="password"
-                  required={formMode === 'create'}
-                  minLength={12}
-                  autoComplete="new-password"
-                  value={formData.password}
-                  onChange={e => setFormData(prev => ({ ...prev, password: e.target.value }))}
-                  placeholder={formMode === 'create' ? 'Minimal 12 karakter' : 'Kosongkan jika tidak diubah'}
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-blue-500"
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required={formMode === 'create'}
+                    minLength={12}
+                    autoComplete="new-password"
+                    value={formData.password}
+                    onChange={e => setFormData(prev => ({ ...prev, password: e.target.value }))}
+                    placeholder={formMode === 'create' ? 'Minimal 12 karakter' : 'Kosongkan jika tidak diubah'}
+                    className="w-full px-3.5 py-2.5 pr-11 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-blue-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(value => !value)}
+                    aria-label={showPassword ? 'Sembunyikan kata sandi' : 'Tampilkan kata sandi'}
+                    aria-pressed={showPassword}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg text-slate-400 hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
                 <p className="mt-1 text-[10px] text-slate-500">
                   Kata sandi disimpan dalam bentuk hash di server, tidak ditampilkan di daftar pengguna.
                 </p>

@@ -35,6 +35,7 @@ export const AssetMovementsView: React.FC = () => {
   const [targetRoomId, setTargetRoomId] = useState(rooms[1]?.id || '');
   const [alasan, setAlasan] = useState('');
   const [pemohon, setPemohon] = useState(currentUser?.name || '');
+  const [tanggal, setTanggal] = useState(() => new Date().toISOString().split('T')[0]);
 
   const filteredMovements = movements.filter(m => {
     return filterStatus === 'all' || m.status === filterStatus;
@@ -121,7 +122,7 @@ export const AssetMovementsView: React.FC = () => {
       lokasiAsalNama: asset.ruanganNama,
       lokasiTujuanId: targetRoom.id,
       lokasiTujuanNama: targetRoom.name,
-      tanggal: new Date().toISOString().split('T')[0],
+      tanggal,
       alasan,
       pemohon: pemohon || currentUser?.name || 'Petugas',
       penanggungJawab: targetRoom.picName
@@ -419,6 +420,17 @@ export const AssetMovementsView: React.FC = () => {
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-semibold text-slate-300 block mb-1">Tanggal Pengajuan</label>
+                <input
+                  type="date"
+                  required
+                  value={tanggal}
+                  onChange={e => setTanggal(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-cyan-500"
+                />
               </div>
 
               <div>

@@ -41,7 +41,11 @@ const getRequestItems = (request: InventoryRequest): InventoryRequestItem[] => r
     }];
 
 export const StockRequestsView: React.FC = () => {
-  const { requests, inventoryItems, updateRequestStatus, deleteInventoryRequest, currentUser, hasPermission } = useApp();
+  const {
+    requests, inventoryItems, updateRequestStatus, deleteInventoryRequest,
+    confirmInventoryRequestReceipt, reportInventoryReceiptDiscrepancy,
+    reopenInventoryRequestHandover, currentUser, hasPermission
+  } = useApp();
   // Pimpinan hanya memantau; Pemohon tidak memiliki kewenangan keputusan.
   const canApproveRequests = hasPermission('approveRequests') && !isPimpinanUser(currentUser);
   const canReviewRequests = canApproveRequests || hasPermission('manageInventory');
@@ -72,6 +76,11 @@ export const StockRequestsView: React.FC = () => {
 
   // Printable Detail Modal State
   const [selectedDetail, setSelectedDetail] = useState<InventoryRequest | null>(null);
+  const [receiptTarget, setReceiptTarget] = useState<InventoryRequest | null>(null);
+  const [receiptError, setReceiptError] = useState('');
+  const [receiptReason, setReceiptReason] = useState('');
+  const [isReceiptBusy, setIsReceiptBusy] = useState(false);
+  const [isReportingDiscrepancy, setIsReportingDiscrepancy] = useState(false);
 
   // Filtered & Searched Requests
   const filteredRequests = useMemo(() => {
@@ -98,8 +107,7 @@ export const StockRequestsView: React.FC = () => {
   const areAllFilteredRequestsSelected =
     filteredRequests.length > 0 && filteredRequests.every(request => selectedRequestIds.has(request.id));
   const isOwnRequest = (request: InventoryRequest) =>
-    String(request.pemohonNama || '').trim().toLocaleLowerCase('id-ID')
-      === String(currentUser?.name || '').trim().toLocaleLowerCase('id-ID');
+    Boolean(currentUser?.id && request.pemohonUserId === currentUser.id);
 
   const toggleRequestSelection = (id: string) => {
     setSelectedRequestIds(prev => {
@@ -168,7 +176,7 @@ export const StockRequestsView: React.FC = () => {
   const totalCount = requests.length;
   const pendingVerification = requests.filter(r => r.status === 'Diajukan').length;
   const approvedOrProcessing = requests.filter(r => r.status === 'Disetujui' || r.status === 'Diproses').length;
-  const completedCount = requests.filter(r => r.status === 'Selesai').length;
+  const completedCount = requests.filter(r => r.status === 'Diterima' || r.status === 'Selesai').length;
 
   const getBadgeStyle = (status: RequestStatus) => {
     switch (status) {
@@ -180,6 +188,10 @@ export const StockRequestsView: React.FC = () => {
         return 'bg-amber-500/10 text-amber-400 border border-amber-500/20';
       case 'Diproses':
         return 'bg-purple-500/10 text-purple-400 border border-purple-500/20';
+      case 'Menunggu Konfirmasi':
+        return 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/20';
+      case 'Diterima':
+        return 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
       case 'Selesai':
         return 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
       case 'Ditolak':
@@ -248,16 +260,16 @@ export const StockRequestsView: React.FC = () => {
         return;
       }
     } else if (action === 'complete') {
-      const approvedItems = getRequestItems(request).map(item => ({
+      const deliveredItems = getRequestItems(request).map(item => ({
         ...item,
-        jumlahDisetujui: approvedItemQuantities[item.itemId] ?? item.jumlahDiminta
+        jumlahDisetujui: approvedItemQuantities[item.itemId] ?? item.jumlahDisetujui ?? item.jumlahDiminta
       }));
       const res = updateRequestStatus(
         request.id,
-        'Selesai',
+        'Menunggu Konfirmasi',
         actionNotes,
-        approvedItems[0]?.jumlahDisetujui ?? approvedQty,
-        approvedItems
+        deliveredItems[0]?.jumlahDisetujui ?? approvedQty,
+        deliveredItems
       );
       if (!res.success) {
         setErrorMessage(res.message);
@@ -267,6 +279,36 @@ export const StockRequestsView: React.FC = () => {
 
     setWorkflowTarget(null);
     setErrorMessage(null);
+  };
+
+  const submitReceiptConfirmation = async () => {
+    if (!receiptTarget) return;
+    setIsReceiptBusy(true);
+    setReceiptError('');
+    const result = isReportingDiscrepancy
+      ? await reportInventoryReceiptDiscrepancy(receiptTarget.id, receiptReason.trim())
+      : await confirmInventoryRequestReceipt(receiptTarget.id);
+    setIsReceiptBusy(false);
+    if (!result.success) {
+      setReceiptError(result.message);
+      return;
+    }
+    setReceiptTarget(null);
+    setReceiptReason('');
+    setIsReportingDiscrepancy(false);
+    setBulkDeleteNotice({ type: 'success', message: result.message });
+  };
+
+  const handleReopenHandover = async (request: InventoryRequest) => {
+    const result = await reopenInventoryRequestHandover(request.id);
+    setBulkDeleteNotice({ type: result.success ? 'success' : 'error', message: result.message });
+  };
+
+  const openReceiptDialog = (request: InventoryRequest) => {
+    setReceiptTarget(request);
+    setReceiptError('');
+    setReceiptReason('');
+    setIsReportingDiscrepancy(false);
   };
 
   return (
@@ -336,7 +378,7 @@ export const StockRequestsView: React.FC = () => {
       <div className="bg-slate-900 border border-slate-800 p-3 sm:p-4 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-3">
         {/* Filter Tabs */}
         <div className="flex items-center gap-1.5 overflow-x-auto w-full md:w-auto pb-1 md:pb-0">
-          {(['all', 'Diajukan', 'Diverifikasi', 'Disetujui', 'Diproses', 'Selesai', 'Ditolak'] as const).map(st => (
+          {(['all', 'Diajukan', 'Diverifikasi', 'Disetujui', 'Diproses', 'Menunggu Konfirmasi', 'Diterima', 'Selesai', 'Ditolak'] as const).map(st => (
             <button
               key={st}
               onClick={() => setFilterStatus(st)}
@@ -483,7 +525,7 @@ export const StockRequestsView: React.FC = () => {
                         {requestItems.length > 1 && (
                           <div className="text-[10px] text-slate-500">{requestItems.length} jenis</div>
                         )}
-                        {item && requestItems.length === 1 && req.status !== 'Selesai' && (
+                        {item && requestItems.length === 1 && !['Selesai', 'Diterima'].includes(req.status) && (
                           <div className={`text-[10px] ${item.stokSaatIni < req.jumlahDiminta ? 'text-rose-400' : 'text-slate-400'}`}>
                             Stok: {item.stokSaatIni} {item.satuan}
                           </div>
@@ -582,17 +624,35 @@ export const StockRequestsView: React.FC = () => {
                             onClick={() => handleOpenCompleteDialog(req)}
                             className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-sm transition-colors min-h-[36px]"
                           >
-                            Keluarkan & Selesai
+                            Tandai Barang Diserahkan
                           </button>
                         ) : (
                           <span className="text-blue-400 text-xs font-medium">Sedang Disiapkan</span>
                         )
                       )}
 
-                      {req.status === 'Selesai' && (
+                      {req.status === 'Menunggu Konfirmasi' && isOwnRequest(req) && (
+                        <button
+                          onClick={() => openReceiptDialog(req)}
+                          className="px-3 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold shadow-sm transition-colors min-h-[36px]"
+                        >
+                          Konfirmasi Barang Diterima
+                        </button>
+                      )}
+
+                      {req.status === 'Menunggu Konfirmasi' && hasPermission('manageInventory') && req.penerimaan?.catatanSelisih && (
+                        <button
+                          onClick={() => void handleReopenHandover(req)}
+                          className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold transition-colors min-h-[36px]"
+                        >
+                          Tindaklanjuti Selisih
+                        </button>
+                      )}
+
+                      {['Diterima', 'Selesai'].includes(req.status) && (
                         <span className="text-emerald-400 text-xs font-semibold flex items-center gap-1">
                           <CheckCircle2 className="w-3.5 h-3.5" />
-                          <span>Diserahkan</span>
+                          <span>{req.status === 'Diterima' ? 'Diterima' : 'Diserahkan (historis)'}</span>
                         </span>
                       )}
 
@@ -694,7 +754,7 @@ export const StockRequestsView: React.FC = () => {
                               {requestItem.jumlahDisetujui !== undefined && requestItem.jumlahDisetujui !== requestItem.jumlahDiminta && (
                                 <div className="text-[10px] text-amber-400">Disetujui: {requestItem.jumlahDisetujui} {requestItem.satuan}</div>
                               )}
-                              {stockItem && req.status !== 'Selesai' && (
+                              {stockItem && !['Selesai', 'Diterima'].includes(req.status) && (
                                 <div className={`text-[10px] ${stockItem.stokSaatIni < requestItem.jumlahDiminta ? 'text-rose-400' : 'text-slate-400'}`}>
                                   Stok: {stockItem.stokSaatIni}
                                 </div>
@@ -811,19 +871,37 @@ export const StockRequestsView: React.FC = () => {
                               <button
                                 onClick={() => handleOpenCompleteDialog(req)}
                                 className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold shadow-sm transition-colors"
-                                title="Keluarkan Barang dari Gudang & Selesaikan Permohonan"
+                                title="Tandai barang sudah diserahkan untuk menunggu konfirmasi Pemohon"
                               >
-                                Keluarkan & Selesai
+                                Tandai Diserahkan
                               </button>
                             ) : (
                               <span className="text-blue-400 text-[10px] font-medium">Sedang Disiapkan</span>
                             )
                           )}
 
-                          {req.status === 'Selesai' && (
+                          {req.status === 'Menunggu Konfirmasi' && isOwnRequest(req) && (
+                            <button
+                              onClick={() => openReceiptDialog(req)}
+                              className="px-2 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-[10px] font-bold transition-colors"
+                            >
+                              Konfirmasi Diterima
+                            </button>
+                          )}
+
+                          {req.status === 'Menunggu Konfirmasi' && hasPermission('manageInventory') && req.penerimaan?.catatanSelisih && (
+                            <button
+                              onClick={() => void handleReopenHandover(req)}
+                              className="px-2 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-[10px] font-bold transition-colors"
+                            >
+                              Tindaklanjuti Selisih
+                            </button>
+                          )}
+
+                          {['Diterima', 'Selesai'].includes(req.status) && (
                             <span className="text-emerald-400 text-[10px] font-semibold flex items-center gap-1">
                               <CheckCircle2 className="w-3.5 h-3.5" />
-                              <span>Diserahkan</span>
+                              <span>{req.status === 'Diterima' ? 'Diterima' : 'Diserahkan (historis)'}</span>
                             </span>
                           )}
 
@@ -843,6 +921,102 @@ export const StockRequestsView: React.FC = () => {
         </div>
         <ListPager {...pager} onPageChange={pager.setPage} onPageSizeChange={pager.setPageSize} label="permohonan" />
       </div>
+
+      {receiptTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="receipt-confirmation-title"
+            className="w-full max-w-lg bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto"
+          >
+            <h3 id="receipt-confirmation-title" className="text-sm font-bold text-white">
+              {isReportingDiscrepancy ? 'Laporkan Selisih Penerimaan' : 'Konfirmasi Barang Diterima'}
+            </h3>
+            <div className="rounded-xl bg-slate-950 border border-slate-800 p-3 text-xs space-y-2">
+              <div className="text-slate-400">
+                Permohonan <span className="font-mono font-bold text-cyan-300">{receiptTarget.nomorPermintaan}</span>
+              </div>
+              <div className="text-white font-semibold">{receiptTarget.pemohonNama} · {receiptTarget.unitKerja}</div>
+              <div className="space-y-1 border-t border-slate-800 pt-2">
+                {(receiptTarget.penerimaan?.items || []).map(delivered => {
+                  const item = getRequestItems(receiptTarget).find(row => row.itemId === delivered.itemId);
+                  return (
+                    <div key={delivered.itemId} className="flex justify-between gap-3 text-slate-200">
+                      <span>{item?.namaBarang || 'Barang'} ({item?.satuan || ''})</span>
+                      <span className="font-mono font-bold">{delivered.jumlah}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="text-[10px] text-slate-400">
+                Diserahkan oleh {receiptTarget.penerimaan?.diserahkanOleh || '—'} pada{' '}
+                {receiptTarget.penerimaan?.diserahkanPada
+                  ? new Date(receiptTarget.penerimaan.diserahkanPada).toLocaleString('id-ID')
+                  : '—'}
+              </div>
+            </div>
+            {receiptTarget.penerimaan?.catatanSelisih && (
+              <div role="alert" className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
+                Laporan selisih: {receiptTarget.penerimaan.catatanSelisih}. Konfirmasi ditahan sampai petugas menindaklanjuti.
+              </div>
+            )}
+            {isReportingDiscrepancy && (
+              <div>
+                <label htmlFor="receipt-discrepancy-reason" className="block text-xs font-semibold text-slate-300 mb-1">
+                  Jelaskan selisih yang diterima (5–500 karakter)
+                </label>
+                <textarea
+                  id="receipt-discrepancy-reason"
+                  value={receiptReason}
+                  onChange={event => setReceiptReason(event.target.value)}
+                  rows={3}
+                  maxLength={500}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white"
+                />
+              </div>
+            )}
+            {receiptError && <p role="alert" className="text-xs text-rose-300">{receiptError}</p>}
+            <p className="text-xs text-slate-400">
+              {isReportingDiscrepancy
+                ? 'Laporan tidak mengurangi stok. Petugas akan memeriksa dan menindaklanjuti selisih.'
+                : 'Pastikan semua barang dan jumlah di atas sudah Anda terima. Konfirmasi ini akan mencatat mutasi stok dan tidak dapat dibatalkan.'}
+            </p>
+            <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => setIsReportingDiscrepancy(value => !value)}
+                disabled={isReceiptBusy || receiptTarget.penerimaan?.status === 'Diterima'}
+                className="px-3 py-2 rounded-xl bg-amber-600/15 text-amber-300 hover:bg-amber-600/25 text-xs font-semibold disabled:opacity-50"
+              >
+                {isReportingDiscrepancy ? 'Kembali ke Konfirmasi' : 'Laporkan Selisih'}
+              </button>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setReceiptTarget(null)}
+                  disabled={isReceiptBusy}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void submitReceiptConfirmation()}
+                  disabled={isReceiptBusy ||
+                    (isReportingDiscrepancy && receiptReason.trim().length < 5) ||
+                    (!isReportingDiscrepancy && Boolean(receiptTarget.penerimaan?.catatanSelisih))}
+                  className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl"
+                >
+                  {isReceiptBusy
+                    ? 'Memproses...'
+                    : isReportingDiscrepancy ? 'Kirim Laporan' : 'Konfirmasi Barang Diterima'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isBulkDeleteConfirmOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md">

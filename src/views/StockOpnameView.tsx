@@ -25,6 +25,7 @@ export const StockOpnameView: React.FC = () => {
 
   // Form states for creating a new opname session
   const [periode, setPeriode] = useState('Triwulan III 2026');
+  const [tanggal, setTanggal] = useState(() => new Date().toISOString().split('T')[0]);
   const [petugas, setPetugas] = useState(currentUser?.name || 'Siti Rahmawati Sompie, A.Md');
 
   // New session item physical counts map
@@ -57,7 +58,7 @@ export const StockOpnameView: React.FC = () => {
     });
 
     addStockOpname({
-      tanggal: new Date().toISOString().split('T')[0],
+      tanggal,
       periode,
       petugas,
       status: 'Menunggu Approval',
@@ -233,7 +234,7 @@ export const StockOpnameView: React.FC = () => {
             </div>
 
             <form onSubmit={handleCreateNewOpname} className="flex-1 overflow-y-auto p-5 space-y-4">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-[11px] font-semibold text-slate-300 block mb-1">Periode Stock Opname</label>
                   <input
@@ -241,6 +242,16 @@ export const StockOpnameView: React.FC = () => {
                     required
                     value={periode}
                     onChange={e => setPeriode(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-300 block mb-1">Tanggal Pemeriksaan</label>
+                  <input
+                    type="date"
+                    required
+                    value={tanggal}
+                    onChange={e => setTanggal(e.target.value)}
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-amber-500"
                   />
                 </div>

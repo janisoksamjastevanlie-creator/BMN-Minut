@@ -18,10 +18,12 @@ export const AssetFormModal: React.FC<{
   const [merkType, setMerkType] = useState(initialAsset?.merkType || '');
   const [nomorSeri, setNomorSeri] = useState(initialAsset?.nomorSeri || '');
   const [nilaiPerolehan, setNilaiPerolehan] = useState(initialAsset?.nilaiPerolehan ? String(initialAsset.nilaiPerolehan) : '15000000');
+  const [tanggalPerolehan, setTanggalPerolehan] = useState(
+    initialAsset?.tanggalPerolehan || new Date().toISOString().split('T')[0]
+  );
   const [kondisi, setKondisi] = useState<AssetCondition>(initialAsset?.kondisi || 'Baik');
   const [ruanganId, setRuanganId] = useState(initialAsset?.ruanganId || rooms[0]?.id || '');
   const [penanggungJawab, setPenanggungJawab] = useState(initialAsset?.penanggungJawab || rooms[0]?.picName || '');
-  const [tahunPerolehan, setTahunPerolehan] = useState(initialAsset?.tahunPerolehan || 2026);
   const [fotoUrl, setFotoUrl] = useState(initialAsset?.fotoUrl || '');
 
   if (!isOpen) return null;
@@ -56,6 +58,8 @@ export const AssetFormModal: React.FC<{
         subkategori,
         merkType,
         nomorSeri,
+        tanggalPerolehan,
+        tahunPerolehan: Number(tanggalPerolehan.slice(0, 4)),
         nilaiPerolehan: val,
         nilaiBuku: val - (initialAsset.akumulasiPenyusutan || 0),
         kondisi,
@@ -74,8 +78,8 @@ export const AssetFormModal: React.FC<{
         subkategori,
         merkType,
         nomorSeri: nomorSeri || `SN-BPS7106-${Math.floor(1000 + Math.random() * 9000)}`,
-        tanggalPerolehan: new Date().toISOString().split('T')[0],
-        tahunPerolehan: Number(tahunPerolehan),
+        tanggalPerolehan,
+        tahunPerolehan: Number(tanggalPerolehan.slice(0, 4)),
         jumlah: 1,
         satuan: 'Unit',
         nilaiPerolehan: val,
@@ -156,6 +160,17 @@ export const AssetFormModal: React.FC<{
                 className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
               />
             </div>
+          </div>
+
+          <div>
+            <label className="text-[11px] font-semibold text-slate-300 block mb-1">Tanggal Perolehan</label>
+            <input
+              type="date"
+              required
+              value={tanggalPerolehan}
+              onChange={e => setTanggalPerolehan(e.target.value)}
+              className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-blue-500"
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-3">

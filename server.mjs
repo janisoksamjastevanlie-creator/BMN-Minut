@@ -10,7 +10,7 @@ import { assertOperationalSchema, readOperationalState } from './operationalStor
 import { writeOperationalState } from './operationalWrites.mjs';
 import { sendWhatsAppMessage } from './whatsappService.mjs';
 import { validateRequestAuthorization } from './requestAccess.mjs';
-import { validateNewRequestStock } from './requestStockValidation.mjs';
+import { validateAdditionalStockOut, validateNewRequestStock } from './requestStockValidation.mjs';
 import { sendTwilioWhatsAppMessage } from './twilioWhatsAppService.mjs';
 import { createWhatsAppService } from './whatsapp/service.mjs';
 import { getWhatsAppConfig } from './whatsapp/config.mjs';
@@ -291,7 +291,7 @@ function parseDocumentUploadMetadata(request) {
   const category = String(metadata.category || '');
   const number = String(metadata.number || '').trim();
   const date = String(metadata.date || '');
-  const status = String(metadata.status || 'Arsip');
+  const status = String(metadata.status || 'Draft');
   const description = String(metadata.description || '').trim();
   const tags = metadata.tags;
   const categories = new Set([
@@ -303,7 +303,7 @@ function parseDocumentUploadMetadata(request) {
   const dateObject = /^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(`${date}T00:00:00.000Z`) : null;
   if (!title || title.length > 200 || !categories.has(category) ||
       !dateObject || Number.isNaN(dateObject.getTime()) || dateObject.toISOString().slice(0, 10) !== date ||
-      !['Sah', 'Menunggu TTD', 'Arsip'].includes(status) ||
+      !['Draft', 'Final', 'Sah', 'Menunggu TTD', 'Arsip'].includes(status) ||
       number.length > 100 || description.length > 2000 ||
       !Array.isArray(tags) || tags.length > 20 ||
       tags.some(tag => typeof tag !== 'string' || tag.length > 80)) {
@@ -557,6 +557,55 @@ const permissionsByCollection = {
 const collections = Object.keys(permissionsByCollection);
 const loginAttempts = new Map();
 const collectionCache = Object.fromEntries(collections.map(key => [key, null]));
+
+function stateForUser(source, user) {
+  const state = JSON.parse(JSON.stringify(source));
+  if (userHasPermission(user, 'manageInventory')) return state;
+  for (const item of state.inventoryItems || []) {
+    delete item.hargaSatuan;
+    delete item.totalNilai;
+  }
+  for (const transaction of state.stockInList || []) {
+    delete transaction.hargaSatuan;
+    delete transaction.totalHarga;
+  }
+  for (const document of state.documents || []) {
+    delete document.totalNilaiNota;
+    for (const item of document.items || []) {
+      delete item.hargaSatuan;
+      delete item.totalHarga;
+      delete item.subtotal;
+    }
+  }
+  return state;
+}
+
+function restoreRestrictedFinancialData(next, current) {
+  const preserve = (collection, idField, fields) => {
+    const previousById = new Map((current[collection] || []).map(row => [row[idField], row]));
+    for (const row of next[collection] || []) {
+      const previous = previousById.get(row[idField]);
+      if (!previous) continue;
+      for (const field of fields) row[field] = previous[field];
+    }
+  };
+  preserve('inventoryItems', 'id', ['hargaSatuan', 'totalNilai']);
+  preserve('stockInList', 'id', ['hargaSatuan', 'totalHarga']);
+  const documents = new Map((current.documents || []).map(row => [row.id, row]));
+  for (const document of next.documents || []) {
+    const previous = documents.get(document.id);
+    if (!previous) continue;
+    document.totalNilaiNota = previous.totalNilaiNota;
+    const receiptItems = new Map((previous.items || []).map(item => [item.id, item]));
+    for (const item of document.items || []) {
+      const old = receiptItems.get(item.id);
+      if (!old) continue;
+      item.hargaSatuan = old.hargaSatuan;
+      item.totalHarga = old.totalHarga;
+      item.subtotal = old.subtotal;
+    }
+  }
+}
 
 async function refreshCollections(executor = db) {
   const state = dataBackend === 'operational'
@@ -927,8 +976,14 @@ function validateInventoryRequests(previousState, nextState) {
         !String(request?.ruangan || '').trim() ||
         !String(request?.keperluan || '').trim() ||
         !['Rendah', 'Normal', 'Tinggi', 'Mendesak'].includes(request?.prioritas) ||
-        !['Draft', 'Diajukan', 'Diverifikasi', 'Disetujui', 'Diproses', 'Selesai', 'Ditolak'].includes(request?.status)) {
+        !['Draft', 'Diajukan', 'Diverifikasi', 'Disetujui', 'Diproses', 'Menunggu Konfirmasi', 'Diterima', 'Selesai', 'Ditolak'].includes(request?.status)) {
       return `Data induk permohonan ${number} tidak lengkap atau tidak valid.`;
+    }
+    if (request.status === 'Menunggu Konfirmasi' &&
+        (request.penerimaan?.status !== 'Menunggu Konfirmasi' ||
+         !String(request.penerimaan.diserahkanOleh || '').trim() ||
+         !Number.isFinite(Date.parse(request.penerimaan.diserahkanPada)))) {
+      return `Data penyerahan barang permohonan ${number} tidak valid.`;
     }
     if (!previous && previousState.requests !== null && request.status !== 'Diajukan') {
       return `Permohonan baru ${number} harus dimulai dengan status Diajukan.`;
@@ -1268,11 +1323,356 @@ app.put('/api/auth/users/:id/password', requireUser, asyncRoute(async (request, 
 }));
 
 app.get('/api/state', requireUser, asyncRoute(async (_request, response) => {
-  const state = Object.fromEntries(collections.map(key => [key, getCollection(key)]));
+  const state = stateForUser(
+    Object.fromEntries(collections.map(key => [key, getCollection(key)])),
+    _request.user
+  );
   if (dataBackend === 'operational') state.warehouseRacks = getCollection('warehouseRacks') || [];
   const revisionRow = await queryOne(db, "SELECT value FROM app_meta WHERE `key` = 'revision'");
   const revision = Number(revisionRow?.value || 0);
   response.json({ state, initialized: state.users !== null, revision, dataBackend });
+}));
+
+app.post('/api/requests/:id/confirm-receipt', requireUser, asyncRoute(async (request, response) => {
+  if (!userHasPermission(request.user, 'requestSupplies') ||
+      String(request.user.role || '').trim().toLowerCase() === 'pimpinan') {
+    return response.status(403).json({ error: 'Hanya Pemohon yang berwenang dapat mengonfirmasi penerimaan.' });
+  }
+
+  let currentState;
+  let nextState;
+  let nextRevision;
+  const outcome = await withTransaction(async connection => {
+    const revisionRow = await queryOne(connection, "SELECT value FROM app_meta WHERE `key` = 'revision' FOR UPDATE");
+    const revision = Number(revisionRow?.value || 0);
+    currentState = await readCollections(connection);
+    const requests = Array.isArray(currentState.requests) ? currentState.requests : [];
+    const target = requests.find(item => item.id === request.params.id);
+    if (!target) return { status: 404, error: 'Permohonan tidak ditemukan.' };
+    if (target.pemohonUserId !== request.user.id) {
+      return { status: 403, error: 'Anda hanya dapat mengonfirmasi permohonan milik akun Anda.' };
+    }
+    if (target.status === 'Diterima' && target.penerimaan?.status === 'Diterima') {
+      return { status: 200, alreadyConfirmed: true, revision };
+    }
+    if (target.status !== 'Menunggu Konfirmasi' ||
+        target.penerimaan?.status !== 'Menunggu Konfirmasi' ||
+        target.penerimaan.catatanSelisih) {
+      return { status: 409, error: 'Barang belum diserahkan atau permohonan tidak menunggu konfirmasi penerimaan.' };
+    }
+
+    const requestedItems = Array.isArray(target.items) && target.items.length
+      ? target.items
+      : [{
+          itemId: target.itemId,
+          namaBarang: target.namaBarang,
+          jumlahDiminta: target.jumlahDiminta,
+          jumlahDisetujui: target.jumlahDisetujui,
+          satuan: target.satuan
+        }];
+    const handedItems = target.penerimaan.items;
+    if (!Array.isArray(handedItems) || handedItems.length !== requestedItems.length) {
+      return { status: 400, error: 'Rincian jumlah barang yang diserahkan tidak lengkap.' };
+    }
+    const stockById = new Map((currentState.inventoryItems || []).map(item => [item.id, item]));
+    const requestedById = new Map(requestedItems.map(item => [item.itemId, item]));
+    const handedIds = new Set();
+    const now = new Date();
+    const transactionHeaderId = crypto.randomUUID();
+    const transactionNumber = `BK-BPS7106/${now.getFullYear()}/${String((currentState.stockOutList || []).length + 1).padStart(4, '0')}`;
+    const issuedItems = [];
+    for (const handedItem of handedItems) {
+      const requestedItem = requestedById.get(handedItem.itemId);
+      if (!requestedItem || handedIds.has(handedItem.itemId)) {
+        return { status: 400, error: 'Rincian barang yang diserahkan tidak sesuai dengan permohonan.' };
+      }
+      handedIds.add(handedItem.itemId);
+      const item = stockById.get(handedItem.itemId);
+      const approvedQuantity = requestedItem.jumlahDisetujui ??
+        (requestedItems.length === 1 ? target.jumlahDisetujui : undefined);
+      const quantity = handedItem.jumlah;
+      if (!item || !Number.isSafeInteger(quantity) || quantity <= 0 ||
+          !Number.isSafeInteger(approvedQuantity) || quantity > approvedQuantity) {
+        return { status: 400, error: `Jumlah penerimaan untuk ${requestedItem.namaBarang || 'barang'} tidak valid.` };
+      }
+      if (dataBackend === 'operational') {
+        const locked = await queryOne(connection,
+          'SELECT stok_saat_ini FROM inventory_items WHERE id = ? FOR UPDATE',
+          [item.id]);
+        if (!locked || Number(locked.stok_saat_ini) !== Number(item.stokSaatIni)) {
+          return { status: 409, error: 'Saldo persediaan berubah. Muat ulang data lalu coba lagi.' };
+        }
+      }
+      const reservedByOthers = requests
+        .filter(other => other.id !== target.id &&
+          ['Diajukan', 'Diverifikasi', 'Disetujui', 'Diproses', 'Menunggu Konfirmasi'].includes(other.status))
+        .reduce((sum, other) => {
+          const lines = Array.isArray(other.items) && other.items.length ? other.items : [{
+            itemId: other.itemId,
+            jumlahDiminta: other.jumlahDiminta,
+            jumlahDisetujui: other.jumlahDisetujui
+          }];
+          return sum + lines.reduce((subtotal, line) => {
+            if (line.itemId !== item.id) return subtotal;
+            const reserved = ['Disetujui', 'Diproses', 'Menunggu Konfirmasi'].includes(other.status)
+              ? line.jumlahDisetujui ?? (lines.length === 1 ? other.jumlahDisetujui : undefined) ?? line.jumlahDiminta
+              : line.jumlahDiminta;
+            return subtotal + (Number.isSafeInteger(reserved) && reserved > 0 ? reserved : 0);
+          }, 0);
+        }, 0);
+      if (!Number.isSafeInteger(item.stokSaatIni) || item.stokSaatIni < quantity ||
+          item.stokSaatIni - quantity < reservedByOthers) {
+        return { status: 409, error: `Stok ${item.nama} tidak mencukupi setelah mempertahankan reservasi permohonan lain.` };
+      }
+      issuedItems.push({ item, quantity, requestedItem });
+    }
+    if (handedIds.size !== requestedItems.length) {
+      return { status: 400, error: 'Ada rincian barang permohonan yang belum diserahkan.' };
+    }
+
+    nextState = JSON.parse(JSON.stringify(currentState));
+    const nextRequest = nextState.requests.find(item => item.id === target.id);
+    const mutationIds = [];
+    for (const [index, { item, quantity }] of issuedItems.entries()) {
+      const mutableItem = nextState.inventoryItems.find(candidate => candidate.id === item.id);
+      mutableItem.stokSaatIni -= quantity;
+      mutableItem.totalNilai = mutableItem.stokSaatIni * Number(mutableItem.hargaSatuan || 0);
+      mutableItem.status = mutableItem.stokSaatIni <= 0
+        ? 'Habis'
+        : mutableItem.stokSaatIni <= mutableItem.stokMinimum ? 'Menipis' : 'Aman';
+      const transactionId = crypto.randomUUID();
+      mutationIds.push(transactionId);
+      nextState.stockOutList.unshift({
+        id: transactionId,
+        headerId: transactionHeaderId,
+        requestId: target.id,
+        nomorTransaksi: transactionNumber,
+        tanggal: now.toISOString().slice(0, 10),
+        unitKerja: target.unitKerja,
+        ruangan: target.ruangan,
+        pemohon: target.pemohonNama,
+        itemId: item.id,
+        namaBarang: item.nama,
+        jenis: item.jenis,
+        jumlah: quantity,
+        satuan: item.satuan,
+        keperluan: target.keperluan,
+        petugas: target.penerimaan.diserahkanOleh,
+        keterangan: `Penerimaan dikonfirmasi oleh ${request.user.name}; permohonan ${target.nomorPermintaan}.`
+      });
+    }
+    nextRequest.status = 'Diterima';
+    nextRequest.penerimaan = {
+      ...nextRequest.penerimaan,
+      status: 'Diterima',
+      dikonfirmasiOlehId: request.user.id,
+      dikonfirmasiOleh: request.user.name,
+      dikonfirmasiPada: now.toISOString(),
+      mutasiIds: mutationIds
+    };
+    const makassarDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(now);
+    const makassarTime = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Makassar', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+    }).format(now);
+    const detail = `Permohonan ${target.nomorPermintaan} dikonfirmasi diterima oleh ${request.user.name}; mutasi ${transactionNumber}; ${issuedItems.map(({ item, quantity }) => `${item.nama} ${quantity} ${item.satuan}`).join(', ')}.`;
+    nextState.auditLogs = [{
+      id: crypto.randomUUID(),
+      userId: request.user.id,
+      userName: request.user.name,
+      userRole: request.user.role,
+      aktivitas: 'Konfirmasi Penerimaan Barang',
+      modul: 'PERSEDIAAN',
+      tanggal: makassarDate,
+      waktu: makassarTime,
+      ipAddress: String(request.ip || '').slice(0, 50),
+      detail
+    }, ...(nextState.auditLogs || [])];
+    nextState.notifications = [{
+      id: crypto.randomUUID(),
+      type: 'TRANSAKSI',
+      title: 'Barang Diterima Pemohon',
+      message: `${target.nomorPermintaan}: ${request.user.name} mengonfirmasi penerimaan ${issuedItems.map(({ item, quantity }) => `${item.nama} (${quantity} ${item.satuan})`).join(', ')} pada ${makassarDate} ${makassarTime} WITA.`,
+      timestamp: now.toISOString(),
+      read: false,
+      link: 'requests'
+    }, ...(nextState.notifications || [])];
+
+    nextRevision = revision + 1;
+    if (dataBackend === 'operational') {
+      await writeOperationalState(connection, currentState, nextState, {
+        ...request.user,
+        ipAddress: request.ip
+      }, nextRevision);
+    } else {
+      for (const key of collections) {
+        await execute(connection, `
+          INSERT INTO app_data (\`key\`, value_json)
+          VALUES (?, ?)
+          ON DUPLICATE KEY UPDATE value_json = VALUES(value_json)
+        `, [key, JSON.stringify(nextState[key])]);
+      }
+    }
+    await execute(connection, `
+      INSERT INTO app_meta (\`key\`, value) VALUES ('revision', ?)
+      ON DUPLICATE KEY UPDATE value = VALUES(value)
+    `, [String(nextRevision)]);
+    return { status: 200, alreadyConfirmed: false, revision: nextRevision };
+  });
+
+  if (outcome.status !== 200) return response.status(outcome.status).json({ error: outcome.error });
+  if (outcome.alreadyConfirmed) {
+    return response.json({ success: true, alreadyConfirmed: true, revision: outcome.revision });
+  }
+  Object.assign(collectionCache, nextState);
+  response.json({ success: true, revision: nextRevision });
+  whatsapp.onStateSaved(currentState, nextState, request.user.id, nextRevision);
+}));
+
+app.post('/api/requests/:id/receipt-discrepancy', requireUser, asyncRoute(async (request, response) => {
+  const reason = String(request.body?.reason || '').trim();
+  if (reason.length < 5 || reason.length > 500) {
+    return response.status(400).json({ error: 'Jelaskan selisih barang dalam 5 sampai 500 karakter.' });
+  }
+  if (!userHasPermission(request.user, 'requestSupplies') ||
+      String(request.user.role || '').trim().toLowerCase() === 'pimpinan') {
+    return response.status(403).json({ error: 'Hanya Pemohon yang berwenang melaporkan selisih penerimaan.' });
+  }
+
+  let currentState;
+  let nextState;
+  let revision;
+  const outcome = await withTransaction(async connection => {
+    const revisionRow = await queryOne(connection, "SELECT value FROM app_meta WHERE `key` = 'revision' FOR UPDATE");
+    revision = Number(revisionRow?.value || 0);
+    currentState = await readCollections(connection);
+    const target = (currentState.requests || []).find(item => item.id === request.params.id);
+    if (!target) return { status: 404, error: 'Permohonan tidak ditemukan.' };
+    if (target.pemohonUserId !== request.user.id) {
+      return { status: 403, error: 'Anda hanya dapat melaporkan selisih permohonan milik akun Anda.' };
+    }
+    if (target.status !== 'Menunggu Konfirmasi' ||
+        target.penerimaan?.status !== 'Menunggu Konfirmasi') {
+      return { status: 409, error: 'Permohonan tidak menunggu konfirmasi penerimaan.' };
+    }
+    if (target.penerimaan.catatanSelisih === reason) return { status: 200, unchanged: true };
+    nextState = JSON.parse(JSON.stringify(currentState));
+    const nextRequest = nextState.requests.find(item => item.id === target.id);
+    nextRequest.penerimaan.catatanSelisih = reason;
+    const now = new Date();
+    const date = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(now);
+    const time = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Makassar', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+    }).format(now);
+    nextState.auditLogs = [{
+      id: crypto.randomUUID(),
+      userId: request.user.id,
+      userName: request.user.name,
+      userRole: request.user.role,
+      aktivitas: 'Pelaporan Selisih Penerimaan Barang',
+      modul: 'PERSEDIAAN',
+      tanggal: date,
+      waktu: time,
+      ipAddress: String(request.ip || '').slice(0, 50),
+      detail: `Permohonan ${target.nomorPermintaan}: ${reason}`
+    }, ...(nextState.auditLogs || [])];
+    nextState.notifications = [{
+      id: crypto.randomUUID(),
+      type: 'PERINGATAN',
+      title: 'Selisih Penerimaan Barang Dilaporkan',
+      message: `${target.nomorPermintaan} oleh ${request.user.name}: ${reason}`,
+      timestamp: now.toISOString(),
+      read: false,
+      link: 'requests'
+    }, ...(nextState.notifications || [])];
+    revision += 1;
+    if (dataBackend === 'operational') {
+      await writeOperationalState(connection, currentState, nextState, {
+        ...request.user,
+        ipAddress: request.ip
+      }, revision);
+    } else {
+      for (const key of collections) {
+        await execute(connection, `
+          INSERT INTO app_data (\`key\`, value_json)
+          VALUES (?, ?)
+          ON DUPLICATE KEY UPDATE value_json = VALUES(value_json)
+        `, [key, JSON.stringify(nextState[key])]);
+      }
+    }
+    await execute(connection, `
+      INSERT INTO app_meta (\`key\`, value) VALUES ('revision', ?)
+      ON DUPLICATE KEY UPDATE value = VALUES(value)
+    `, [String(revision)]);
+    return { status: 200, unchanged: false };
+  });
+  if (outcome.status !== 200) return response.status(outcome.status).json({ error: outcome.error });
+  if (!outcome.unchanged) Object.assign(collectionCache, nextState);
+  response.json({ success: true, revision });
+}));
+
+app.post('/api/requests/:id/reopen-handover', requireUser, asyncRoute(async (request, response) => {
+  if (!userHasPermission(request.user, 'manageInventory')) {
+    return response.status(403).json({ error: 'Tidak memiliki izin mengelola penyerahan barang.' });
+  }
+  let currentState;
+  let nextState;
+  let revision;
+  const outcome = await withTransaction(async connection => {
+    const revisionRow = await queryOne(connection, "SELECT value FROM app_meta WHERE `key` = 'revision' FOR UPDATE");
+    revision = Number(revisionRow?.value || 0);
+    currentState = await readCollections(connection);
+    const target = (currentState.requests || []).find(item => item.id === request.params.id);
+    if (!target) return { status: 404, error: 'Permohonan tidak ditemukan.' };
+    if (target.status !== 'Menunggu Konfirmasi' ||
+        target.penerimaan?.status !== 'Menunggu Konfirmasi' ||
+        !target.penerimaan.catatanSelisih) {
+      return { status: 409, error: 'Hanya laporan selisih yang belum selesai dapat dikembalikan ke tahap penyerahan.' };
+    }
+    nextState = JSON.parse(JSON.stringify(currentState));
+    const nextRequest = nextState.requests.find(item => item.id === target.id);
+    nextRequest.status = 'Diproses';
+    delete nextRequest.penerimaan;
+    const now = new Date();
+    const date = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(now);
+    const time = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Makassar', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+    }).format(now);
+    nextState.auditLogs = [{
+      id: crypto.randomUUID(),
+      userId: request.user.id,
+      userName: request.user.name,
+      userRole: request.user.role,
+      aktivitas: 'Penanganan Selisih Penyerahan Barang',
+      modul: 'PERSEDIAAN',
+      tanggal: date,
+      waktu: time,
+      ipAddress: String(request.ip || '').slice(0, 50),
+      detail: `Permohonan ${target.nomorPermintaan} dikembalikan ke tahap Diproses untuk menindaklanjuti laporan: ${target.penerimaan.catatanSelisih}`
+    }, ...(nextState.auditLogs || [])];
+    revision += 1;
+    if (dataBackend === 'operational') {
+      await writeOperationalState(connection, currentState, nextState, {
+        ...request.user,
+        ipAddress: request.ip
+      }, revision);
+    } else {
+      for (const key of collections) {
+        await execute(connection, `
+          INSERT INTO app_data (\`key\`, value_json)
+          VALUES (?, ?)
+          ON DUPLICATE KEY UPDATE value_json = VALUES(value_json)
+        `, [key, JSON.stringify(nextState[key])]);
+      }
+    }
+    await execute(connection, `
+      INSERT INTO app_meta (\`key\`, value) VALUES ('revision', ?)
+      ON DUPLICATE KEY UPDATE value = VALUES(value)
+    `, [String(revision)]);
+    return { status: 200 };
+  });
+  if (outcome.status !== 200) return response.status(outcome.status).json({ error: outcome.error });
+  Object.assign(collectionCache, nextState);
+  response.json({ success: true, revision });
 }));
 
 app.post('/api/documents', requireUser, asyncRoute(async (request, response) => {
@@ -1286,6 +1686,9 @@ app.post('/api/documents', requireUser, asyncRoute(async (request, response) => 
   let fileBytes;
   try {
     metadata = parseDocumentUploadMetadata(request);
+    if (metadata.category === 'Nota' && !userHasPermission(request.user, 'manageInventory')) {
+      return response.status(403).json({ error: 'Hanya role yang berwenang atas persediaan dapat mengunggah nota belanja.' });
+    }
     uploadKey = parseUploadKey(request);
     let fileName;
     try {
@@ -1382,6 +1785,219 @@ app.post('/api/documents', requireUser, asyncRoute(async (request, response) => 
   }
 }));
 
+app.put('/api/documents/:id', requireUser, asyncRoute(async (request, response) => {
+  if (!canManageDocuments(request.user) || !userHasPermission(request.user, 'manageInventory')) {
+    return response.status(403).json({ error: 'Tidak memiliki izin mengubah nota belanja.' });
+  }
+
+  const existing = (getCollection('documents') || []).find(item => item.id === request.params.id);
+  if (!existing) return response.status(404).json({ error: 'Nota belanja tidak ditemukan.' });
+  if (existing.jenis !== 'Nota') return response.status(400).json({ error: 'Dokumen ini bukan nota belanja.' });
+  if (existing.status !== 'Draft' && !userHasPermission(request.user, 'systemSettings')) {
+    return response.status(403).json({ error: 'Nota final/terkunci hanya dapat diubah melalui otorisasi administrator.' });
+  }
+
+  let metadata;
+  let fileBytes;
+  let file;
+  try {
+    metadata = parseDocumentUploadMetadata(request);
+    if (metadata.category !== 'Nota') throw new DocumentUploadError('Kategori dokumen tidak dapat diubah dari nota.');
+    fileBytes = await readLimitedRequest(request, documentMaxFileSize);
+    if (fileBytes.length) {
+      let fileName;
+      try {
+        fileName = decodeURIComponent(request.get('x-file-name') || '');
+      } catch {
+        throw new DocumentUploadError('Nama berkas tidak valid.');
+      }
+      file = validateStoredFile({
+        fileName,
+        mimeType: request.get('content-type'),
+        bytes: fileBytes,
+        maxBytes: documentMaxFileSize
+      });
+    }
+  } catch (error) {
+    if (error instanceof DocumentUploadError) {
+      return response.status(error.status).json({ error: error.message });
+    }
+    if (error instanceof DocumentStorageError) {
+      return response.status(error.code === 'DOCUMENT_TOO_LARGE' ? 413 : 400).json({ error: error.message });
+    }
+    throw error;
+  }
+
+  const newStorageKey = file ? crypto.randomUUID() : undefined;
+  const fileSha256 = file ? crypto.createHash('sha256').update(fileBytes).digest('hex') : undefined;
+  if (file && newStorageKey && fileSha256) {
+    try {
+      await documentStorage.save(newStorageKey, fileBytes, fileSha256);
+    } catch (error) {
+      if (error instanceof DocumentStorageError) {
+        console.error('Backend replacement document storage failed:', error.code);
+        return response.status(500).json({ error: 'Berkas pengganti tidak dapat disimpan pada penyimpanan backend.' });
+      }
+      throw error;
+    }
+  }
+
+  const now = new Date();
+  let updatedDocument;
+  let auditLog;
+  let revision;
+  let transactionCommitted = false;
+  try {
+    const result = await withTransaction(async connection => {
+      const revisionRow = await queryOne(connection, "SELECT value FROM app_meta WHERE `key` = 'revision' FOR UPDATE");
+      const currentRevision = Number(revisionRow?.value || 0);
+      const currentState = await readCollections(connection);
+      const current = (currentState.documents || []).find(item => item.id === request.params.id);
+      if (!current || current.storageKey !== existing.storageKey || current.sha256 !== existing.sha256) {
+        throw new DocumentUploadError('Nota telah berubah atau dihapus. Muat ulang halaman lalu coba kembali.', 409);
+      }
+      if (current.jenis !== 'Nota' ||
+          (current.status !== 'Draft' && !userHasPermission(request.user, 'systemSettings'))) {
+        throw new DocumentUploadError('Nota terkunci atau tidak dapat diubah dengan izin akun ini.', 403);
+      }
+
+      const year = Number(metadata.date.slice(0, 4));
+      updatedDocument = {
+        ...current,
+        nomorDokumen: metadata.number,
+        judul: metadata.title,
+        tanggal: metadata.date,
+        tahun: year,
+        tags: metadata.tags,
+        status: metadata.status,
+        description: metadata.description || undefined,
+        namaToko: metadata.namaToko,
+        kategoriNota: metadata.kategoriNota,
+        totalNilaiNota: metadata.totalNilaiNota,
+        items: metadata.items
+      };
+      if (file && newStorageKey && fileSha256) {
+        updatedDocument = {
+          ...updatedDocument,
+          fileName: file.fileName,
+          fileType: file.mimeType,
+          fileSize: fileBytes.length < 1024 * 1024
+            ? `${(fileBytes.length / 1024).toFixed(1)} KB`
+            : `${(fileBytes.length / (1024 * 1024)).toFixed(1)} MB`,
+          storageBackend: 'hostinger',
+          storageKey: newStorageKey,
+          storageSize: fileBytes.length,
+          sha256: fileSha256
+        };
+      }
+      const localDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(now);
+      const localTime = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Makassar', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+      }).format(now);
+      auditLog = {
+        id: crypto.randomUUID(),
+        userId: request.user.id,
+        userName: request.user.name,
+        userRole: request.user.role,
+        aktivitas: 'Perubahan Nota Belanja',
+        modul: 'DOKUMEN',
+        tanggal: localDate,
+        waktu: localTime,
+        ipAddress: String(request.ip || '').slice(0, 50),
+        detail: `Memperbarui nota ${current.nomorDokumen} menjadi ${updatedDocument.nomorDokumen}; rincian, nominal, atau lampiran diperbarui.`
+      };
+      const nextState = {
+        ...currentState,
+        documents: (currentState.documents || []).map(item => item.id === current.id ? updatedDocument : item),
+        auditLogs: [auditLog, ...(currentState.auditLogs || [])]
+      };
+
+      if (dataBackend === 'operational') {
+        await execute(connection, `
+          UPDATE documents SET
+            nomor_dokumen = ?, judul = ?, tanggal = ?, tahun = ?, file_size = ?, status = ?,
+            tags_json = ?, storage_backend = ?, storage_key = ?, storage_size_bytes = ?, sha256 = ?,
+            file_name = ?, mime_type = ?, description = ?, nama_toko = ?, kategori_nota = ?, total_nilai_nota = ?
+          WHERE id = ?
+        `, [
+          updatedDocument.nomorDokumen, updatedDocument.judul, updatedDocument.tanggal, updatedDocument.tahun,
+          updatedDocument.fileSize, updatedDocument.status, JSON.stringify(updatedDocument.tags),
+          updatedDocument.storageBackend || null, updatedDocument.storageKey || null,
+          updatedDocument.storageSize || null, updatedDocument.sha256 || null,
+          updatedDocument.fileName || null, updatedDocument.fileType || null,
+          updatedDocument.description || null, updatedDocument.namaToko || null,
+          updatedDocument.kategoriNota || null, updatedDocument.totalNilaiNota ?? null, updatedDocument.id
+        ]);
+        await execute(connection, 'DELETE FROM document_receipt_items WHERE document_id = ?', [updatedDocument.id]);
+        for (const item of updatedDocument.items || []) {
+          await execute(connection, `
+            INSERT INTO document_receipt_items
+              (id, document_id, item_id, nama_barang, kategori, satuan, jumlah, harga_satuan, total_harga)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `, [
+            item.id, updatedDocument.id, item.itemId || null, item.namaBarang, item.kategori,
+            item.satuan, item.jumlah, item.hargaSatuan, item.totalHarga
+          ]);
+        }
+        await execute(connection, `
+          INSERT INTO audit_logs (id, user_id, user_name, user_role, aktivitas, modul, tanggal, waktu, ip_address, detail)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          auditLog.id, auditLog.userId, auditLog.userName, auditLog.userRole, auditLog.aktivitas,
+          auditLog.modul, auditLog.tanggal, auditLog.waktu, auditLog.ipAddress, auditLog.detail
+        ]);
+      } else {
+        for (const [key, value] of Object.entries({
+          documents: nextState.documents,
+          auditLogs: nextState.auditLogs
+        })) {
+          await execute(connection, `
+            INSERT INTO app_data (\`key\`, value_json) VALUES (?, ?)
+            ON DUPLICATE KEY UPDATE value_json = VALUES(value_json)
+          `, [key, JSON.stringify(value)]);
+        }
+      }
+      if (file) await saveDocumentBackup(connection, updatedDocument, fileBytes);
+      revision = currentRevision + 1;
+      await execute(connection, `
+        INSERT INTO app_meta (\`key\`, value) VALUES ('revision', ?)
+        ON DUPLICATE KEY UPDATE value = VALUES(value)
+      `, [String(revision)]);
+      return { currentStorageKey: current.storageKey };
+    });
+    transactionCommitted = true;
+    if (file && result.currentStorageKey && result.currentStorageKey !== newStorageKey) {
+      try {
+        const oldFile = await documentStorage.prepareDelete(result.currentStorageKey);
+        await documentStorage.commitDelete(oldFile);
+      } catch (error) {
+        console.error('Old nota attachment cleanup failed after replacement:', error?.code || 'STORAGE_ERROR');
+      }
+    }
+    await refreshCollections();
+    return response.json({ success: true, document: updatedDocument, auditLog, revision });
+  } catch (error) {
+    if (newStorageKey && !transactionCommitted) {
+      try {
+        const newFile = await documentStorage.prepareDelete(newStorageKey);
+        await documentStorage.commitDelete(newFile);
+      } catch (cleanupError) {
+        if (!(cleanupError instanceof DocumentStorageError && cleanupError.code === 'DOCUMENT_FILE_MISSING')) {
+          console.error('Failed to clean up uncommitted nota attachment:', cleanupError?.code || 'STORAGE_ERROR');
+        }
+      }
+    }
+    if (error instanceof DocumentUploadError) {
+      return response.status(error.status).json({ error: error.message });
+    }
+    if (error?.code === 'ER_DUP_ENTRY') {
+      return response.status(409).json({ error: 'Nomor dokumen tersebut sudah digunakan.' });
+    }
+    console.error('Nota metadata update failed:', error?.code || 'DATABASE_ERROR');
+    return response.status(500).json({ error: 'Perubahan nota atau lampirannya gagal disimpan.' });
+  }
+}));
+
 app.get('/api/documents/:id/file', requireUser, asyncRoute(async (request, response) => {
   if (!canViewDocuments(request.user)) {
     return response.status(403).json({ error: 'Tidak memiliki izin melihat dokumen.' });
@@ -1389,6 +2005,9 @@ app.get('/api/documents/:id/file', requireUser, asyncRoute(async (request, respo
   const document = (getCollection('documents') || []).find(item => item.id === request.params.id);
   if (!document || document.storageBackend !== 'hostinger' || !document.storageKey) {
     return response.status(404).json({ error: 'Berkas penyimpanan backend tidak ditemukan.' });
+  }
+  if (document.jenis === 'Nota' && !userHasPermission(request.user, 'manageInventory')) {
+    return response.status(403).json({ error: 'Tidak memiliki izin melihat lampiran nota belanja.' });
   }
   let bytes;
   try {
@@ -1479,6 +2098,11 @@ app.delete('/api/documents/:id', requireUser, asyncRoute(async (request, respons
   }
   const document = (getCollection('documents') || []).find(item => item.id === request.params.id);
   if (!document) return response.status(404).json({ error: 'Dokumen tidak ditemukan.' });
+  if (document.jenis === 'Nota' &&
+      (!userHasPermission(request.user, 'manageInventory') ||
+       (document.status !== 'Draft' && !userHasPermission(request.user, 'systemSettings')))) {
+    return response.status(403).json({ error: 'Nota belanja hanya dapat dihapus oleh role berwenang; nota final memerlukan otorisasi administrator.' });
+  }
   if (document.storageBackend !== 'hostinger' || !document.storageKey) {
     return response.status(400).json({ error: 'Dokumen lama harus dihapus melalui alur arsip yang tersedia.' });
   }
@@ -1597,10 +2221,11 @@ app.get('/api/inventory/:id/stock-card', requireUser, asyncRoute(async (request,
 }));
 
 app.put('/api/state', requireUser, asyncRoute(async (request, response) => {
-  const state = request.body?.state;
-  if (!state || typeof state !== 'object' || Array.isArray(state)) {
+  const submittedState = request.body?.state;
+  if (!submittedState || typeof submittedState !== 'object' || Array.isArray(submittedState)) {
     return response.status(400).json({ error: 'Format data tidak valid.' });
   }
+  const state = JSON.parse(JSON.stringify(submittedState));
   let currentState;
   let cancellationEvents;
   let revision;
@@ -1612,8 +2237,112 @@ app.put('/api/state', requireUser, asyncRoute(async (request, response) => {
         return { status: 409, body: { error: 'Data berubah di perangkat lain. Muat ulang halaman sebelum menyimpan lagi.', revision } };
       }
       currentState = await readCollections(connection);
+      if (!userHasPermission(request.user, 'manageInventory', currentState)) {
+        restoreRestrictedFinancialData(state, currentState);
+      }
+      const previousRequestsById = new Map((currentState.requests || []).map(item => [item.id, item]));
+      const canAssignAnotherRequester =
+        userHasPermission(request.user, 'approveRequests', currentState) ||
+        userHasPermission(request.user, 'manageInventory', currentState);
+      for (const inventoryRequest of state.requests || []) {
+        const previous = previousRequestsById.get(inventoryRequest.id);
+        if (previous) {
+          inventoryRequest.pemohonUserId = previous.pemohonUserId;
+          if (inventoryRequest.status === 'Menunggu Konfirmasi' &&
+              previous.status === 'Diproses' &&
+              userHasPermission(request.user, 'manageInventory', currentState)) {
+            const approvedItems = previous.items?.length ? previous.items : [{
+              itemId: previous.itemId,
+              namaBarang: previous.namaBarang,
+              jumlahDiminta: previous.jumlahDiminta,
+              jumlahDisetujui: previous.jumlahDisetujui || previous.jumlahDiminta,
+              satuan: previous.satuan
+            }];
+            const submittedItems = new Map((inventoryRequest.items || []).map(item => [item.itemId, item]));
+            const deliveredItems = approvedItems.map(item => {
+              const submitted = submittedItems.get(item.itemId);
+              const quantity = submitted?.jumlahDisetujui ?? item.jumlahDisetujui ?? item.jumlahDiminta;
+              if (!Number.isSafeInteger(quantity) || quantity <= 0 ||
+                  quantity > (item.jumlahDisetujui ?? item.jumlahDiminta)) {
+                return null;
+              }
+              return { itemId: item.itemId, jumlah: quantity };
+            });
+            if (deliveredItems.some(item => !item)) {
+              return { status: 400, body: { error: 'Jumlah yang diserahkan harus positif dan tidak boleh melebihi jumlah yang disetujui.' } };
+            }
+            inventoryRequest.items = approvedItems;
+            inventoryRequest.itemId = approvedItems[0].itemId;
+            inventoryRequest.jumlahDiminta = previous.jumlahDiminta;
+            inventoryRequest.jumlahDisetujui = previous.jumlahDisetujui;
+            inventoryRequest.namaBarang = previous.namaBarang;
+            inventoryRequest.satuan = previous.satuan;
+            inventoryRequest.penerimaan = {
+              status: 'Menunggu Konfirmasi',
+              diserahkanOleh: request.user.name,
+              diserahkanPada: new Date().toISOString(),
+              items: deliveredItems,
+              mutasiIds: []
+            };
+          } else {
+            inventoryRequest.penerimaan = previous.penerimaan;
+          }
+          continue;
+        }
+        const requester = canAssignAnotherRequester
+          ? (currentState.users || []).find(user =>
+              String(user.name || '').trim().toLocaleLowerCase('id-ID') ===
+              String(inventoryRequest.pemohonNama || '').trim().toLocaleLowerCase('id-ID')
+            )
+          : request.user;
+        if (!requester ||
+            (!canAssignAnotherRequester &&
+             String(inventoryRequest.pemohonNama || '').trim().toLocaleLowerCase('id-ID') !==
+             String(request.user.name || '').trim().toLocaleLowerCase('id-ID'))) {
+          return { status: 403, body: { error: 'Permohonan baru harus diajukan atas nama pengguna yang sedang masuk.' } };
+        }
+        if (inventoryRequest.pemohonUserId && inventoryRequest.pemohonUserId !== requester.id) {
+          return { status: 403, body: { error: 'Identitas Pemohon pada permohonan tidak valid.' } };
+        }
+        inventoryRequest.pemohonUserId = requester.id;
+        delete inventoryRequest.penerimaan;
+      }
       const currentDocuments = currentState.documents || [];
       const nextDocuments = Array.isArray(state.documents) ? state.documents : [];
+      const noteFields = [
+        'nomorDokumen', 'judul', 'tanggal', 'status', 'description', 'namaToko',
+        'kategoriNota', 'totalNilaiNota', 'items', 'tags'
+      ];
+      for (const previousDocument of currentDocuments) {
+        if (previousDocument.jenis !== 'Nota') continue;
+        const nextDocument = nextDocuments.find(item => item?.id === previousDocument.id);
+        const changed = !nextDocument || noteFields.some(field =>
+          JSON.stringify(nextDocument[field]) !== JSON.stringify(previousDocument[field])
+        );
+        if (changed && !userHasPermission(request.user, 'manageInventory')) {
+          return {
+            status: 403,
+            body: { error: 'Nota belanja hanya dapat diubah oleh role yang berwenang atas persediaan.', revision }
+          };
+        }
+        if (changed && previousDocument.status !== 'Draft' &&
+            !userHasPermission(request.user, 'systemSettings')) {
+          return {
+            status: 403,
+            body: { error: 'Nota final/terkunci hanya dapat diubah melalui otorisasi administrator.', revision }
+          };
+        }
+      }
+      if (nextDocuments.some(document =>
+        document?.jenis === 'Nota' &&
+        !currentDocuments.some(previous => previous.id === document.id) &&
+        !userHasPermission(request.user, 'manageInventory')
+      )) {
+        return {
+          status: 403,
+          body: { error: 'Nota belanja hanya dapat dibuat oleh role yang berwenang atas persediaan.', revision }
+        };
+      }
       for (const previousDocument of currentDocuments) {
         if (previousDocument.storageBackend !== 'hostinger') continue;
         const nextDocument = nextDocuments.find(item => item?.id === previousDocument.id);
@@ -1656,6 +2385,8 @@ app.put('/api/state', requireUser, asyncRoute(async (request, response) => {
       if (requestAuthError) return { status: 403, body: { error: requestAuthError } };
       const requestStockError = validateNewRequestStock(currentState, state);
       if (requestStockError) return { status: 400, body: { error: requestStockError } };
+      const stockOutError = validateAdditionalStockOut(currentState, state);
+      if (stockOutError) return { status: 400, body: { error: stockOutError } };
       const stockInError = validateStockInWorkflow(currentState, state);
       if (stockInError) return { status: 400, body: { error: stockInError } };
       for (const key of collections) {

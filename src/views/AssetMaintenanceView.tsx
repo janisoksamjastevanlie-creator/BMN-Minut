@@ -29,6 +29,7 @@ export const AssetMaintenanceView: React.FC = () => {
   // Form states
   const [selectedAssetId, setSelectedAssetId] = useState(assets[0]?.id || '');
   const [jenisPemeliharaan, setJenisPemeliharaan] = useState('Perawatan Rutin & Pembersihan');
+  const [tanggalMulai, setTanggalMulai] = useState(() => new Date().toISOString().split('T')[0]);
   const [teknisi, setTeknisi] = useState('Teknisi Spesialis Mitra BPS');
   const [vendor, setVendor] = useState('CV. Sulut Multi Graha Servis');
   const [biaya, setBiaya] = useState('450000');
@@ -98,7 +99,7 @@ export const AssetMaintenanceView: React.FC = () => {
       kodeBarang: asset.kodeBarang,
       nup: asset.nup,
       jenisPemeliharaan,
-      tanggalMulai: new Date().toISOString().split('T')[0],
+      tanggalMulai,
       teknisi,
       vendor,
       biaya: Number(biaya) || 0,
@@ -376,6 +377,17 @@ export const AssetMaintenanceView: React.FC = () => {
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-semibold text-slate-300 block mb-1">Tanggal Mulai Perawatan</label>
+                <input
+                  type="date"
+                  required
+                  value={tanggalMulai}
+                  onChange={e => setTanggalMulai(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-amber-500"
+                />
               </div>
 
               <div>

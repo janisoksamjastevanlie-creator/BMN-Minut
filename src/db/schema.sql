@@ -153,6 +153,7 @@ CREATE TABLE IF NOT EXISTS inventory_items (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     kode_barang VARCHAR(50) UNIQUE NOT NULL,
     nama VARCHAR(200) NOT NULL,
+    merek VARCHAR(150),
     kategori_id VARCHAR(50) REFERENCES inventory_categories(id),
     subkategori VARCHAR(100),
     jenis VARCHAR(10) CHECK (jenis IN ('ATK', 'ARK')),
@@ -229,6 +230,7 @@ CREATE TABLE IF NOT EXISTS inventory_requests (
     prioritas VARCHAR(20) DEFAULT 'Normal',
     status VARCHAR(30) DEFAULT 'Diajukan',
     catatan TEXT,
+    app_metadata_json TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 

@@ -13,6 +13,7 @@ export const InventoryFormModal: React.FC<{
 
   const [kodeBarang, setKodeBarang] = useState(initialItem?.kodeBarang || '');
   const [nama, setNama] = useState(initialItem?.nama || '');
+  const [merek, setMerek] = useState(initialItem?.merek || '');
   const [jenis, setJenis] = useState<InventoryType>(initialItem?.jenis || 'ATK');
   const [kategori, setKategori] = useState(initialItem?.kategori || '');
   const [subkategori, setSubkategori] = useState(initialItem?.subkategori || '');
@@ -63,6 +64,7 @@ export const InventoryFormModal: React.FC<{
       updateInventoryItem(initialItem.id, {
         kodeBarang: kodeBarang.trim(),
         nama,
+        merek: merek.trim(),
         jenis,
         kategori,
         subkategori,
@@ -83,6 +85,7 @@ export const InventoryFormModal: React.FC<{
       addInventoryItem({
         kodeBarang: kodeBarang.trim(),
         nama,
+        merek: merek.trim(),
         kategori: kategori.trim(),
         subkategori,
         jenis,
@@ -151,6 +154,20 @@ export const InventoryFormModal: React.FC<{
               required
               value={nama}
               onChange={e => setNama(e.target.value)}
+              className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-400 focus:outline-none focus:border-emerald-500"
+            />
+          </div>
+
+          <div>
+            <label className="text-[11px] font-semibold text-slate-300 block mb-1">
+              Merek Barang
+            </label>
+            <input
+              type="text"
+              maxLength={150}
+              value={merek}
+              onChange={e => setMerek(e.target.value)}
+              placeholder="Opsional"
               className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-400 focus:outline-none focus:border-emerald-500"
             />
           </div>

@@ -26,6 +26,7 @@ import {
 interface UploadNotaModalProps {
   isOpen: boolean;
   onClose: () => void;
+  initialDocument?: DocumentItem;
 }
 
 interface ItemRow {
@@ -57,33 +58,42 @@ const COMMON_UNITS = [
   '+ Tambah Satuan Baru'
 ];
 
-export const UploadNotaModal: React.FC<UploadNotaModalProps> = ({ isOpen, onClose }) => {
-  const { registerUploadedDocument, inventoryItems } = useApp();
+export const UploadNotaModal: React.FC<UploadNotaModalProps> = ({ isOpen, onClose, initialDocument }) => {
+  const { registerUploadedDocument, registerUpdatedDocument, inventoryItems } = useApp();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadKeyRef = useRef('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
-  const today = new Date().toISOString().split('T')[0];
-  const [tanggal, setTanggal] = useState(today);
-  const [nomorNota, setNomorNota] = useState('');
-  const [namaToko, setNamaToko] = useState('');
-  const [kategoriNota, setKategoriNota] = useState<InventoryType>('ATK');
-  const [keterangan, setKeterangan] = useState('');
-  const [status, setStatus] = useState<DocumentItem['status']>('Sah');
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const [tanggal, setTanggal] = useState(initialDocument?.tanggal || today);
+  const [nomorNota, setNomorNota] = useState(initialDocument?.nomorDokumen || '');
+  const [namaToko, setNamaToko] = useState(initialDocument?.namaToko || '');
+  const [kategoriNota, setKategoriNota] = useState<InventoryType>(initialDocument?.kategoriNota || 'ATK');
+  const [keterangan, setKeterangan] = useState(initialDocument?.description || '');
+  const [status, setStatus] = useState<DocumentItem['status']>(initialDocument?.status || 'Sah');
 
   // Dynamic Item Rows
-  const [rows, setRows] = useState<ItemRow[]>([
-    {
-      id: crypto.randomUUID(),
-      namaBarang: '',
-      kategori: 'ATK',
-      satuan: 'Pcs',
-      jumlah: 1,
-      hargaSatuan: 0
-    }
-  ]);
+  const [rows, setRows] = useState<ItemRow[]>(() => initialDocument?.items?.length
+    ? initialDocument.items.map(item => ({
+        id: item.id,
+        itemId: item.itemId,
+        namaBarang: item.namaBarang,
+        kategori: item.kategori,
+        satuan: item.satuan,
+        jumlah: item.jumlah,
+        hargaSatuan: item.hargaSatuan
+      }))
+    : [{
+        id: crypto.randomUUID(),
+        namaBarang: '',
+        kategori: 'ATK',
+        satuan: 'Pcs',
+        jumlah: 1,
+        hargaSatuan: 0
+      }]);
 
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
@@ -413,7 +423,7 @@ export const UploadNotaModal: React.FC<UploadNotaModalProps> = ({ isOpen, onClos
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedFile) {
+    if (!selectedFile && !initialDocument) {
       setUploadError('Lampirkan berkas bukti fisik nota (PDF atau Foto).');
       return;
     }
@@ -489,22 +499,28 @@ export const UploadNotaModal: React.FC<UploadNotaModalProps> = ({ isOpen, onClos
     setUploadError('');
 
     try {
-      const response = await fetch('/api/documents', {
-        method: 'POST',
+      const response = await fetch(initialDocument
+        ? `/api/documents/${encodeURIComponent(initialDocument.id)}`
+        : '/api/documents', {
+        method: initialDocument ? 'PUT' : 'POST',
         headers: {
-          'Content-Type': selectedFile.type || 'application/octet-stream',
+          'Content-Type': selectedFile?.type || initialDocument?.fileType || 'application/octet-stream',
           'X-Document-Metadata': encodedMetadata,
-          'X-File-Name': encodeURIComponent(selectedFile.name),
-          'X-Upload-Id': uploadKeyRef.current
+          ...(selectedFile ? { 'X-File-Name': encodeURIComponent(selectedFile.name) } : {}),
+          ...(!initialDocument ? { 'X-Upload-Id': uploadKeyRef.current } : {})
         },
-        body: selectedFile
+        body: selectedFile || null
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Unggah nota belanja gagal.');
+      if (!response.ok) throw new Error(result.error || (initialDocument ? 'Perubahan nota gagal.' : 'Unggah nota belanja gagal.'));
       if (!result.document || !Number.isInteger(result.revision)) {
-        throw new Error('Respons server untuk dokumen tidak valid.');
+        throw new Error('Respons server untuk nota tidak valid.');
       }
-      registerUploadedDocument(result.document, result.revision, result.auditLog);
+      if (initialDocument) {
+        registerUpdatedDocument(result.document, result.revision, result.auditLog);
+      } else {
+        registerUploadedDocument(result.document, result.revision, result.auditLog);
+      }
       setIsSuccess(true);
       try {
         confetti({
@@ -516,7 +532,7 @@ export const UploadNotaModal: React.FC<UploadNotaModalProps> = ({ isOpen, onClos
         // Confetti optional
       }
     } catch (error) {
-      setUploadError(error instanceof Error ? error.message : 'Unggah nota belanja gagal.');
+      setUploadError(error instanceof Error ? error.message : (initialDocument ? 'Perubahan nota gagal.' : 'Unggah nota belanja gagal.'));
     } finally {
       setIsUploading(false);
     }
@@ -533,7 +549,7 @@ export const UploadNotaModal: React.FC<UploadNotaModalProps> = ({ isOpen, onClos
             </div>
             <div>
               <h2 className="text-base font-bold text-white flex items-center gap-2">
-                <span>Upload Nota Belanja ATK / ARK</span>
+                <span>{initialDocument ? 'Edit Nota Belanja ATK / ARK' : 'Upload Nota Belanja ATK / ARK'}</span>
                 <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/20 font-mono">
                   Pencatatan Belanja
                 </span>
@@ -560,10 +576,15 @@ export const UploadNotaModal: React.FC<UploadNotaModalProps> = ({ isOpen, onClos
                 <CheckCircle2 className="w-8 h-8" />
               </div>
               <div>
-                <h3 className="text-lg font-bold text-white">Nota Belanja Berhasil Diarsipkan!</h3>
+                <h3 className="text-lg font-bold text-white">
+                  {initialDocument ? 'Perubahan Nota Berhasil Disimpan!' : 'Nota Belanja Berhasil Diarsipkan!'}
+                </h3>
                 <p className="text-xs text-slate-300 mt-1 max-w-md mx-auto">
                   Nota belanja senilai <span className="text-emerald-400 font-bold">{formatRupiah(totalNilaiNota)}</span> dari{' '}
-                  <span className="text-white font-semibold">"{namaToko}"</span> beserta bukti berkas fisik telah tercatat secara permanen di arsip dokumen.
+                  <span className="text-white font-semibold">"{namaToko}"</span>{' '}
+                  {initialDocument
+                    ? 'berhasil diperbarui pada arsip dokumen.'
+                    : 'beserta bukti berkas fisik telah tercatat secara permanen di arsip dokumen.'}
                 </p>
                 <div className="mt-3 inline-block px-3 py-1.5 rounded-lg bg-slate-800/80 border border-slate-700 text-[11px] text-slate-400">
                   ℹ️ Sesuai SOP, transaksi ini tidak mengubah saldo fisik barang persediaan.
@@ -571,7 +592,7 @@ export const UploadNotaModal: React.FC<UploadNotaModalProps> = ({ isOpen, onClos
               </div>
 
               <div className="pt-4 flex justify-center gap-3">
-                <button
+                {!initialDocument && <button
                   type="button"
                   onClick={() => {
                     setSelectedFile(null);
@@ -595,7 +616,7 @@ export const UploadNotaModal: React.FC<UploadNotaModalProps> = ({ isOpen, onClos
                   className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl"
                 >
                   Upload Nota Lainnya
-                </button>
+                </button>}
                 <button
                   type="button"
                   onClick={handleModalClose}
@@ -833,8 +854,15 @@ export const UploadNotaModal: React.FC<UploadNotaModalProps> = ({ isOpen, onClos
               {/* Upload Bukti Berkas Fisik Nota */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
+                  {initialDocument && (
+                    <p className="text-[11px] text-slate-400">
+                      Lampiran saat ini: <span className="text-slate-200">{initialDocument.fileName || 'Tidak ada berkas'}</span>.
+                      Lampiran baru bersifat opsional; tanpa penggantian, berkas lama tetap digunakan.
+                    </p>
+                  )}
                   <label className="block text-xs font-semibold text-slate-300">
-                    Bukti Berkas Fisik Nota / Kuitansi (PDF / Gambar) <span className="text-rose-400">*</span>
+                    Bukti Berkas Fisik Nota / Kuitansi (PDF / Gambar)
+                    {!initialDocument && <span className="text-rose-400"> *</span>}
                   </label>
                   {!isCameraOpen && (
                     <div className="flex items-center gap-2">
@@ -1169,18 +1197,18 @@ export const UploadNotaModal: React.FC<UploadNotaModalProps> = ({ isOpen, onClos
                 </button>
                 <button
                   type="submit"
-                  disabled={isUploading || !selectedFile}
+                  disabled={isUploading || (!initialDocument && !selectedFile)}
                   className="px-5 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded-xl flex items-center gap-2 shadow-lg shadow-amber-600/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isUploading ? (
                     <>
                       <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      <span>Mengunggah Nota...</span>
+                      <span>{initialDocument ? 'Menyimpan Perubahan...' : 'Mengunggah Nota...'}</span>
                     </>
                   ) : (
                     <>
                       <Receipt className="w-4 h-4" />
-                      <span>Simpan & Arsipkan Nota</span>
+                      <span>{initialDocument ? 'Simpan Perubahan Nota' : 'Simpan & Arsipkan Nota'}</span>
                     </>
                   )}
                 </button>

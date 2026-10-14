@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { getRequestableStock, searchInventoryItems, validateNewRequestStock } from '../requestStockValidation.mjs';
+import {
+  getRequestableStock,
+  searchInventoryItems,
+  validateAdditionalStockOut,
+  validateNewRequestStock
+} from '../requestStockValidation.mjs';
 
 const item = (id, stock) => ({ id, nama: `Barang ${id}`, satuan: 'Buah', stokSaatIni: stock });
 const request = (id, itemId, quantity, status = 'Diajukan') => ({
@@ -74,6 +79,36 @@ test('aggregates multiple new requests for the same item', () => {
 test('available request stock updates when physical stock or active requests change', () => {
   assert.equal(getRequestableStock('item-1', [item('item-1', 5)], [request('req-1', 'item-1', 2)]), 3);
   assert.equal(getRequestableStock('item-1', [item('item-1', 2)], [request('req-1', 'item-1', 2)]), 0);
+});
+
+test('uses approved quantities for requests waiting for receipt confirmation', () => {
+  const waiting = request('req-1', 'item-1', 5, 'Menunggu Konfirmasi');
+  waiting.jumlahDisetujui = 2;
+  assert.equal(getRequestableStock('item-1', [item('item-1', 10)], [waiting]), 8);
+});
+
+test('rejects manual stock-out that would consume stock reserved by an active request', () => {
+  const before = {
+    ...state([item('item-1', 5)], [request('req-1', 'item-1', 4)]),
+    stockOutList: []
+  };
+  const after = {
+    ...before,
+    stockOutList: [{ id: 'out-1', itemId: 'item-1', jumlah: 2 }]
+  };
+  assert.match(validateAdditionalStockOut(before, after), /Stok tersedia: 1 Buah/);
+});
+
+test('allows manual stock-out up to the unreserved stock', () => {
+  const before = {
+    ...state([item('item-1', 5)], [request('req-1', 'item-1', 3)]),
+    stockOutList: []
+  };
+  const after = {
+    ...before,
+    stockOutList: [{ id: 'out-1', itemId: 'item-1', jumlah: 2 }]
+  };
+  assert.equal(validateAdditionalStockOut(before, after), null);
 });
 
 test('closed requests no longer reserve stock and initialization is unaffected', () => {

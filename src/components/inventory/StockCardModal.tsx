@@ -32,7 +32,8 @@ export const StockCardModal: React.FC<{
   item: InventoryItem | null;
   onClose: () => void;
 }> = ({ item, onClose }) => {
-  const { stockInList, stockOutList, dataBackend } = useApp();
+  const { stockInList, stockOutList, dataBackend, hasPermission } = useApp();
+  const canViewFinancials = hasPermission('manageInventory');
   const [operationalEntries, setOperationalEntries] = React.useState<LedgerRow[]>([]);
   const [ledgerLoading, setLedgerLoading] = React.useState(false);
   const [ledgerError, setLedgerError] = React.useState<string | null>(null);
@@ -179,9 +180,11 @@ export const StockCardModal: React.FC<{
               <span className="font-medium text-slate-200 print:text-black">{item.rak} ({item.binCode})</span>
             </div>
             <div>
-              <span className="text-slate-400 print:text-gray-600 text-[10px] block">Satuan & Harga:</span>
+              <span className="text-slate-400 print:text-gray-600 text-[10px] block">
+                {canViewFinancials ? 'Satuan & Harga:' : 'Satuan:'}
+              </span>
               <span className="font-medium text-slate-200 print:text-black">
-                {item.satuan} • Rp {item.hargaSatuan.toLocaleString('id-ID')}
+                {item.satuan}{canViewFinancials ? ` • Rp ${item.hargaSatuan.toLocaleString('id-ID')}` : ''}
               </span>
             </div>
           </div>
@@ -202,12 +205,14 @@ export const StockCardModal: React.FC<{
               </span>
             </div>
 
-            <div className="p-2.5 bg-slate-900 rounded-xl border border-slate-800 print:bg-gray-50 print:border-gray-300">
-              <span className="text-[10px] text-slate-400 print:text-gray-600 block">Total Nilai Persediaan</span>
-              <span className="text-sm font-bold text-emerald-400 print:text-black mt-0.5 block font-mono">
-                Rp {item.totalNilai.toLocaleString('id-ID')}
-              </span>
-            </div>
+            {canViewFinancials && (
+              <div className="p-2.5 bg-slate-900 rounded-xl border border-slate-800 print:bg-gray-50 print:border-gray-300">
+                <span className="text-[10px] text-slate-400 print:text-gray-600 block">Total Nilai Persediaan</span>
+                <span className="text-sm font-bold text-emerald-400 print:text-black mt-0.5 block font-mono">
+                  Rp {item.totalNilai.toLocaleString('id-ID')}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Ledger Table */}

@@ -176,6 +176,9 @@ interface AppContextType {
   
   addInventoryRequest: (req: Omit<InventoryRequest, 'id' | 'nomorPermintaan' | 'tanggal' | 'status'>) => Promise<InventoryRequest>;
   updateRequestStatus: (id: string, status: InventoryRequest['status'], catatan?: string, jumlahDisetujui?: number, itemsDisetujui?: InventoryRequestItem[]) => { success: boolean; message: string };
+  confirmInventoryRequestReceipt: (id: string) => Promise<{ success: boolean; message: string }>;
+  reportInventoryReceiptDiscrepancy: (id: string, reason: string) => Promise<{ success: boolean; message: string }>;
+  reopenInventoryRequestHandover: (id: string) => Promise<{ success: boolean; message: string }>;
   deleteInventoryRequest: (id: string, reason?: string) => { success: boolean; message: string };
   
   addAssetMovement: (mov: Omit<AssetMovement, 'id' | 'nomorTransaksi' | 'status' | 'createdAt' | 'updatedAt'>) => void;
@@ -193,8 +196,10 @@ interface AppContextType {
   approveStockOpname: (id: string) => void;
   
   addDocument: (doc: Omit<DocumentItem, 'id'>) => void;
+  updateDocument: (id: string, updates: Partial<DocumentItem>) => void;
   deleteDocument: (id: string) => void;
   registerUploadedDocument: (document: DocumentItem, revision: number, auditLog?: AuditLog) => void;
+  registerUpdatedDocument: (document: DocumentItem, revision: number, auditLog?: AuditLog) => void;
   registerDeletedDocument: (id: string, revision: number, auditLog: AuditLog) => void;
   importSystemBackup: (data: { assets?: BmnAsset[]; inventoryItems?: InventoryItem[]; documents?: DocumentItem[] }) => void;
   
@@ -1424,11 +1429,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const item = inventoryItems.find(i => i.id === data.itemId);
     if (!item) return { success: false, message: 'Barang tidak ditemukan' };
 
-    // Validation: Stock cannot be exceeded!
-    if (data.jumlah > item.stokSaatIni) {
+    const availableStock = getRequestableStock(item.id, inventoryItems, requests);
+    if (!Number.isSafeInteger(data.jumlah) || data.jumlah <= 0 || data.jumlah > availableStock) {
       return {
         success: false,
-        message: `Gagal! Stok tidak mencukupi. Stok saat ini hanya ${item.stokSaatIni} ${item.satuan}, permintaan: ${data.jumlah} ${item.satuan}.`
+        message: `Gagal! Stok yang belum dialokasikan hanya ${availableStock} ${item.satuan}, permintaan: ${data.jumlah} ${item.satuan}.`
       };
     }
 
@@ -1580,7 +1585,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           ?? (requestedItems.length === 1 ? approvedQty : item.jumlahDiminta)
       };
     });
-    const shouldSetApprovedItems = status === 'Disetujui' || status === 'Diproses' || status === 'Selesai';
+    const shouldSetApprovedItems = status === 'Disetujui' || status === 'Diproses' ||
+      status === 'Menunggu Konfirmasi' || status === 'Selesai';
     if (shouldSetApprovedItems) {
       const invalidApprovedItem = approvedItems.find(item =>
         !Number.isSafeInteger(item.jumlahDisetujui)
@@ -1592,35 +1598,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     }
 
-    // If status is "Selesai", auto stock out if not done yet
-    if (status === 'Selesai' && target.status !== 'Selesai') {
-      const itemsToIssue = approvedItems.map(item => ({
-        ...item,
-        jumlah: item.jumlahDisetujui || item.jumlahDiminta
-      }));
-      for (const item of itemsToIssue) {
-        const stockItem = inventoryItems.find(inventoryItem => inventoryItem.id === item.itemId);
-        if (!stockItem) return { success: false, message: `Barang ${item.namaBarang} tidak ditemukan dalam persediaan.` };
-        if (!Number.isSafeInteger(item.jumlah) || item.jumlah <= 0 || item.jumlah > item.jumlahDiminta) {
-          return { success: false, message: `Jumlah pengeluaran ${item.namaBarang} tidak valid.` };
-        }
-        if (item.jumlah > stockItem.stokSaatIni) {
-          return { success: false, message: `Stok ${item.namaBarang} tidak mencukupi. Tersedia ${stockItem.stokSaatIni} ${stockItem.satuan}.` };
-        }
-      }
-      for (const [index, item] of itemsToIssue.entries()) {
-        const stockRes = addStockOut({
-          itemId: item.itemId,
-          jumlah: item.jumlah,
-          unitKerja: target.unitKerja,
-          ruangan: target.ruangan,
-          pemohon: target.pemohonNama,
-          keperluan: target.keperluan
-        }, index);
-        if (!stockRes.success) return stockRes;
-      }
-    }
-
     setRequests(prev =>
       prev.map(r =>
         r.id === id
@@ -1629,10 +1606,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               status,
               catatan: catatan !== undefined ? catatan : r.catatan,
               jumlahDisetujui: approvedQty,
-              items: shouldSetApprovedItems ? r.items?.map(item => ({
-                ...item,
-                jumlahDisetujui: approvedItems.find(approvedItem => approvedItem.itemId === item.itemId)?.jumlahDisetujui
-              })) : r.items
+              items: shouldSetApprovedItems ? approvedItems : r.items,
+              penerimaan: status === 'Menunggu Konfirmasi'
+                ? {
+                    status: 'Menunggu Konfirmasi',
+                    diserahkanOleh: currentUser?.name || '',
+                    diserahkanPada: new Date().toISOString(),
+                    mutasiIds: []
+                  }
+                : r.penerimaan
             }
           : r
       )
@@ -1645,16 +1627,76 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         status,
         catatan: catatan !== undefined ? catatan : target.catatan,
         jumlahDisetujui: approvedQty,
-        items: shouldSetApprovedItems ? target.items?.map(item => ({
-          ...item,
-          jumlahDisetujui: approvedItems.find(approvedItem => approvedItem.itemId === item.itemId)?.jumlahDisetujui
-        })) : target.items
+        items: shouldSetApprovedItems ? approvedItems : target.items,
+        penerimaan: status === 'Menunggu Konfirmasi'
+          ? {
+              status: 'Menunggu Konfirmasi',
+              diserahkanOleh: currentUser?.name || '',
+              diserahkanPada: new Date().toISOString(),
+              mutasiIds: []
+            }
+          : target.penerimaan
       }, 'status_changed', catatan);
     }
     logAudit('Pembaruan Status Permohonan', 'PERSEDIAAN', `Permohonan ${target.nomorPermintaan} (${requestedItems.map(item => item.namaBarang).join(', ')}) diubah statusnya menjadi ${status}.`);
     pushNotification('TRANSAKSI', `📋 Status Permohonan: ${status}`, `Permohonan ${target.nomorPermintaan} (${requestedItems.map(item => item.namaBarang).join(', ')}) kini berstatus ${status}.`, 'requests');
     return { success: true, message: `Status permohonan berhasil diperbarui menjadi ${status}.` };
   };
+
+  const syncAfterRequestAction = async (revision: number) => {
+    const latestResponse = await fetch('/api/state');
+    const latest = await latestResponse.json();
+    if (!latestResponse.ok || !latest.state || latest.revision !== revision) {
+      throw new Error(latest.error || 'Perubahan berhasil dicatat, tetapi data terbaru tidak dapat dimuat. Muat ulang halaman.');
+    }
+    revisionRef.current = latest.revision;
+    lastSyncedStateRef.current = cloneSharedState(latest.state);
+    applySharedState(latest.state);
+    setSyncError(null);
+  };
+
+  const submitRequestAction = async (
+    path: string,
+    body: Record<string, unknown>,
+    fallbackMessage: string
+  ) => {
+    try {
+      await syncQueueRef.current;
+      const response = await fetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const result = await response.json();
+      if (!response.ok || result.success !== true || !Number.isInteger(result.revision)) {
+        throw new Error(result.error || fallbackMessage);
+      }
+      await syncAfterRequestAction(result.revision);
+      return { success: true, message: result.alreadyConfirmed
+        ? 'Penerimaan ini sudah pernah dikonfirmasi; stok tidak dikurangi kembali.'
+        : fallbackMessage };
+    } catch (error) {
+      return { success: false, message: error instanceof Error ? error.message : fallbackMessage };
+    }
+  };
+
+  const confirmInventoryRequestReceipt = (id: string) => submitRequestAction(
+    `/api/requests/${encodeURIComponent(id)}/confirm-receipt`,
+    {},
+    'Penerimaan berhasil dikonfirmasi dan mutasi stok telah dicatat.'
+  );
+
+  const reportInventoryReceiptDiscrepancy = (id: string, reason: string) => submitRequestAction(
+    `/api/requests/${encodeURIComponent(id)}/receipt-discrepancy`,
+    { reason },
+    'Laporan selisih berhasil dikirim kepada petugas.'
+  );
+
+  const reopenInventoryRequestHandover = (id: string) => submitRequestAction(
+    `/api/requests/${encodeURIComponent(id)}/reopen-handover`,
+    {},
+    'Permohonan dikembalikan ke tahap penyerahan untuk ditindaklanjuti.'
+  );
 
   const deleteInventoryRequest = (id: string, reason?: string) => {
     const target = requests.find(r => r.id === id);
@@ -1871,6 +1913,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     pushNotification('TRANSAKSI', '📄 Dokumen Digital Diunggah', `${newDoc.judul} berhasil disimpan ke arsip digital.`, 'documents');
   };
 
+  const updateDocument = (id: string, updates: Partial<DocumentItem>) => {
+    const target = documents.find(document => document.id === id);
+    if (!target) return;
+    const safeUpdates = { ...updates };
+    delete safeUpdates.id;
+    delete safeUpdates.storageBackend;
+    delete safeUpdates.storageKey;
+    delete safeUpdates.storageSize;
+    delete safeUpdates.sha256;
+    delete safeUpdates.idempotencyKey;
+    delete safeUpdates.fileName;
+    delete safeUpdates.fileType;
+    delete safeUpdates.uploadedAt;
+    const updated = { ...target, ...safeUpdates };
+    setDocuments(prev => prev.map(document => document.id === id ? updated : document));
+    logAudit('Perubahan Keterangan Dokumen Digital', 'DOKUMEN', `Keterangan arsip ${target.judul} (${target.nomorDokumen}) diperbarui.`);
+  };
+
   const deleteDocument = (id: string) => {
     const target = documents.find(d => d.id === id);
     if (!target) return;
@@ -1900,6 +1960,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       'TRANSAKSI',
       '📄 Dokumen Digital Diunggah',
       `${document.judul} berhasil disimpan ke penyimpanan backend dan arsip aplikasi.`,
+      'documents'
+    );
+  };
+
+  const registerUpdatedDocument = (document: DocumentItem, revision: number, auditLog?: AuditLog) => {
+    if (!Number.isInteger(revision)) throw new Error('Revisi perubahan dokumen tidak valid.');
+    revisionRef.current = revision;
+    const baseline = lastSyncedStateRef.current || cloneSharedState(sharedState);
+    const baselineDocuments = Array.isArray(baseline.documents) ? baseline.documents as DocumentItem[] : [];
+    const baselineAuditLogs = Array.isArray(baseline.auditLogs) ? baseline.auditLogs as AuditLog[] : [];
+    const nextDocuments = baselineDocuments.map(item => item.id === document.id ? document : item)
+      .sort((left, right) => right.tanggal.localeCompare(left.tanggal) || left.id.localeCompare(right.id));
+    lastSyncedStateRef.current = cloneSharedState({
+      ...baseline,
+      documents: nextDocuments,
+      auditLogs: auditLog
+        ? [auditLog, ...baselineAuditLogs.filter(item => item.id !== auditLog.id)]
+        : baselineAuditLogs
+    });
+    setDocuments(prev => prev.map(item => item.id === document.id ? document : item)
+      .sort((left, right) => right.tanggal.localeCompare(left.tanggal) || left.id.localeCompare(right.id)));
+    if (auditLog) setAuditLogs(prev => [auditLog, ...prev.filter(item => item.id !== auditLog.id)]);
+    pushNotification(
+      'TRANSAKSI',
+      'Nota Belanja Diperbarui',
+      `${document.judul} berhasil diperbarui pada arsip dokumen.`,
       'documents'
     );
   };
@@ -1997,6 +2083,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addStockOut,
         addInventoryRequest,
         updateRequestStatus,
+        confirmInventoryRequestReceipt,
+        reportInventoryReceiptDiscrepancy,
+        reopenInventoryRequestHandover,
         deleteInventoryRequest,
         addAssetMovement,
         updateMovementStatus,
@@ -2009,8 +2098,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addStockOpname,
         approveStockOpname,
         addDocument,
+        updateDocument,
         deleteDocument,
         registerUploadedDocument,
+        registerUpdatedDocument,
         registerDeletedDocument,
         importSystemBackup,
         markNotificationRead,

@@ -3,7 +3,7 @@ const TRANSITIONS = {
   Diajukan: { Diverifikasi: 'review', Ditolak: 'review' },
   Diverifikasi: { Disetujui: 'approve', Ditolak: 'approve' },
   Disetujui: { Diproses: 'manage' },
-  Diproses: { Selesai: 'manage' }
+  Diproses: { 'Menunggu Konfirmasi': 'manage' }
 };
 
 export function validateRequestAuthorization(

@@ -1,4 +1,6 @@
-const ACTIVE_REQUEST_STATUSES = new Set(['Diajukan', 'Diverifikasi', 'Disetujui', 'Diproses']);
+const ACTIVE_REQUEST_STATUSES = new Set([
+  'Diajukan', 'Diverifikasi', 'Disetujui', 'Diproses', 'Menunggu Konfirmasi'
+]);
 
 function requestItems(request) {
   return Array.isArray(request.items) && request.items.length
@@ -16,7 +18,7 @@ function reservedQuantity(request, itemId) {
   const rows = requestItems(request);
   return rows.reduce((total, row) => {
     if (row.itemId !== itemId) return total;
-    const quantity = request.status === 'Disetujui' || request.status === 'Diproses'
+    const quantity = ['Disetujui', 'Diproses', 'Menunggu Konfirmasi'].includes(request.status)
       ? row.jumlahDisetujui ?? (rows.length === 1 ? request.jumlahDisetujui : undefined) ?? row.jumlahDiminta
       : row.jumlahDiminta;
     return total + (Number.isSafeInteger(quantity) && quantity > 0 ? quantity : 0);
@@ -96,6 +98,39 @@ export function validateNewRequestStock(previousState, nextState) {
         return `Permohonan ${item.nama} ditolak karena stok tersedia 0 ${item.satuan}.`;
       }
       return `Jumlah permohonan ${item.nama} melebihi stok tersedia. Stok tersedia: ${available} ${item.satuan}.`;
+    }
+  }
+  return null;
+}
+
+export function validateAdditionalStockOut(previousState, nextState) {
+  if (!Array.isArray(previousState?.stockOutList) ||
+      !Array.isArray(nextState?.stockOutList) ||
+      !Array.isArray(previousState?.inventoryItems) ||
+      !Array.isArray(previousState?.requests)) {
+    return null;
+  }
+
+  const previousById = new Map(previousState.stockOutList.map(transaction => [transaction.id, transaction]));
+  const additionalByItem = new Map();
+  for (const transaction of nextState.stockOutList) {
+    const previous = previousById.get(transaction.id);
+    const additional = previous?.itemId === transaction.itemId
+      ? transaction.jumlah - previous.jumlah
+      : transaction.jumlah;
+    if (additional <= 0) continue;
+    if (!Number.isSafeInteger(additional)) {
+      return 'Jumlah Barang Keluar harus berupa bilangan bulat positif.';
+    }
+    additionalByItem.set(transaction.itemId, (additionalByItem.get(transaction.itemId) || 0) + additional);
+  }
+
+  for (const [itemId, additional] of additionalByItem) {
+    const item = previousState.inventoryItems.find(candidate => candidate.id === itemId);
+    if (!item) return 'Barang untuk transaksi Barang Keluar tidak ditemukan pada data persediaan server.';
+    const available = getRequestableStock(itemId, previousState.inventoryItems, previousState.requests);
+    if (!Number.isSafeInteger(additional) || additional > available) {
+      return `Barang Keluar ${item.nama} melebihi stok yang tidak dipesan. Stok tersedia: ${available} ${item.satuan}.`;
     }
   }
   return null;

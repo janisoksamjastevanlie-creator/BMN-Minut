@@ -34,6 +34,17 @@ import {
   ArrowUpDown
 } from 'lucide-react';
 
+const INVENTORY_DISPLAY_MODE_KEY = 'siman_inventory_display_mode';
+
+function getInitialInventoryDisplayMode(): 'responsive' | 'cards' | 'table' {
+  try {
+    const saved = localStorage.getItem(INVENTORY_DISPLAY_MODE_KEY);
+    return saved === 'cards' || saved === 'table' ? saved : 'responsive';
+  } catch {
+    return 'responsive';
+  }
+}
+
 export const InventoryView: React.FC = () => {
   const {
     inventoryItems, stockInList, currentUser, selectedInventoryItem, setSelectedInventoryItem,
@@ -46,6 +57,7 @@ export const InventoryView: React.FC = () => {
   const [bulkDeleteNotice, setBulkDeleteNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [activeTab, setActiveTab] = useState<'ALL' | 'ATK' | 'ARK' | 'LOW' | 'EMPTY'>('ALL');
   const [activeInventorySection, setActiveInventorySection] = useState<'STOCK' | 'STOCK_IN'>('STOCK');
+  const [inventoryDisplayMode, setInventoryDisplayMode] = useState<'responsive' | 'cards' | 'table'>(getInitialInventoryDisplayMode);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterKategori, setFilterKategori] = useState('all');
   const [filterLokasi, setFilterLokasi] = useState('all');
@@ -55,6 +67,14 @@ export const InventoryView: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const masterListRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(INVENTORY_DISPLAY_MODE_KEY, inventoryDisplayMode);
+    } catch {
+      // Display preference is optional when browser storage is unavailable.
+    }
+  }, [inventoryDisplayMode]);
 
   // Modals
   const [isStockInOpen, setIsStockInOpen] = useState(false);
@@ -108,6 +128,7 @@ export const InventoryView: React.FC = () => {
       return !q || (
         item.nama.toLowerCase().includes(q) ||
         item.kodeBarang.toLowerCase().includes(q) ||
+        (item.merek || '').toLocaleLowerCase('id-ID').includes(q) ||
         item.kategori.toLocaleLowerCase('id-ID').includes(q) ||
         item.jenis.toLocaleLowerCase('id-ID').includes(q) ||
         item.satuan.toLocaleLowerCase('id-ID').includes(q) ||
@@ -321,7 +342,7 @@ export const InventoryView: React.FC = () => {
   const handleExportCSV = () => {
     const headers = ['Kode Barang,Nama Barang,Jenis,Subkategori,Satuan,Stok Saat Ini,Stok Min,Stok Max,Harga Satuan,Total Nilai,Lokasi Rak,Bin Code,Status'];
     const rows = filteredItems.map(i =>
-      `"${i.kodeBarang}","${i.nama}","${i.jenis}","${i.subkategori}","${i.satuan}","${i.stokSaatIni}","${i.stokMinimum}","${i.stokMaksimum}","${i.hargaSatuan}","${i.totalNilai}","${i.rak}","${i.binCode}","${i.status}"`
+      `"${i.kodeBarang}","${i.nama}","${i.merek || ''}","${i.jenis}","${i.subkategori}","${i.satuan}","${i.stokSaatIni}","${i.stokMinimum}","${i.stokMaksimum}"${hasPermission('manageInventory') ? `,"${i.hargaSatuan}","${i.totalNilai}"` : ''},"${i.rak}","${i.binCode}","${i.status}"`
     );
     const csvContent = 'data:text/csv;charset=utf-8,' + [headers, ...rows].join('\n');
     const encoded = encodeURI(csvContent);
@@ -626,7 +647,9 @@ export const InventoryView: React.FC = () => {
                     </td>
                     <td className="px-4 py-3 text-right align-top">
                       <div className="text-xs font-bold text-white">{tx.jumlah} {tx.satuan}</div>
-                      <div className="text-[10px] text-amber-300 mt-1">Rp {Number(tx.totalHarga || 0).toLocaleString('id-ID')}</div>
+                      {hasPermission('manageInventory') && (
+                        <div className="text-[10px] text-amber-300 mt-1">Rp {Number(tx.totalHarga || 0).toLocaleString('id-ID')}</div>
+                      )}
                     </td>
                     <td className="px-4 py-3 align-top">
                       <span className={`inline-flex max-w-48 rounded-full border px-2 py-1 text-[10px] font-semibold ${statusClass}`}>
@@ -933,8 +956,32 @@ export const InventoryView: React.FC = () => {
             {bulkDeleteNotice.message}
           </div>
         )}
-        {/* MOBILE CARD VIEW */}
-        <div className="md:hidden divide-y divide-slate-800/80">
+        {activeInventorySection === 'STOCK' && (
+          <div role="group" aria-label="Tampilan daftar persediaan" className="flex justify-end gap-2 px-3 pt-3">
+            {(['responsive', 'cards', 'table'] as const).map(mode => (
+              <button
+                key={mode}
+                type="button"
+                aria-pressed={inventoryDisplayMode === mode}
+                onClick={() => setInventoryDisplayMode(mode)}
+                className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold ${
+                  inventoryDisplayMode === mode ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                }`}
+              >
+                {mode === 'responsive' ? 'Otomatis' : mode === 'cards' ? 'Kartu' : 'Tabel'}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* CARD VIEW */}
+        <div className={`${
+          inventoryDisplayMode === 'table'
+            ? 'hidden'
+            : inventoryDisplayMode === 'cards'
+              ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 p-3'
+              : 'md:hidden divide-y divide-slate-800/80'
+        }`}>
           {paginatedItems.length === 0 ? (
             <div className="py-12 px-4 text-center text-slate-400 text-xs">
               {activeTab === 'EMPTY'
@@ -943,7 +990,9 @@ export const InventoryView: React.FC = () => {
             </div>
           ) : (
             paginatedItems.map(item => (
-              <div key={item.id} className="p-4 space-y-3 hover:bg-slate-800/30 transition-colors">
+              <div key={item.id} className={`p-4 space-y-3 hover:bg-slate-800/30 transition-colors ${
+                inventoryDisplayMode === 'cards' ? 'rounded-xl border border-slate-800 bg-slate-900' : ''
+              }`}>
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-2">
                     {hasPermission('manageInventory') && (
@@ -1037,12 +1086,14 @@ export const InventoryView: React.FC = () => {
                     <span className="text-[10px] text-slate-500 ml-2">(Min: {item.stokMinimum})</span>
                   </div>
 
-                  <div className="text-right">
-                    <span className="text-[10px] text-slate-400 block">Harga Satuan:</span>
-                    <span className="font-mono text-slate-300 font-medium">
-                      Rp {item.hargaSatuan.toLocaleString('id-ID')}
-                    </span>
-                  </div>
+                  {hasPermission('manageInventory') && (
+                    <div className="text-right">
+                      <span className="text-[10px] text-slate-400 block">Harga Satuan:</span>
+                      <span className="font-mono text-slate-300 font-medium">
+                        Rp {item.hargaSatuan.toLocaleString('id-ID')}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Mobile Actions */}
@@ -1096,7 +1147,7 @@ export const InventoryView: React.FC = () => {
         </div>
 
         {/* DESKTOP TABLE VIEW */}
-        <div className="hidden md:block overflow-x-auto">
+        <div className={`${inventoryDisplayMode === 'cards' ? 'hidden' : inventoryDisplayMode === 'table' ? 'block' : 'hidden md:block'} overflow-x-auto`}>
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
@@ -1117,8 +1168,8 @@ export const InventoryView: React.FC = () => {
                 <th className="py-3 px-3 text-center">Lokasi Rak & Bin</th>
                 <th className="py-3 px-3 text-right">Stok Fisik</th>
                 <th className="py-3 px-3 text-right">Min / Max</th>
-                <th className="py-3 px-3 text-right">Harga Satuan (Rp)</th>
-                <th className="py-3 px-3 text-right">Total Nilai (Rp)</th>
+                {hasPermission('manageInventory') && <th className="py-3 px-3 text-right">Harga Satuan (Rp)</th>}
+                {hasPermission('manageInventory') && <th className="py-3 px-3 text-right">Total Nilai (Rp)</th>}
                 <th className="py-3 px-3 text-center">Status</th>
                 <th className="py-3 px-4 text-center">Aksi Cepat</th>
               </tr>
@@ -1167,6 +1218,7 @@ export const InventoryView: React.FC = () => {
                           {item.nama}
                         </div>
                         <div className="text-[10px] text-slate-400 mt-0.5">{item.subkategori}</div>
+                        {item.merek && <div className="text-[10px] text-slate-500 mt-0.5">Merek: {item.merek}</div>}
                       </div>
                     </div>
                   </td>
@@ -1201,14 +1253,18 @@ export const InventoryView: React.FC = () => {
                   </td>
 
                   {/* Harga Satuan */}
-                  <td className="py-3 px-3 text-right font-mono text-slate-300">
-                    Rp {item.hargaSatuan.toLocaleString('id-ID')}
-                  </td>
+                  {hasPermission('manageInventory') && (
+                    <td className="py-3 px-3 text-right font-mono text-slate-300">
+                      Rp {item.hargaSatuan.toLocaleString('id-ID')}
+                    </td>
+                  )}
 
                   {/* Total Nilai */}
-                  <td className="py-3 px-3 text-right font-mono font-bold text-emerald-400">
-                    Rp {item.totalNilai.toLocaleString('id-ID')}
-                  </td>
+                  {hasPermission('manageInventory') && (
+                    <td className="py-3 px-3 text-right font-mono font-bold text-emerald-400">
+                      Rp {item.totalNilai.toLocaleString('id-ID')}
+                    </td>
+                  )}
 
                   {/* Status */}
                   <td className="py-3 px-3 text-center">
@@ -1418,7 +1474,9 @@ export const InventoryView: React.FC = () => {
               <div><dt className="text-slate-500">Nomor dokumen</dt><dd className="mt-1 text-white">{viewingStockIn.nomorDokumen}</dd></div>
               <div><dt className="text-slate-500">Status</dt><dd className="mt-1 text-white">{viewingStockIn.status || 'Historis (data lama)'}</dd></div>
               <div><dt className="text-slate-500">Sumber</dt><dd className="mt-1 text-white">{viewingStockIn.sumber}</dd></div>
-              <div><dt className="text-slate-500">Nilai</dt><dd className="mt-1 text-amber-300">Rp {Number(viewingStockIn.totalHarga || 0).toLocaleString('id-ID')}</dd></div>
+              {hasPermission('manageInventory') && (
+                <div><dt className="text-slate-500">Nilai</dt><dd className="mt-1 text-amber-300">Rp {Number(viewingStockIn.totalHarga || 0).toLocaleString('id-ID')}</dd></div>
+              )}
               <div className="col-span-2"><dt className="text-slate-500">Keterangan</dt><dd className="mt-1 text-slate-200">{viewingStockIn.keterangan || '-'}</dd></div>
               {viewingStockIn.pemeriksaan && (
                 <>

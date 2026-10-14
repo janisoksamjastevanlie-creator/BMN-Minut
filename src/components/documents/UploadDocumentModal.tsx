@@ -36,7 +36,7 @@ export const UploadDocumentModal: React.FC<UploadDocumentModalProps> = ({ isOpen
   const [judul, setJudul] = useState('');
   const [nomorDokumen, setNomorDokumen] = useState('');
   const [tanggal, setTanggal] = useState(today);
-  const [status, setStatus] = useState<DocumentItem['status']>('Sah');
+  const [status, setStatus] = useState<DocumentItem['status']>('Draft');
   const [tagInput, setTagInput] = useState('Rekonsiliasi, Minahasa Utara');
   const [description, setDescription] = useState('');
   const [isUploading, setIsUploading] = useState(false);
@@ -384,16 +384,15 @@ export const UploadDocumentModal: React.FC<UploadDocumentModalProps> = ({ isOpen
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-slate-400 font-semibold mb-1">
-                      Status Validasi
+                      Status Dokumen
                     </label>
                     <select
                       value={status}
                       onChange={e => setStatus(e.target.value as DocumentItem['status'])}
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-purple-500"
                     >
-                      <option value="Sah">Sah / Terverifikasi</option>
-                      <option value="Menunggu TTD">Menunggu TTD Pimpinan</option>
-                      <option value="Arsip">Arsip Pasif</option>
+                      <option value="Draft">Draft</option>
+                      <option value="Final">Final</option>
                     </select>
                   </div>
 

@@ -159,6 +159,7 @@ export interface InventoryItem {
   id: string;
   kodeBarang: string;
   nama: string;
+  merek?: string;
   kategori: string;
   subkategori: string;
   jenis: InventoryType;
@@ -213,6 +214,8 @@ export interface StockInTransaction {
 
 export interface StockOutTransaction {
   id: string;
+  headerId?: string;
+  requestId?: string;
   nomorTransaksi: string;
   tanggal: string;
   unitKerja: string;
@@ -228,7 +231,19 @@ export interface StockOutTransaction {
   keterangan?: string;
 }
 
-export type RequestStatus = 'Draft' | 'Diajukan' | 'Diverifikasi' | 'Disetujui' | 'Diproses' | 'Selesai' | 'Ditolak';
+export type RequestStatus = 'Draft' | 'Diajukan' | 'Diverifikasi' | 'Disetujui' | 'Diproses' | 'Menunggu Konfirmasi' | 'Diterima' | 'Selesai' | 'Ditolak';
+
+export interface InventoryRequestReceipt {
+  status: 'Menunggu Konfirmasi' | 'Diterima';
+  diserahkanOleh: string;
+  diserahkanPada: string;
+  dikonfirmasiOlehId?: string;
+  dikonfirmasiOleh?: string;
+  dikonfirmasiPada?: string;
+  items?: Array<{ itemId: string; jumlah: number }>;
+  mutasiIds?: string[];
+  catatanSelisih?: string;
+}
 
 export interface InventoryRequestItem {
   itemId: string;
@@ -258,6 +273,8 @@ export interface InventoryRequest {
   catatan?: string;
   items?: InventoryRequestItem[];
   status: RequestStatus;
+  pemohonUserId?: string;
+  penerimaan?: InventoryRequestReceipt;
 }
 
 export interface StockCardEntry {
@@ -321,7 +338,7 @@ export interface DocumentItem {
   fileSize: string;
   uploader: string;
   tags: string[];
-  status: 'Sah' | 'Menunggu TTD' | 'Arsip';
+  status: 'Draft' | 'Final' | 'Sah' | 'Menunggu TTD' | 'Arsip';
   fileName?: string;
   fileType?: string;
   fileDataUrl?: string;

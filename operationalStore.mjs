@@ -23,12 +23,12 @@ const REQUIRED_COLUMNS = {
   bmn_assets: ['id', 'kode_barang', 'nup', 'nama_barang', 'kategori_id', 'subkategori', 'merk_type', 'nomor_seri', 'tanggal_perolehan', 'tahun_perolehan', 'jumlah', 'satuan', 'nilai_perolehan', 'akumulasi_penyusutan', 'nilai_buku', 'kondisi', 'gedung_id', 'ruangan_id', 'penanggung_jawab', 'status', 'foto_url', 'barcode', 'qr_code_payload', 'keterangan'],
   inventory_categories: ['id', 'name', 'jenis'],
   inventory_locations: ['id', 'gudang_name', 'rak_code', 'shelf', 'bin_code', 'description'],
-  inventory_items: ['id', 'kode_barang', 'nama', 'kategori_id', 'subkategori', 'jenis', 'satuan', 'stok_awal', 'stok_saat_ini', 'stok_minimum', 'stok_maksimum', 'harga_satuan', 'total_nilai', 'lokasi_id', 'barcode', 'rata_rata_bulanan', 'foto_url'],
+  inventory_items: ['id', 'kode_barang', 'nama', 'merek', 'kategori_id', 'subkategori', 'jenis', 'satuan', 'stok_awal', 'stok_saat_ini', 'stok_minimum', 'stok_maksimum', 'harga_satuan', 'total_nilai', 'lokasi_id', 'barcode', 'rata_rata_bulanan', 'foto_url'],
   stock_in: ['id', 'nomor_transaksi', 'tanggal', 'nomor_dokumen', 'sumber', 'petugas', 'keterangan', 'total_nilai', 'dokumen_url', 'app_metadata_json'],
   stock_in_items: ['id', 'stock_in_id', 'item_id', 'jumlah', 'harga_satuan', 'total_harga', 'lokasi_rak'],
   stock_out: ['id', 'nomor_transaksi', 'tanggal', 'unit_kerja', 'ruangan', 'pemohon', 'petugas', 'keperluan', 'app_metadata_json'],
   stock_out_items: ['id', 'stock_out_id', 'item_id', 'jumlah', 'satuan'],
-  inventory_requests: ['id', 'nomor_permintaan', 'tanggal', 'pemohon_nama', 'unit_kerja', 'ruangan', 'item_id', 'jumlah_diminta', 'jumlah_disetujui', 'satuan', 'keperluan', 'prioritas', 'status', 'catatan'],
+  inventory_requests: ['id', 'nomor_permintaan', 'tanggal', 'pemohon_nama', 'unit_kerja', 'ruangan', 'item_id', 'jumlah_diminta', 'jumlah_disetujui', 'satuan', 'keperluan', 'prioritas', 'status', 'catatan', 'app_metadata_json'],
   inventory_request_items: ['id', 'request_id', 'item_id', 'nama_barang', 'kode_barang', 'jumlah_diminta', 'jumlah_disetujui', 'satuan', 'spesifikasi', 'catatan'],
   stock_opnames: ['id', 'nomor_opname', 'tanggal', 'periode', 'petugas', 'status', 'catatan'],
   stock_opname_items: ['id', 'opname_id', 'item_id', 'stok_sistem', 'stok_fisik', 'selisih', 'kondisi', 'keterangan', 'status_penyesuaian'],
@@ -371,6 +371,7 @@ export async function readOperationalState(executor) {
       id: row.id,
       kodeBarang: row.kode_barang,
       nama: row.nama,
+      merek: row.merek || '',
       kategori: row.category_name || '',
       subkategori: row.subkategori || '',
       jenis: row.jenis,
@@ -453,7 +454,8 @@ export async function readOperationalState(executor) {
       satuan: row.satuan || '',
       keperluan: row.keperluan || '',
       petugas: row.petugas || '',
-      keterangan: metadata.keterangan
+      keterangan: metadata.keterangan,
+      requestId: metadata.requestId
     };
   });
 
@@ -466,6 +468,7 @@ export async function readOperationalState(executor) {
   }
   const inventoryById = new Map(state.inventoryItems.map(item => [item.id, item]));
   state.requests = requests.map(row => {
+    const metadata = parseJson(row.app_metadata_json, `inventory_request:${row.id}`);
     const items = normalizeRequestItems({
       ...row,
       item_name: inventoryById.get(row.item_id)?.nama || ''
@@ -487,7 +490,9 @@ export async function readOperationalState(executor) {
       prioritas: row.prioritas || 'Normal',
       catatan: row.catatan || undefined,
       items,
-      status: row.status || 'Diajukan'
+      status: row.status || 'Diajukan',
+      pemohonUserId: metadata.pemohonUserId,
+      penerimaan: metadata.penerimaan
     };
   });
 
