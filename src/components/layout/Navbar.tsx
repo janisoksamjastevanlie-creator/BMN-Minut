@@ -109,22 +109,6 @@ export const Navbar: React.FC = () => {
             <Search className="w-4 h-4" />
           </button>
 
-          <button
-            type="button"
-            onClick={toggleTheme}
-            title={`Tema ${theme === 'light' ? 'Siang' : 'Malam'} aktif. Klik untuk beralih ke Tema ${theme === 'light' ? 'Malam' : 'Siang'}.`}
-            aria-label={`Tema ${theme === 'light' ? 'Siang' : 'Malam'} aktif; beralih ke Tema ${theme === 'light' ? 'Malam' : 'Siang'}`}
-            aria-pressed={theme === 'light'}
-            className="p-2 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800 transition-colors flex items-center gap-1.5"
-          >
-            {theme === 'light'
-              ? <Sun className="w-4 h-4 text-amber-500" aria-hidden="true" />
-              : <Moon className="w-4 h-4 text-indigo-300" aria-hidden="true" />}
-            <span className="hidden xl:inline text-[10px] font-semibold">
-              {theme === 'light' ? 'Siang' : 'Malam'}
-            </span>
-          </button>
-
           {/* Quick Scan QR Button */}
           <button
             onClick={() => setIsQrScannerOpen(true)}
@@ -268,6 +252,23 @@ export const Navbar: React.FC = () => {
                 </div>
 
                 <div className="border-t border-slate-800 pt-1 space-y-1">
+                  <button
+                    type="button"
+                    onClick={toggleTheme}
+                    title={`Tema ${theme === 'light' ? 'Siang' : 'Malam'} aktif. Klik untuk beralih ke Tema ${theme === 'light' ? 'Malam' : 'Siang'}.`}
+                    aria-label={`Tema ${theme === 'light' ? 'Siang' : 'Malam'} aktif; beralih ke Tema ${theme === 'light' ? 'Malam' : 'Siang'}`}
+                    aria-pressed={theme === 'light'}
+                    className="w-full px-3 py-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-xl flex items-center justify-between font-medium transition-colors"
+                  >
+                    <span className="flex items-center gap-2">
+                      {theme === 'light'
+                        ? <Sun className="w-3.5 h-3.5 text-amber-500" aria-hidden="true" />
+                        : <Moon className="w-3.5 h-3.5 text-indigo-300" aria-hidden="true" />}
+                      <span>Tema {theme === 'light' ? 'Siang' : 'Malam'} aktif</span>
+                    </span>
+                    <span className="text-[10px] text-slate-400">Beralih</span>
+                  </button>
+
                   {(hasPermission('manageUsers') || hasPermission('manageRoles')) && (
                     <button
                       onClick={() => {
