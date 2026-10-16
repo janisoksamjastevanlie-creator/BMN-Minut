@@ -55,6 +55,8 @@ export const AssetDetailModal: React.FC<{
 
   const assetMovements = movements.filter(m => m.assetId === asset.id || m.nup === asset.nup);
   const assetMaintenances = maintenances.filter(m => m.assetId === asset.id || m.nup === asset.nup);
+  const masterFields = Object.entries(asset.masterFields || {})
+    .filter(([, value]) => value != null && String(value).trim() !== '');
 
   const handlePrintLabel = () => {
     setIsLabelModalOpen(true);
@@ -241,6 +243,20 @@ export const AssetDetailModal: React.FC<{
                   </span>
                 </div>
               </div>
+
+              {masterFields.length > 0 && (
+                <section className="p-4 bg-slate-950/60 rounded-2xl border border-slate-800">
+                  <h4 className="text-xs font-bold text-slate-200 mb-3">Data Master Aset Sumber</h4>
+                  <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
+                    {masterFields.map(([label, value]) => (
+                      <div key={label} className="min-w-0 border-b border-slate-800/70 pb-1.5">
+                        <dt className="text-[10px] text-slate-500">{label}</dt>
+                        <dd className="text-[11px] text-slate-300 break-words">{String(value)}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </section>
+              )}
             </div>
           </div>
 

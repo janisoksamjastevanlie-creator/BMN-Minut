@@ -90,6 +90,7 @@ export interface BmnAsset {
   keterangan?: string;
   qrCodeUrl?: string;
   barcode: string;
+  masterFields?: Record<string, string | number | boolean | null>;
 }
 
 export type MovementStatus = 'Pengajuan' | 'Verifikasi' | 'Persetujuan' | 'Pemindahan' | 'Selesai' | 'Ditolak';

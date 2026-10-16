@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS bmn_assets (
     barcode VARCHAR(100) UNIQUE,
     qr_code_payload TEXT,
     keterangan TEXT,
+    master_fields_json TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uq_kode_nup UNIQUE (kode_barang, nup)

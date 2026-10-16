@@ -71,5 +71,6 @@ Do not perform a production cutover until all of these are true:
 - WhatsApp behavior, failure isolation, and test-mode configuration are verified.
 - A current, restorable backup and a tested rollback procedure exist.
 - The production database connection, public cutover, and any production schema change have separate explicit approval.
+- Master Aset import requires manually applying `migrations/master-asset-fields-v1.sql` after a verified backup; the application does not run this migration automatically.
 
 For rollback, stop the application first, preserve the current database and logs, redeploy the last known-good application build, and restore a database backup only after assessing which writes would be lost. Never restore an older snapshot over a newer database without explicit approval.

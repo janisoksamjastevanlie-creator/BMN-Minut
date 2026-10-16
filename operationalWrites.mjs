@@ -482,7 +482,7 @@ export async function writeOperationalState(executor, previous, next, actor = {}
     ]);
 
   deletions.assets = await syncSimple(executor, previous.assets || [], next.assets, 'bmn_assets',
-    ['id', 'kode_barang', 'nup', 'nama_barang', 'kategori_id', 'subkategori', 'merk_type', 'nomor_seri', 'tanggal_perolehan', 'tahun_perolehan', 'jumlah', 'satuan', 'nilai_perolehan', 'akumulasi_penyusutan', 'nilai_buku', 'kondisi', 'gedung_id', 'ruangan_id', 'penanggung_jawab', 'status', 'foto_url', 'barcode', 'qr_code_payload', 'keterangan'],
+    ['id', 'kode_barang', 'nup', 'nama_barang', 'kategori_id', 'subkategori', 'merk_type', 'nomor_seri', 'tanggal_perolehan', 'tahun_perolehan', 'jumlah', 'satuan', 'nilai_perolehan', 'akumulasi_penyusutan', 'nilai_buku', 'kondisi', 'gedung_id', 'ruangan_id', 'penanggung_jawab', 'status', 'foto_url', 'barcode', 'qr_code_payload', 'keterangan', 'master_fields_json'],
     row => {
       const category = assetCategoryId(row.kategori);
       const room = row.ruanganId ? roomIdById.get(row.ruanganId) : null;
@@ -511,7 +511,8 @@ export async function writeOperationalState(executor, previous, next, actor = {}
         nullableText(row.fotoUrl, 'Asset photo URL', 65_535),
         nullableText(row.barcode, 'Asset barcode', 100),
         nullableText(row.qrCodeUrl, 'Asset QR payload', 65_535),
-        nullableText(row.keterangan, 'Asset description', 65_535)
+        nullableText(row.keterangan, 'Asset description', 65_535),
+        json(row.masterFields)
       ];
     });
 

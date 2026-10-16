@@ -20,7 +20,7 @@ const REQUIRED_COLUMNS = {
   buildings: ['id', 'code', 'name', 'floors', 'address'],
   rooms: ['id', 'building_id', 'code', 'name', 'floor', 'pic_name', 'pic_nip', 'color_hex', 'pos_x', 'pos_y', 'pos_z', 'description', 'app_metadata_json'],
   asset_categories: ['id', 'name', 'golongan_bmn', 'masa_manfaat_tahun'],
-  bmn_assets: ['id', 'kode_barang', 'nup', 'nama_barang', 'kategori_id', 'subkategori', 'merk_type', 'nomor_seri', 'tanggal_perolehan', 'tahun_perolehan', 'jumlah', 'satuan', 'nilai_perolehan', 'akumulasi_penyusutan', 'nilai_buku', 'kondisi', 'gedung_id', 'ruangan_id', 'penanggung_jawab', 'status', 'foto_url', 'barcode', 'qr_code_payload', 'keterangan'],
+  bmn_assets: ['id', 'kode_barang', 'nup', 'nama_barang', 'kategori_id', 'subkategori', 'merk_type', 'nomor_seri', 'tanggal_perolehan', 'tahun_perolehan', 'jumlah', 'satuan', 'nilai_perolehan', 'akumulasi_penyusutan', 'nilai_buku', 'kondisi', 'gedung_id', 'ruangan_id', 'penanggung_jawab', 'status', 'foto_url', 'barcode', 'qr_code_payload', 'keterangan', 'master_fields_json'],
   inventory_categories: ['id', 'name', 'jenis'],
   inventory_locations: ['id', 'gudang_name', 'rak_code', 'shelf', 'bin_code', 'description'],
   inventory_items: ['id', 'kode_barang', 'nama', 'merek', 'kategori_id', 'subkategori', 'jenis', 'satuan', 'stok_awal', 'stok_saat_ini', 'stok_minimum', 'stok_maksimum', 'harga_satuan', 'total_nilai', 'lokasi_id', 'barcode', 'rata_rata_bulanan', 'foto_url'],
@@ -354,7 +354,8 @@ export async function readOperationalState(executor) {
     fotoUrl: row.foto_url || undefined,
     keterangan: row.keterangan || undefined,
     qrCodeUrl: row.qr_code_payload || undefined,
-    barcode: row.barcode || ''
+    barcode: row.barcode || '',
+    masterFields: parseJson(row.master_fields_json, `asset ${row.id}`)
   }));
 
   const itemRows = await queryRows(executor, `

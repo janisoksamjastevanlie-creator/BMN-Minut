@@ -4,6 +4,7 @@ import { BmnAsset, AssetCondition } from '../types';
 import { AssetDetailModal } from '../components/bmn/AssetDetailModal';
 import { AssetFormModal } from '../components/bmn/AssetFormModal';
 import { ImportAssetModal } from '../components/bmn/ImportAssetModal';
+import { MasterAssetImportModal } from '../components/bmn/MasterAssetImportModal';
 import { DbrReconciliationModal } from '../components/bmn/DbrReconciliationModal';
 import { AssetListPrintModal } from '../components/bmn/AssetListPrintModal';
 import { OfficialLetterhead } from '../components/common/OfficialLetterhead';
@@ -52,6 +53,7 @@ export const AssetsView: React.FC = () => {
   const [detailModalAsset, setDetailModalAsset] = useState<BmnAsset | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isMasterAssetModalOpen, setIsMasterAssetModalOpen] = useState(false);
   const [isDbrReconciliationOpen, setIsDbrReconciliationOpen] = useState(false);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [editingAsset, setEditingAsset] = useState<BmnAsset | null>(null);
@@ -192,6 +194,14 @@ export const AssetsView: React.FC = () => {
           >
             <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
             <span>Export Excel / CSV</span>
+          </button>
+
+          <button
+            onClick={() => setIsMasterAssetModalOpen(true)}
+            className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition-colors border border-slate-700"
+          >
+            <FileSpreadsheet className="w-4 h-4 text-cyan-400" />
+            <span>Master Aset</span>
           </button>
 
           <button
@@ -709,6 +719,14 @@ export const AssetsView: React.FC = () => {
         <ImportAssetModal
           isOpen={isImportModalOpen}
           onClose={() => setIsImportModalOpen(false)}
+        />
+      )}
+
+      {isMasterAssetModalOpen && (
+        <MasterAssetImportModal
+          isOpen={isMasterAssetModalOpen}
+          canImport={hasPermission('manageAssets')}
+          onClose={() => setIsMasterAssetModalOpen(false)}
         />
       )}
 
