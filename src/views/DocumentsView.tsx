@@ -23,7 +23,9 @@ import {
   ExternalLink,
   Store,
   DollarSign,
-  Package
+  Package,
+  LayoutGrid,
+  List
 } from 'lucide-react';
 
 export const DocumentsView: React.FC = () => {
@@ -37,6 +39,7 @@ export const DocumentsView: React.FC = () => {
   const [minimumReceiptTotal, setMinimumReceiptTotal] = useState('');
   const [maximumReceiptTotal, setMaximumReceiptTotal] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
+  const [documentView, setDocumentView] = useState<'cards' | 'table'>('cards');
   const [previewDoc, setPreviewDoc] = useState<DocumentItem | null>(null);
   const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [descriptionDraft, setDescriptionDraft] = useState('');
@@ -505,7 +508,7 @@ export const DocumentsView: React.FC = () => {
       )}
 
       {/* Document Grid */}
-      <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-slate-900 border border-slate-800">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 rounded-xl bg-slate-900 border border-slate-800">
         <label className="flex items-center gap-2 text-xs text-slate-300">
           <input
             type="checkbox"
@@ -516,7 +519,31 @@ export const DocumentsView: React.FC = () => {
           />
           Pilih Semua
         </label>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center justify-between sm:justify-end gap-3">
+          <div className="flex items-center rounded-lg border border-slate-700 bg-slate-950 p-0.5" role="group" aria-label="Tampilan daftar dokumen">
+            <button
+              type="button"
+              onClick={() => setDocumentView('cards')}
+              aria-pressed={documentView === 'cards'}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                documentView === 'cards' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+              Kartu
+            </button>
+            <button
+              type="button"
+              onClick={() => setDocumentView('table')}
+              aria-pressed={documentView === 'table'}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                documentView === 'table' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <List className="w-3.5 h-3.5" />
+              Tabel
+            </button>
+          </div>
           <span className="text-xs text-slate-400">{selectedDocumentIds.size} dokumen dipilih</span>
           {canManageDocuments && (
             <button
@@ -590,7 +617,7 @@ export const DocumentsView: React.FC = () => {
             </>
           )}
         </div>
-      ) : (
+      ) : documentView === 'cards' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {pager.pageItems.map(doc => (
             <div
@@ -689,6 +716,107 @@ export const DocumentsView: React.FC = () => {
               </div>
             </div>
           ))}
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-2xl border border-slate-800 bg-slate-900">
+          <table className="w-full min-w-[760px] text-left border-collapse text-xs">
+            <thead>
+              <tr className="border-b border-slate-800 text-[11px] text-slate-400">
+                <th className="px-3 py-3 font-medium">
+                  <span className="sr-only">Pilih</span>
+                </th>
+                <th className="px-3 py-3 font-medium">Dokumen</th>
+                <th className="px-3 py-3 font-medium">Jenis</th>
+                <th className="px-3 py-3 font-medium">Status</th>
+                <th className="px-3 py-3 font-medium">Tanggal</th>
+                {canViewFinancials && <th className="px-3 py-3 text-right font-medium">Total Nota</th>}
+                <th className="px-3 py-3 font-medium">Pengunggah</th>
+                <th className="px-3 py-3 text-right font-medium">Aksi</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/70">
+              {pager.pageItems.map(doc => (
+                <tr key={doc.id} className="text-slate-300 hover:bg-slate-800/40">
+                  <td className="px-3 py-3">
+                    <input
+                      type="checkbox"
+                      checked={selectedDocumentIds.has(doc.id)}
+                      onChange={() => toggleDocumentSelection(doc.id)}
+                      className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-purple-500 focus:ring-purple-500"
+                      aria-label={`Pilih dokumen ${doc.judul}`}
+                    />
+                  </td>
+                  <td className="px-3 py-3">
+                    <div className="font-semibold text-white">{doc.judul}</div>
+                    <div className="mt-0.5 font-mono text-[10px] text-slate-400">{doc.nomorDokumen}</div>
+                    {doc.namaToko && (
+                      <div className="mt-1 flex items-center gap-1 text-[11px] text-emerald-400">
+                        <Store className="h-3 w-3" />
+                        {doc.namaToko}
+                      </div>
+                    )}
+                    {doc.fileName && (doc.jenis !== 'Nota' || canViewFinancials) && (
+                      <div className="mt-1 max-w-xs truncate font-mono text-[10px] text-slate-500">{doc.fileName}</div>
+                    )}
+                  </td>
+                  <td className="px-3 py-3">
+                    <span className="rounded-md border border-purple-500/20 bg-purple-500/10 px-2 py-1 text-[10px] font-semibold text-purple-300">
+                      {doc.jenis}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3">
+                    <span className={`rounded px-2 py-1 text-[10px] font-bold ${
+                      doc.status === 'Sah' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'
+                    }`}>
+                      {doc.status}
+                    </span>
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-3 text-slate-400">
+                    <div>{doc.tanggal}</div>
+                    <div className="mt-0.5 text-[10px]">{doc.fileSize}</div>
+                  </td>
+                  {canViewFinancials && (
+                    <td className="whitespace-nowrap px-3 py-3 text-right font-bold text-amber-300">
+                      {doc.totalNilaiNota != null ? `Rp ${Number(doc.totalNilaiNota).toLocaleString('id-ID')}` : '-'}
+                    </td>
+                  )}
+                  <td className="px-3 py-3 text-slate-400">{doc.uploader}</td>
+                  <td className="px-3 py-3">
+                    <div className="flex justify-end gap-1.5">
+                      <button
+                        onClick={() => setPreviewDoc(doc)}
+                        className="rounded-lg bg-slate-800 p-1.5 text-blue-400 transition-colors hover:bg-slate-700"
+                        title="Lihat Pratinjau Dokumen"
+                        aria-label={`Lihat dokumen ${doc.judul}`}
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                      </button>
+                      {(doc.jenis !== 'Nota' || canViewFinancials) && (
+                        <button
+                          onClick={() => handleDownloadDoc(doc)}
+                          className="rounded-lg bg-slate-800 p-1.5 text-emerald-400 transition-colors hover:bg-slate-700"
+                          title="Unduh Berkas Asli"
+                          aria-label={`Unduh dokumen ${doc.judul}`}
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      {canManageDocuments && (
+                        <button
+                          onClick={() => void handleDeleteDocument(doc)}
+                          className="rounded-lg bg-slate-800 p-1.5 text-slate-400 transition-colors hover:bg-rose-950 hover:text-rose-400"
+                          title="Hapus Dokumen"
+                          aria-label={`Hapus dokumen ${doc.judul}`}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
