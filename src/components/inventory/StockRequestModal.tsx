@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { InventoryRequestItem } from '../../types';
 import {
@@ -66,6 +66,7 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
   const [isSuccess, setIsSuccess] = useState(false);
   const [submittedId, setSubmittedId] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const submitInFlightRef = useRef(false);
   const [formError, setFormError] = useState('');
   const [searchingLineKey, setSearchingLineKey] = useState<string | null>(null);
   const [highlightedItemIndex, setHighlightedItemIndex] = useState(0);
@@ -98,6 +99,7 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitInFlightRef.current || isSubmitting) return;
     setFormError('');
     if (requestLines.length === 0) {
       setFormError('Tambahkan minimal satu barang ke dalam permohonan.');
@@ -120,8 +122,10 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
       return;
     }
 
+    submitInFlightRef.current = true;
     setIsSubmitting(true);
     try {
+      await new Promise<void>(resolve => window.requestAnimationFrame(() => resolve()));
       const items: InventoryRequestItem[] = requestLines.map(line => ({
         itemId: line.item!.id,
         namaBarang: line.item!.nama,
@@ -160,6 +164,7 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
     } catch (error) {
       setFormError(error instanceof Error ? error.message : 'Permohonan gagal disimpan. Silakan coba kembali.');
     } finally {
+      submitInFlightRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -203,7 +208,10 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-150">
-      <div className="w-full max-w-5xl max-h-[92vh] bg-slate-900 border border-slate-700/90 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+      <div
+        aria-busy={isSubmitting}
+        className="relative w-full max-w-5xl max-h-[92vh] bg-slate-900 border border-slate-700/90 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+      >
         {/* Header */}
         <div className="p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between bg-slate-900/90">
           <div className="flex items-center gap-3">
@@ -224,7 +232,9 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
           </div>
 
           <button
+            type="button"
             onClick={onClose}
+            disabled={isSubmitting}
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
           >
             <X className="w-5 h-5" />
@@ -291,6 +301,7 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
             </div>
           ) : (
             <form id="stockRequestForm" onSubmit={handleSubmit} className="space-y-4">
+              <fieldset disabled={isSubmitting} className="contents">
               {/* Request item rows */}
               <section className="rounded-xl border border-slate-800 bg-slate-950/40 p-3 sm:p-4">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -514,6 +525,7 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
               </div>
 
               {formError && <div role="alert" className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-200">{formError}</div>}
+              </fieldset>
             </form>
           )}
         </div>
@@ -523,6 +535,7 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
           <button
             type="button"
             onClick={onClose}
+            disabled={isSubmitting}
             className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl transition-colors"
           >
             Batal
@@ -544,6 +557,28 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
             </button>
           )}
         </div>
+
+        {isSubmitting && (
+          <div
+            role="status"
+            aria-live="assertive"
+            aria-atomic="true"
+            className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-4"
+          >
+            <div className="w-full max-w-sm rounded-2xl border border-slate-700 bg-slate-900 p-6 text-center shadow-2xl">
+              <div
+                aria-hidden="true"
+                className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-slate-700 border-t-indigo-400"
+              />
+              <p className="text-sm font-bold text-white">
+                Permohonan Anda sedang diproses, jangan keluar dari halaman ini.
+              </p>
+              <p className="mt-2 text-xs text-slate-300">
+                Mohon tunggu hingga proses selesai.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

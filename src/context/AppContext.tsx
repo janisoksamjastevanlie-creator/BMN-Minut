@@ -1732,13 +1732,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       requestPersistenceWaitersRef.current.set(newReq.id, { resolve, reject });
       setRequests(prev => [newReq, ...prev]);
     });
-    return persisted.then(persistedRequest => {
+    const finalizePersistedRequest = (persistedRequest: InventoryRequest) => {
       queueRequestWhatsAppEvent(persistedRequest, 'submitted', persistedRequest.catatan);
       const itemSummary = normalizedItems.map(requestedItem => `${requestedItem.namaBarang} (${requestedItem.jumlahDiminta} ${requestedItem.satuan})`).join(', ');
       logAudit('Pengajuan Permohonan Barang', 'PERSEDIAAN', `Permohonan baru ${persistedRequest.nomorPermintaan}: ${itemSummary} diajukan oleh ${persistedRequest.pemohonNama}`);
       pushNotification('PERMINTAAN_BARU', '📋 Permohonan Barang Baru', `${persistedRequest.pemohonNama} mengajukan ${normalizedItems.length} jenis barang: ${itemSummary}`, 'requests');
       return persistedRequest;
-    }).catch(error => {
+    };
+    return persisted.then(finalizePersistedRequest).catch(async error => {
+      if (error instanceof StateSyncError && !error.definitelyNotSaved) {
+        try {
+          await reloadServerData();
+        } catch (statusError) {
+          throw new StateSyncError(
+            `Status penyimpanan permohonan belum dapat dipastikan. ${apiFailureMessage(statusError)} Jangan kirim ulang sebelum daftar permohonan diperiksa.`
+          );
+        }
+        if (syncBlockedRef.current) {
+          throw new StateSyncError('Status penyimpanan permohonan belum dapat dipastikan. Muat ulang data server dan periksa daftar permohonan sebelum mengirim ulang.');
+        }
+        const latestRequests = lastSyncedStateRef.current?.requests;
+        const persistedRequest = Array.isArray(latestRequests)
+          ? (latestRequests as InventoryRequest[]).find(request => request.id === newReq.id)
+          : undefined;
+        if (persistedRequest) return finalizePersistedRequest(persistedRequest);
+        throw new StateSyncError(
+          'Server memastikan permohonan belum tersimpan. Isian formulir tetap tersedia; Anda dapat mencoba kembali.',
+          true
+        );
+      }
       if (error instanceof StateSyncError && error.definitelyNotSaved) {
         setRequests(prev => prev.filter(request => request.id !== newReq.id));
       }
