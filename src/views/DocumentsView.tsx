@@ -325,8 +325,8 @@ export const DocumentsView: React.FC = () => {
       </div>
 
       {/* Filter and Search */}
-      <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-3">
-        <div className="flex items-center gap-1.5 flex-wrap w-full md:w-auto pb-1 md:pb-0">
+      <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl flex flex-col gap-4">
+        <div className="flex items-center gap-1.5 flex-wrap w-full">
           {[
             'all',
             'Nota',
@@ -352,53 +352,55 @@ export const DocumentsView: React.FC = () => {
           ))}
         </div>
 
-        <div className="relative w-full md:w-96">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-          <input
-            type="text"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Cari nama barang, kode barang, satuan, toko, atau nomor nota..."
-            className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-8 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-purple-500"
-          />
-          {search && (
-            <button
-              onClick={() => setSearch('')}
-              className="absolute right-2.5 top-2.5 text-slate-400 hover:text-white"
-              title="Hapus kata pencarian"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
+        <div className={`grid grid-cols-1 items-end gap-3 ${canViewFinancials && (filterType === 'all' || filterType === 'Nota') ? 'lg:grid-cols-[minmax(0,1fr)_minmax(18rem,auto)]' : ''}`}>
+          <div className="relative w-full min-w-0">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Cari nama barang, kode barang, satuan, toko, atau nomor nota..."
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-8 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-purple-500"
+            />
+            {search && (
+              <button
+                onClick={() => setSearch('')}
+                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-white"
+                title="Hapus kata pencarian"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+          {canViewFinancials && (filterType === 'all' || filterType === 'Nota') && (
+            <div className="grid grid-cols-2 gap-2 w-full lg:w-auto">
+              <label className="min-w-0 text-[10px] text-slate-400">
+                Total minimum
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={minimumReceiptTotal}
+                  onChange={event => setMinimumReceiptTotal(event.target.value)}
+                  placeholder="Rp"
+                  aria-label="Total nota minimum"
+                  className="mt-1 w-full lg:w-36 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500"
+                />
+              </label>
+              <label className="min-w-0 text-[10px] text-slate-400">
+                Total maksimum
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={maximumReceiptTotal}
+                  onChange={event => setMaximumReceiptTotal(event.target.value)}
+                  placeholder="Rp"
+                  aria-label="Total nota maksimum"
+                  className="mt-1 w-full lg:w-36 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500"
+                />
+              </label>
+            </div>
           )}
         </div>
-        {canViewFinancials && (filterType === 'all' || filterType === 'Nota') && (
-          <div className="grid grid-cols-2 gap-2 w-full md:w-auto">
-            <label className="text-[10px] text-slate-400">
-              Total minimum
-              <input
-                type="text"
-                inputMode="numeric"
-                value={minimumReceiptTotal}
-                onChange={event => setMinimumReceiptTotal(event.target.value)}
-                placeholder="Rp"
-                aria-label="Total nota minimum"
-                className="mt-1 w-full md:w-32 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
-              />
-            </label>
-            <label className="text-[10px] text-slate-400">
-              Total maksimum
-              <input
-                type="text"
-                inputMode="numeric"
-                value={maximumReceiptTotal}
-                onChange={event => setMaximumReceiptTotal(event.target.value)}
-                placeholder="Rp"
-                aria-label="Total nota maksimum"
-                className="mt-1 w-full md:w-32 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
-              />
-            </label>
-          </div>
-        )}
       </div>
 
       {/* Hasil Pencarian Barang Lintas Seluruh Nota */}
