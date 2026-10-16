@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { BmnAsset, InventoryItem, OfficeRoom } from '../../types';
 import {
   countActiveDashboardFilters,
@@ -24,6 +24,46 @@ const uniqueValues = (values: Array<string | undefined>): string[] =>
   [...new Set(values.map(value => value?.trim()).filter((value): value is string => Boolean(value)))]
     .sort((a, b) => a.localeCompare(b, 'id'));
 
+interface SearchSuggestion {
+  id: string;
+  title: string;
+  details: string[];
+  searchable: string[];
+}
+
+const normalizeSearchText = (value: string): string =>
+  value.toLocaleLowerCase('id-ID').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+const isCloseMatch = (query: string, value: string): boolean => {
+  if (value.includes(query)) return true;
+  if (query.length < 4) return false;
+  const words = value.split(/[\s./_-]+/).filter(Boolean);
+  return words.some(word => {
+    if (word.startsWith(query)) return true;
+    if (Math.abs(word.length - query.length) > 1) return false;
+    let differences = 0;
+    let queryIndex = 0;
+    let wordIndex = 0;
+    while (queryIndex < query.length && wordIndex < word.length) {
+      if (query[queryIndex] === word[wordIndex]) {
+        queryIndex += 1;
+        wordIndex += 1;
+      } else {
+        differences += 1;
+        if (differences > 1) return false;
+        if (query.length > word.length) queryIndex += 1;
+        else if (query.length < word.length) wordIndex += 1;
+        else {
+          queryIndex += 1;
+          wordIndex += 1;
+        }
+      }
+    }
+    if (queryIndex < query.length || wordIndex < word.length) differences += 1;
+    return differences <= 1;
+  });
+};
+
 export const DashboardFilterPanel: React.FC<DashboardFilterPanelProps> = ({
   filters,
   onChange,
@@ -33,7 +73,76 @@ export const DashboardFilterPanel: React.FC<DashboardFilterPanelProps> = ({
   assetResultCount,
   inventoryResultCount
 }) => {
+  const [isSuggestionListOpen, setIsSuggestionListOpen] = useState(false);
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
   const activeCount = countActiveDashboardFilters(filters);
+  const searchCandidates = useMemo<SearchSuggestion[]>(() => [
+      ...assets.map(asset => ({
+        id: `asset-${asset.id}`,
+        title: asset.namaBarang,
+        details: [
+          asset.kodeBarang && `Kode: ${asset.kodeBarang}`,
+          `NUP: ${asset.nup}`,
+          asset.ruanganNama && `Ruangan: ${asset.ruanganNama}`,
+          asset.merkType && `Merek: ${asset.merkType}`,
+          asset.kategori && `Kategori: ${asset.kategori}`
+        ].filter((detail): detail is string => Boolean(detail)),
+        searchable: [
+          asset.namaBarang, asset.kodeBarang, String(asset.nup), asset.ruanganNama,
+          asset.gedung, asset.merkType, asset.kategori, asset.subkategori,
+          asset.nomorSeri, asset.penanggungJawab
+        ].filter((value): value is string => Boolean(value))
+      })),
+      ...inventoryItems.map(item => ({
+        id: `inventory-${item.id}`,
+        title: item.nama,
+        details: [
+          item.kodeBarang && `Kode: ${item.kodeBarang}`,
+          item.merek && `Merek: ${item.merek}`,
+          item.kategori && `Kategori: ${item.kategori}`,
+          item.jenis,
+          item.lokasiGudang && `Gudang: ${item.lokasiGudang}`,
+          item.rak && `Rak: ${item.rak}`
+        ].filter((detail): detail is string => Boolean(detail)),
+        searchable: [
+          item.nama, item.kodeBarang, item.merek, item.kategori, item.subkategori,
+          item.jenis, item.satuan, item.lokasiGudang, item.rak, item.shelf,
+          item.binCode, item.barcode
+        ].filter((value): value is string => Boolean(value))
+      })),
+      ...rooms.map(room => ({
+        id: `room-${room.id}`,
+        title: room.name,
+        details: [room.code && `Kode: ${room.code}`, room.building && `Gedung: ${room.building}`]
+          .filter((detail): detail is string => Boolean(detail)),
+        searchable: [room.name, room.code, room.building, room.picName]
+          .filter((value): value is string => Boolean(value))
+      }))
+    ], [assets, inventoryItems, rooms]);
+  const suggestions = useMemo(() => {
+    const query = normalizeSearchText(filters.keyword.trim());
+    if (!query) return [];
+    const terms = query.split(/\s+/).filter(Boolean);
+    return searchCandidates
+      .map((candidate, index) => {
+        const values = candidate.searchable.map(normalizeSearchText);
+        const matches = terms.every(term => values.some(value => isCloseMatch(term, value)));
+        const title = normalizeSearchText(candidate.title);
+        const rank = title.includes(query) ? 0 : title.startsWith(terms[0]) ? 1 : 2;
+        return { candidate, index, matches, rank };
+      })
+      .filter(result => result.matches)
+      .sort((a, b) => a.rank - b.rank || a.index - b.index)
+      .slice(0, 8)
+      .map(result => result.candidate);
+  }, [filters.keyword, searchCandidates]);
+
+  const chooseSuggestion = (suggestion: SearchSuggestion) => {
+    update('keyword', suggestion.title);
+    setIsSuggestionListOpen(false);
+    setActiveSuggestionIndex(-1);
+  };
+
   const subcategories = uniqueValues(assets
     .filter(asset => !filters.assetCategory || asset.kategori === filters.assetCategory)
     .map(asset => asset.subkategori));
@@ -132,16 +241,75 @@ export const DashboardFilterPanel: React.FC<DashboardFilterPanelProps> = ({
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-[minmax(220px,1fr)_minmax(200px,0.8fr)_minmax(150px,0.7fr)_minmax(150px,0.7fr)]">
-        <label className="text-[11px] font-semibold text-slate-300">
-          Pencarian detail
+        <div className="relative text-[11px] font-semibold text-slate-300">
+          <label htmlFor="dashboard-detail-search">Pencarian detail</label>
           <input
+            id="dashboard-detail-search"
             className={`${controlClassName} mt-1`}
             type="search"
             value={filters.keyword}
-            onChange={event => update('keyword', event.target.value)}
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded={isSuggestionListOpen && Boolean(filters.keyword.trim())}
+            aria-controls="dashboard-search-suggestions"
+            aria-activedescendant={activeSuggestionIndex >= 0 ? `dashboard-search-suggestion-${activeSuggestionIndex}` : undefined}
+            onFocus={() => setIsSuggestionListOpen(Boolean(filters.keyword.trim()))}
+            onChange={event => {
+              update('keyword', event.target.value);
+              setIsSuggestionListOpen(Boolean(event.target.value.trim()));
+              setActiveSuggestionIndex(-1);
+            }}
+            onKeyDown={event => {
+              if (event.key === 'Escape') {
+                setIsSuggestionListOpen(false);
+                setActiveSuggestionIndex(-1);
+              } else if (event.key === 'ArrowDown' && isSuggestionListOpen && suggestions.length > 0) {
+                event.preventDefault();
+                setActiveSuggestionIndex(index => Math.min(index + 1, suggestions.length - 1));
+              } else if (event.key === 'ArrowUp' && isSuggestionListOpen && suggestions.length > 0) {
+                event.preventDefault();
+                setActiveSuggestionIndex(index => Math.max(index - 1, 0));
+              } else if (event.key === 'Enter' && isSuggestionListOpen && suggestions.length > 0) {
+                event.preventDefault();
+                chooseSuggestion(suggestions[Math.max(activeSuggestionIndex, 0)]);
+              }
+            }}
             placeholder="Nama, kode, NUP, ruang, barang..."
           />
-        </label>
+          {isSuggestionListOpen && filters.keyword.trim() && (
+            <ul
+              id="dashboard-search-suggestions"
+              role="listbox"
+              className="absolute left-0 right-0 top-full z-50 mt-1 max-h-60 overflow-y-auto rounded-xl border border-slate-700 bg-slate-950 py-1 shadow-2xl"
+            >
+              {suggestions.length > 0 ? suggestions.map((suggestion, index) => (
+                <li
+                  key={suggestion.id}
+                  id={`dashboard-search-suggestion-${index}`}
+                  role="option"
+                  aria-selected={activeSuggestionIndex === index}
+                  onMouseDown={event => event.preventDefault()}
+                  onMouseEnter={() => setActiveSuggestionIndex(index)}
+                  onClick={() => chooseSuggestion(suggestion)}
+                  className={`cursor-pointer px-3 py-2.5 ${
+                    activeSuggestionIndex === index ? 'bg-slate-800' : 'hover:bg-slate-900'
+                  }`}
+                >
+                  <span className="block truncate text-xs font-semibold text-white">{suggestion.title}</span>
+                  {suggestion.details.length > 0 && (
+                    <span className="mt-1 block text-[10px] font-normal leading-relaxed text-slate-400">
+                      {suggestion.details.join(' · ')}
+                    </span>
+                  )}
+                </li>
+              )) : (
+                <li role="status" className="px-3 py-2.5 text-xs font-normal text-slate-400">
+                  Barang atau data tidak ditemukan
+                </li>
+              )}
+            </ul>
+          )}
+        </div>
         <label className="text-[11px] font-semibold text-slate-300">
           Periode aset & aktivitas
           <select className={`${controlClassName} mt-1`} value={filters.period} onChange={event => update('period', event.target.value as DashboardFilters['period'])}>
