@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { AppProvider, useApp, ActiveView } from './context/AppContext';
+import { AppProvider, useApp } from './context/AppContext';
 import { Navbar } from './components/layout/Navbar';
 import { Sidebar } from './components/layout/Sidebar';
 import { MobileBottomNav } from './components/layout/MobileBottomNav';
@@ -41,10 +41,14 @@ import { AuditTrailView } from './views/AuditTrailView';
 import { UsersView } from './views/UsersView';
 import { SettingsView } from './views/SettingsView';
 import { AccessDeniedView } from './views/AccessDeniedView';
+import { NotFoundView } from './views/NotFoundView';
 import { canAccessView, getHomeView } from './utils/rbac';
 
 const MainLayout: React.FC = () => {
-  const { activeView, currentUser, setActiveView, hasPermission, isInitializing, syncError } = useApp();
+  const {
+    activeView, currentUser, setActiveView, hasPermission, isInitializing,
+    syncError, isReloadingServerData, reloadServerData
+  } = useApp();
 
   // Floating & Quick Transaction Modals state
   const [isStockInModalOpen, setIsStockInModalOpen] = useState(false);
@@ -56,10 +60,19 @@ const MainLayout: React.FC = () => {
   // Arahkan ke dashboard yang sesuai role jika view dashboard yang dibuka bukan miliknya
   useEffect(() => {
     if (!currentUser) return;
+    if (activeView === 'login') {
+      setActiveView(getHomeView(currentUser));
+      return;
+    }
     if ((activeView === 'dashboard' || activeView === 'executive') && !canAccessView(activeView, hasPermission, currentUser)) {
       setActiveView(getHomeView(currentUser));
     }
   }, [activeView, currentUser, hasPermission, setActiveView]);
+
+  useEffect(() => {
+    if (isInitializing || currentUser || activeView === 'landing' || activeView === 'login' || activeView === 'not-found') return;
+    setActiveView('login');
+  }, [activeView, currentUser, isInitializing, setActiveView]);
 
   if (isInitializing) {
     return (
@@ -72,6 +85,10 @@ const MainLayout: React.FC = () => {
   // If user is not authenticated or at landing/login views
   if (activeView === 'landing') {
     return <LandingPageView />;
+  }
+
+  if (activeView === 'not-found') {
+    return <NotFoundView />;
   }
 
   if (activeView === 'login' || !currentUser) {
@@ -98,10 +115,11 @@ const MainLayout: React.FC = () => {
             <div role="alert" className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-200">
               Sinkronisasi server gagal: {syncError}
               <button
-                onClick={() => window.location.reload()}
+                onClick={() => void reloadServerData()}
+                disabled={isReloadingServerData}
                 className="ml-3 font-bold underline underline-offset-2"
               >
-                Muat ulang data server
+                {isReloadingServerData ? 'Memuat data server...' : 'Muat ulang data server'}
               </button>
             </div>
           )}

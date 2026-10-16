@@ -36,6 +36,12 @@ Backend membuat direktori/file dengan permission privat (`0700`/`0600` pada plat
 
 Project ini adalah aplikasi React/Vite dengan backend Node.js/Express dan MySQL melalui driver `mysql2/promise`. Backend memerlukan Node.js 22.5 atau lebih baru. `src/db/schema.sql` adalah skema rancangan PostgreSQL dan **bukan** skema aplikasi yang berjalan. Production memakai skema operasional yang sudah disiapkan manual; server tidak membuat atau memigrasikan skema saat startup.
 
+### URL halaman aplikasi
+
+Frontend memakai History API tanpa router tambahan. URL menu utama: `/dashboard`, `/aset-bmn`, `/manajemen-ruangan`, `/asset-mapping-3d`, `/pemindahan-aset`, `/pemeliharaan-aset`, `/penghapusan-bmn`, `/master-persediaan`, `/gudang-3d`, `/permohonan-barang-atk`, `/stock-opname`, `/dokumen-bast`, `/laporan-resmi-bps`, `/audit-trail`, `/manajemen-pengguna`, dan `/pengaturan-sistem`. Halaman autentikasi `/login`; halaman pimpinan `/dashboard-pimpinan`; kartu stok `/kartu-stok`. Express melayani SPA untuk halaman langsung/refresh, tetapi URL API yang tidak dikenal membalas JSON 404, bukan HTML.
+
+Sesi aplikasi memakai cookie HTTP-only dan masa berlaku tetap 12 jam; tidak ada refresh token atau perpanjangan diam-diam. Jika endpoint sinkronisasi membalas 401, aplikasi meminta pengguna masuk kembali dan mencoba menggabungkan perubahan lokal yang belum tersimpan dengan state server setelah login. Konflik ditahan untuk pemeriksaan, bukan ditimpa otomatis.
+
 Hostinger menyebut Node.js web app tersedia untuk paket Business dan Cloud; fitur/limitasi dapat berubah. Verifikasi paket aktif, kemampuan menjalankan proses Express berkelanjutan, port yang disediakan, konektivitas ke MySQL Hostinger, kuota koneksi, penyimpanan file yang persisten, dan opsi backup. Aplikasi membutuhkan disk privat yang tetap tersedia melewati deploy untuk menyimpan dokumen. Lihat [panduan Node.js app Hostinger](https://www.hostinger.com/support/how-to-deploy-a-nodejs-website-in-hostinger/) dan [versi Node.js yang didukung](https://www.hostinger.com/support/how-to-select-the-node-js-version-for-your-application/).
 
 ### Pengaturan build dan start

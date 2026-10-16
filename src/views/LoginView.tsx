@@ -53,7 +53,7 @@ export const LoginView: React.FC = () => {
         <form onSubmit={handleLogin} className="space-y-4">
           {syncError && (
             <p role="alert" className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-              Server/data belum siap: {syncError}
+              Informasi sesi/server: {syncError}
             </p>
           )}
           <div>

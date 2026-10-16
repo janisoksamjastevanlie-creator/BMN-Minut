@@ -170,6 +170,14 @@ export const VIEW_ACCESS_CONFIGS: Record<ActiveView, ViewAccessConfig> = {
     requiredPermissions: ['systemSettings'],
     matchMode: 'any',
     description: 'Konfigurasi instansi BPS, cadangan data (backup/restore), dan parameter aplikasi.'
+  },
+  'not-found': {
+    view: 'not-found',
+    label: 'Halaman tidak ditemukan',
+    category: 'Dashboard',
+    requiredPermissions: [],
+    matchMode: 'any',
+    description: 'URL yang diminta tidak cocok dengan halaman yang tersedia.'
   }
 };
 

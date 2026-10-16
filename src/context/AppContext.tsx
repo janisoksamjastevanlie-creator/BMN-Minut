@@ -39,6 +39,7 @@ import {
 import { getAssetPhotoUrl, getInventoryPhotoUrl } from '../utils/assetImages';
 import { DashboardFilters, DEFAULT_DASHBOARD_FILTERS } from '../utils/dashboardFilters';
 import { getHomeView, isPimpinanUser } from '../utils/rbac';
+import { getPathForView, getViewForPath } from '../utils/viewRoutes';
 import { planStockInDeletion } from '../../stockInDeletion.mjs';
 import { mergeStateAfterConflict } from '../../stateConflict.mjs';
 import { getRequestableStock } from '../../requestStockValidation.mjs';
@@ -46,10 +47,62 @@ import { getRequestableStock } from '../../requestStockValidation.mjs';
 const cloneSharedState = <T,>(state: T): T => JSON.parse(JSON.stringify(state)) as T;
 
 class StateSyncError extends Error {
-  constructor(message: string, readonly definitelyNotSaved = false) {
+  constructor(message: string, readonly definitelyNotSaved = false, readonly status?: number) {
     super(message);
   }
 }
+
+class ApiResponseError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+  }
+}
+
+const readApiResponse = async <T,>(
+  response: Response,
+  endpoint: string,
+  allowErrorStatuses: number[] = []
+): Promise<T> => {
+  const body = await response.text();
+  let result: T;
+  try {
+    result = JSON.parse(body) as T;
+  } catch {
+    const isHtml = /^\s*(?:<!doctype html\b|<html\b)/i.test(body);
+    throw new ApiResponseError(
+      response.status === 401
+        ? 'Sesi berakhir. Silakan masuk kembali.'
+        : response.status === 403
+          ? 'Akses ditolak oleh server.'
+          : isHtml
+        ? `Endpoint ${endpoint} mengembalikan HTML, bukan JSON. Pastikan permintaan API diteruskan ke server Node.js.`
+        : `Respons ${endpoint} tidak valid (HTTP ${response.status}).`,
+      response.status
+    );
+  }
+  if (!response.ok && !allowErrorStatuses.includes(response.status)) {
+    const errorMessage = result && typeof result === 'object' && 'error' in result
+      ? String(result.error)
+      : '';
+    throw new ApiResponseError(
+      response.status === 401
+        ? errorMessage || 'Sesi berakhir. Silakan masuk kembali.'
+        : response.status === 403
+          ? errorMessage || 'Akses ditolak oleh server.'
+          : response.status >= 500
+            ? errorMessage || `Server mengalami kesalahan (HTTP ${response.status}).`
+            : errorMessage || `Permintaan gagal (HTTP ${response.status}).`,
+      response.status
+    );
+  }
+  return result;
+};
+
+const apiFailureMessage = (error: unknown): string => {
+  if (error instanceof ApiResponseError) return error.message;
+  if (error instanceof TypeError) return 'Server tidak dapat dihubungi. Periksa koneksi jaringan lalu coba lagi.';
+  return error instanceof Error ? error.message : 'Terjadi kesalahan saat menghubungi server.';
+};
 const sameSharedState = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
 const MAX_STATE_CONFLICT_RETRIES = 3;
 
@@ -73,7 +126,8 @@ export type ActiveView =
   | 'audit-trail'
   | 'executive'
   | 'users'
-  | 'settings';
+  | 'settings'
+  | 'not-found';
 
 type StockInDetails = {
   itemId: string;
@@ -90,6 +144,8 @@ interface AppContextType {
   dataBackend: 'legacy' | 'operational';
   isInitializing: boolean;
   syncError: string | null;
+  isReloadingServerData: boolean;
+  reloadServerData: () => Promise<void>;
   login: (nip: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   activeView: ActiveView;
@@ -291,6 +347,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [authReady, setAuthReady] = useState(false);
   const [dataReady, setDataReady] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [isReloadingServerData, setIsReloadingServerData] = useState(false);
+  const reloadInFlightRef = useRef(false);
+  const pendingSessionRecoveryRef = useRef<{
+    base: Record<string, unknown> | null;
+    local: Record<string, unknown>;
+  } | null>(null);
   const revisionRef = useRef(0);
   const lastSyncedStateRef = useRef<Record<string, unknown> | null>(null);
   const syncBlockedRef = useRef(false);
@@ -308,7 +370,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }>>([]);
   const queuedRequestWhatsAppStatusRef = useRef<Map<string, InventoryRequest['status']>>(new Map());
 
-  const [activeView, setActiveView] = useState<ActiveView>('dashboard');
+  const [activeView, setActiveViewState] = useState<ActiveView>(() => getViewForPath(window.location.pathname));
+  const setActiveView = (view: ActiveView) => {
+    const nextPath = getPathForView(view);
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState(null, '', `${nextPath}${window.location.search}${window.location.hash}`);
+    }
+    setActiveViewState(view);
+  };
+
+  useEffect(() => {
+    const handlePopState = () => setActiveViewState(getViewForPath(window.location.pathname));
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
   const [dashboardFilters, setDashboardFilters] = useState<DashboardFilters>({ ...DEFAULT_DASHBOARD_FILTERS });
   const [performance3D, setPerformance3D] = useState<'normal' | 'performance' | 'low'>('normal');
 
@@ -507,8 +582,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const loadSessionData = async (authenticatedUser: User) => {
     const response = await fetch('/api/state');
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || 'Gagal memuat data terpusat.');
+    const result = await readApiResponse<{
+      revision: number;
+      dataBackend: 'legacy' | 'operational';
+      initialized: boolean;
+      state: Record<string, unknown>;
+    }>(response, '/api/state');
     revisionRef.current = result.revision;
     setDataBackend(result.dataBackend === 'operational' ? 'operational' : 'legacy');
     if (!result.initialized) {
@@ -525,8 +604,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ state: initialState, revision: revisionRef.current })
       });
-      const saveResult = await saveResponse.json();
-      if (!saveResponse.ok) throw new Error(saveResult.error || 'Gagal menginisialisasi data terpusat.');
+      const saveResult = await readApiResponse<{ revision: number }>(saveResponse, '/api/state');
       revisionRef.current = saveResult.revision;
       lastSyncedStateRef.current = cloneSharedState(initialState);
       applySharedState(initialState);
@@ -539,6 +617,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setDataReady(true);
   };
 
+  const expireSession = (localState?: Record<string, unknown>) => {
+    if (localState) {
+      pendingSessionRecoveryRef.current = {
+        base: lastSyncedStateRef.current ? cloneSharedState(lastSyncedStateRef.current) : null,
+        local: cloneSharedState(localState)
+      };
+    }
+    syncBlockedRef.current = true;
+    setCurrentUser(null);
+    setDataReady(false);
+    setSyncError('Sesi telah berakhir. Perubahan lokal yang belum tersinkron dipertahankan sementara; masuk kembali untuk memulihkannya.');
+    setActiveView('login');
+  };
+
   useEffect(() => {
     let mounted = true;
     const restoreSession = async () => {
@@ -548,8 +640,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           if (mounted) setCurrentUser(null);
           return;
         }
-        const result = await response.json();
-        if (!response.ok) throw new Error(result.error || 'Gagal memeriksa sesi masuk.');
+        const result = await readApiResponse<{ user: User }>(response, '/api/auth/me');
         if (!mounted) return;
         setCurrentUser(result.user);
         await loadSessionData(result.user);
@@ -557,7 +648,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (mounted) {
           setCurrentUser(null);
           setDataReady(false);
-          setSyncError(error instanceof Error ? error.message : 'Server tidak dapat dihubungi.');
+          setSyncError(apiFailureMessage(error));
         }
       } finally {
         if (mounted) setAuthReady(true);
@@ -586,18 +677,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ state: stateToSave, revision: revisionRef.current })
           });
-          const result = await response.json();
+          let result: { revision?: number };
+          try {
+            result = await readApiResponse<{ revision?: number }>(response, '/api/state', [409]);
+          } catch (error) {
+            if (error instanceof ApiResponseError && error.status === 401) {
+              expireSession(stateToSave);
+              throw new StateSyncError(error.message, true, error.status);
+            }
+            if (error instanceof ApiResponseError && error.status === 403) {
+              syncBlockedRef.current = true;
+              throw new StateSyncError(`Akses ditolak: ${error.message}`, true, error.status);
+            }
+            const definitelyNotSaved = error instanceof ApiResponseError && error.status < 500;
+            if (definitelyNotSaved) syncBlockedRef.current = true;
+            throw new StateSyncError(apiFailureMessage(error), definitelyNotSaved,
+              error instanceof ApiResponseError ? error.status : undefined);
+          }
           if (response.status !== 409) {
-            if (!response.ok) throw new StateSyncError(result.error || 'Perubahan tidak tersimpan ke server.', response.status < 500);
             saveResult = result;
             break;
           }
 
           const latestResponse = await fetch('/api/state');
-          const latest = await latestResponse.json();
-          if (!latestResponse.ok || !latest.state || !Number.isInteger(latest.revision)) {
+          let latest: { state?: Record<string, unknown>; revision?: number };
+          try {
+            latest = await readApiResponse<{ state?: Record<string, unknown>; revision?: number }>(latestResponse, '/api/state');
+          } catch (error) {
+            if (error instanceof ApiResponseError && error.status === 401) {
+              expireSession(stateToSave);
+              throw new StateSyncError(error.message, true, error.status);
+            }
+            throw new StateSyncError(apiFailureMessage(error), true,
+              error instanceof ApiResponseError ? error.status : undefined);
+          }
+          if (!latest.state || typeof latest.revision !== 'number' || !Number.isInteger(latest.revision)) {
             syncBlockedRef.current = true;
-            const error = new StateSyncError(latest.error || 'Konflik data terjadi dan data terbaru dari server tidak dapat dimuat. Muat ulang halaman sebelum melanjutkan.', true);
+            const error = new StateSyncError('Konflik data terjadi dan data terbaru dari server tidak valid. Muat ulang data server sebelum melanjutkan.', true);
             for (const waiter of requestPersistenceWaitersRef.current.values()) waiter.reject(error);
             requestPersistenceWaitersRef.current.clear();
             setSyncError(error.message);
@@ -738,16 +854,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ nip, password })
     });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || 'Gagal masuk.');
+    const result = await readApiResponse<{ user: User }>(response, '/api/auth/login');
+    const pendingRecovery = pendingSessionRecoveryRef.current;
     setDataReady(false);
     syncBlockedRef.current = false;
     revisionRef.current = 0;
-    lastSyncedStateRef.current = null;
+    if (!pendingRecovery) lastSyncedStateRef.current = null;
     setCurrentUser(result.user);
     try {
       await loadSessionData(result.user);
-      setSyncError(null);
+      if (pendingRecovery) {
+        const latestState = lastSyncedStateRef.current;
+        if (pendingRecovery.base && latestState) {
+          const recovered = mergeStateAfterConflict(
+            pendingRecovery.base,
+            pendingRecovery.local,
+            latestState
+          );
+          if (recovered.conflicts.length > 0) {
+            applySharedState(pendingRecovery.local);
+            syncBlockedRef.current = true;
+            setSyncError(`Sesi kembali aktif, tetapi ada konflik pada ${recovered.conflicts.slice(0, 3).join(', ')}. Perubahan lokal dipertahankan; muat ulang data server untuk mengambil versi server.`);
+          } else {
+            applySharedState(recovered.mergedState);
+            pendingSessionRecoveryRef.current = null;
+            setSyncError(null);
+          }
+        } else {
+          applySharedState(pendingRecovery.local);
+          syncBlockedRef.current = true;
+          setSyncError('Sesi kembali aktif, tetapi perubahan lokal tidak dapat dibandingkan dengan data server. Perubahan lokal dipertahankan; hubungi administrator sebelum melanjutkan.');
+        }
+      } else {
+        setSyncError(null);
+      }
       setActiveView(getHomeView(result.user));
     } catch (error) {
       await fetch('/api/auth/logout', { method: 'POST' });
@@ -755,17 +895,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setDataReady(false);
       syncBlockedRef.current = false;
       lastSyncedStateRef.current = null;
-      throw error;
+      throw new Error(apiFailureMessage(error));
+    }
+  };
+
+  const reloadServerData = async () => {
+    if (reloadInFlightRef.current) return;
+    reloadInFlightRef.current = true;
+    setIsReloadingServerData(true);
+    try {
+      const userResponse = await fetch('/api/auth/me');
+      const { user } = await readApiResponse<{ user: User }>(userResponse, '/api/auth/me');
+      setCurrentUser(user);
+      await loadSessionData(user);
+      pendingSessionRecoveryRef.current = null;
+      syncBlockedRef.current = false;
+      setSyncError(null);
+    } catch (error) {
+      if (error instanceof ApiResponseError && error.status === 401) {
+        expireSession();
+      } else {
+        setSyncError(apiFailureMessage(error));
+      }
+    } finally {
+      reloadInFlightRef.current = false;
+      setIsReloadingServerData(false);
     }
   };
 
   const logout = async () => {
     const response = await fetch('/api/auth/logout', { method: 'POST' });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || 'Gagal keluar dari sistem.');
+    await readApiResponse<{ success: boolean }>(response, '/api/auth/logout');
     setDataReady(false);
     syncBlockedRef.current = false;
     lastSyncedStateRef.current = null;
+    pendingSessionRecoveryRef.current = null;
     setCurrentUser(null);
     setSyncError(null);
     setActiveView('login');
@@ -2026,6 +2190,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         dataBackend,
         isInitializing: !authReady || (!!currentUser && !dataReady),
         syncError,
+        isReloadingServerData,
+        reloadServerData,
         login,
         logout,
         activeView,

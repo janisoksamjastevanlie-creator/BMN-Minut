@@ -2814,6 +2814,7 @@ app.post('/api/whatsapp/request-events', requireUser, asyncRoute(async (request,
 
 if (process.env.NODE_ENV === 'production') {
   const dist = path.join(root, 'dist');
+  app.use('/api', (_request, response) => response.status(404).json({ error: 'Endpoint API tidak ditemukan.' }));
   app.use(express.static(dist));
   app.get('*', (_request, response) => response.sendFile(path.join(dist, 'index.html')));
 } else {
@@ -2823,6 +2824,7 @@ if (process.env.NODE_ENV === 'production') {
     server: { middlewareMode: true, hmr: false },
     appType: 'custom'
   });
+  app.use('/api', (_request, response) => response.status(404).json({ error: 'Endpoint API tidak ditemukan.' }));
   app.use(vite.middlewares);
   app.get('*', async (request, response, next) => {
     try {
