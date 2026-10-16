@@ -43,8 +43,24 @@ import { getPathForView, getViewForPath } from '../utils/viewRoutes';
 import { planStockInDeletion } from '../../stockInDeletion.mjs';
 import { mergeStateAfterConflict } from '../../stateConflict.mjs';
 import { getRequestableStock } from '../../requestStockValidation.mjs';
+import { getNextRequestNumber } from '../../requestNumber.mjs';
 
 const cloneSharedState = <T,>(state: T): T => JSON.parse(JSON.stringify(state)) as T;
+
+const applyRequestNumberAssignments = (
+  state: Record<string, unknown>,
+  assignments?: Record<string, string>
+): Record<string, unknown> => {
+  if (!assignments || !Array.isArray(state.requests)) return state;
+  const requests = (state.requests as InventoryRequest[]).map(request => {
+    if (!Object.prototype.hasOwnProperty.call(assignments, request.id)) return request;
+    const number = assignments[request.id];
+    return typeof number === 'string' && number
+      ? { ...request, nomorPermintaan: number }
+      : request;
+  });
+  return { ...state, requests };
+};
 
 class StateSyncError extends Error {
   constructor(message: string, readonly definitelyNotSaved = false, readonly status?: number) {
@@ -358,7 +374,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const syncBlockedRef = useRef(false);
   const syncQueueRef = useRef<Promise<void>>(Promise.resolve());
   const requestPersistenceWaitersRef = useRef(new Map<string, {
-    resolve: () => void;
+    resolve: (request: InventoryRequest) => void;
     reject: (error: Error) => void;
   }>());
   const pendingRequestWhatsAppEventsRef = useRef<Array<{
@@ -604,10 +620,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ state: initialState, revision: revisionRef.current })
       });
-      const saveResult = await readApiResponse<{ revision: number }>(saveResponse, '/api/state');
+      const saveResult = await readApiResponse<{
+        revision: number;
+        requestNumbers?: Record<string, string>;
+      }>(saveResponse, '/api/state');
+      const savedState = applyRequestNumberAssignments(initialState, saveResult.requestNumbers);
       revisionRef.current = saveResult.revision;
-      lastSyncedStateRef.current = cloneSharedState(initialState);
-      applySharedState(initialState);
+      lastSyncedStateRef.current = cloneSharedState(savedState);
+      applySharedState(savedState);
     } else {
       lastSyncedStateRef.current = cloneSharedState(result.state);
       applySharedState(result.state);
@@ -668,18 +688,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           requestPersistenceWaitersRef.current.clear();
           return;
         }
-        let stateToSave = cloneSharedState(sharedState);
+        let stateToSave: Record<string, unknown> = cloneSharedState(sharedState);
         if (lastSyncedStateRef.current && sameSharedState(stateToSave, lastSyncedStateRef.current)) return;
-        let saveResult: { revision?: number } | null = null;
+        let saveResult: {
+          revision?: number;
+          requestNumbers?: Record<string, string>;
+        } | null = null;
         for (let attempt = 0; attempt < MAX_STATE_CONFLICT_RETRIES; attempt += 1) {
           const response = await fetch('/api/state', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ state: stateToSave, revision: revisionRef.current })
           });
-          let result: { revision?: number };
+          let result: {
+            revision?: number;
+            requestNumbers?: Record<string, string>;
+          };
           try {
-            result = await readApiResponse<{ revision?: number }>(response, '/api/state', [409]);
+            result = await readApiResponse<{
+              revision?: number;
+              requestNumbers?: Record<string, string>;
+            }>(response, '/api/state', [409]);
           } catch (error) {
             if (error instanceof ApiResponseError && error.status === 401) {
               expireSession(stateToSave);
@@ -747,7 +776,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               const waiter = requestPersistenceWaitersRef.current.get(request.id);
               if (waiter) {
                 requestPersistenceWaitersRef.current.delete(request.id);
-                waiter.resolve();
+                waiter.resolve(request);
               }
             }
             return;
@@ -764,6 +793,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (!Number.isInteger(saveResult.revision)) {
           throw new Error('Server menyimpan perubahan dengan respons revisi yang tidak valid.');
         }
+        stateToSave = applyRequestNumberAssignments(stateToSave, saveResult.requestNumbers);
+        if (saveResult.requestNumbers && Object.keys(saveResult.requestNumbers).length > 0) {
+          applySharedState(stateToSave);
+        }
         revisionRef.current = saveResult.revision as number;
         lastSyncedStateRef.current = cloneSharedState(stateToSave);
         setSyncError(null);
@@ -772,7 +805,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const waiter = requestPersistenceWaitersRef.current.get(request.id);
           if (waiter) {
             requestPersistenceWaitersRef.current.delete(request.id);
-            waiter.resolve();
+            waiter.resolve(request);
           }
         }
         const pendingEvents = pendingRequestWhatsAppEventsRef.current;
@@ -1681,11 +1714,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
     const item = inventoryItems.find(i => i.id === normalizedItems[0].itemId);
     const now = new Date();
+    const requestDate = now.toISOString().split('T')[0];
     const newReq: InventoryRequest = {
       ...reqData,
       id: `req-${Date.now()}`,
-      nomorPermintaan: `REQ-BPS7106/2026/${String(requests.length + 1).padStart(4, '0')}`,
-      tanggal: now.toISOString().split('T')[0],
+      nomorPermintaan: getNextRequestNumber(requests, requestDate.slice(0, 4)),
+      tanggal: requestDate,
       status: 'Diajukan',
       namaBarang: item ? item.nama : reqData.namaBarang,
       itemId: normalizedItems[0].itemId,
@@ -1694,16 +1728,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       items: normalizedItems
     };
 
-    const persisted = new Promise<void>((resolve, reject) => {
+    const persisted = new Promise<InventoryRequest>((resolve, reject) => {
       requestPersistenceWaitersRef.current.set(newReq.id, { resolve, reject });
       setRequests(prev => [newReq, ...prev]);
     });
-    return persisted.then(() => {
-      queueRequestWhatsAppEvent(newReq, 'submitted', newReq.catatan);
+    return persisted.then(persistedRequest => {
+      queueRequestWhatsAppEvent(persistedRequest, 'submitted', persistedRequest.catatan);
       const itemSummary = normalizedItems.map(requestedItem => `${requestedItem.namaBarang} (${requestedItem.jumlahDiminta} ${requestedItem.satuan})`).join(', ');
-      logAudit('Pengajuan Permohonan Barang', 'PERSEDIAAN', `Permohonan baru ${newReq.nomorPermintaan}: ${itemSummary} diajukan oleh ${newReq.pemohonNama}`);
-      pushNotification('PERMINTAAN_BARU', '📋 Permohonan Barang Baru', `${newReq.pemohonNama} mengajukan ${normalizedItems.length} jenis barang: ${itemSummary}`, 'requests');
-      return newReq;
+      logAudit('Pengajuan Permohonan Barang', 'PERSEDIAAN', `Permohonan baru ${persistedRequest.nomorPermintaan}: ${itemSummary} diajukan oleh ${persistedRequest.pemohonNama}`);
+      pushNotification('PERMINTAAN_BARU', '📋 Permohonan Barang Baru', `${persistedRequest.pemohonNama} mengajukan ${normalizedItems.length} jenis barang: ${itemSummary}`, 'requests');
+      return persistedRequest;
     }).catch(error => {
       if (error instanceof StateSyncError && error.definitelyNotSaved) {
         setRequests(prev => prev.filter(request => request.id !== newReq.id));

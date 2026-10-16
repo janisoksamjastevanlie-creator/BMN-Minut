@@ -11,6 +11,7 @@ import { writeOperationalState } from './operationalWrites.mjs';
 import { sendWhatsAppMessage } from './whatsappService.mjs';
 import { validateRequestAuthorization } from './requestAccess.mjs';
 import { validateAdditionalStockOut, validateNewRequestStock } from './requestStockValidation.mjs';
+import { assignNewRequestNumbers } from './requestNumber.mjs';
 import { sendTwilioWhatsAppMessage } from './twilioWhatsAppService.mjs';
 import { createWhatsAppService } from './whatsapp/service.mjs';
 import { getWhatsAppConfig } from './whatsapp/config.mjs';
@@ -2176,6 +2177,8 @@ app.put('/api/state', requireUser, asyncRoute(async (request, response) => {
         return { status: 409, body: { error: 'Data berubah di perangkat lain. Muat ulang halaman sebelum menyimpan lagi.', revision } };
       }
       currentState = await readCollections(connection);
+      const requestNumberAssignments = assignNewRequestNumbers(currentState.requests, state.requests);
+      state.requests = requestNumberAssignments.requests;
       if (!userHasPermission(request.user, 'manageInventory', currentState)) {
         restoreRestrictedFinancialData(state, currentState);
       }
@@ -2396,7 +2399,14 @@ app.put('/api/state', requireUser, asyncRoute(async (request, response) => {
           users: Array.isArray(currentState.users) ? currentState.users : []
         });
       }
-      return { status: 200, body: { success: true, revision: revision + 1 } };
+      return {
+        status: 200,
+        body: {
+          success: true,
+          revision: revision + 1,
+          requestNumbers: requestNumberAssignments.assignedNumbers
+        }
+      };
     });
     if (outcome.status !== 200) return response.status(outcome.status).json(outcome.body);
     const n8nEvents = n8nIntegration.enabled
