@@ -54,23 +54,23 @@
   }
 
   html[data-theme='light'] [class*='bg-slate-950'] {
-    background-color: #f8fafc;
+    background-color: #f8fafc !important;
   }
 
   html[data-theme='light'] [class*='bg-slate-900'] {
-    background-color: #ffffff;
+    background-color: #ffffff !important;
   }
 
   html[data-theme='light'] [class*='bg-slate-800'] {
-    background-color: #f1f5f9;
+    background-color: #f1f5f9 !important;
   }
 
   html[data-theme='light'] [class*='bg-slate-700'] {
-    background-color: #e2e8f0;
+    background-color: #e2e8f0 !important;
   }
 
   html[data-theme='light'] [class*='bg-slate-600'] {
-    background-color: #cbd5e1;
+    background-color: #cbd5e1 !important;
   }
 
   html[data-theme='light'] [class*='bg-amber-950'] {
@@ -199,8 +199,9 @@
     --tw-divide-color: #e5e7eb;
   }
 
+  html[data-theme='light'] [class*='placeholder-slate-']::placeholder,
   html[data-theme='light'] [class*='placeholder:text-slate-']::placeholder {
-    color: #6b7280;
+    color: #4b5563 !important;
     opacity: 1;
   }
 
