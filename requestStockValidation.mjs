@@ -34,6 +34,29 @@ export function getRequestableStock(itemId, inventoryItems, requests) {
 }
 
 /**
+ * @typedef {{ itemId: string; jumlahDiminta?: number; jumlahDisetujui?: number }} StockRequestItem
+ * @typedef {{ status: string; itemId?: string; jumlahDiminta?: number; jumlahDisetujui?: number; items?: StockRequestItem[] }} StockRequest
+ */
+
+/**
+ * @template {{ id: string; jenis: string; stokSaatIni: number; nama: string; kodeBarang: string; satuan: string }} T
+ * @param {T[]} inventoryItems
+ * @param {StockRequest[]} requests
+ * @returns {T[]}
+ */
+export function getStockRequestInventoryItems(inventoryItems, requests) {
+  return inventoryItems
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => item.jenis === 'ATK' || item.jenis === 'ARK')
+    .map(entry => ({
+      ...entry,
+      availableStock: getRequestableStock(entry.item.id, inventoryItems, requests)
+    }))
+    .sort((left, right) => right.availableStock - left.availableStock || left.index - right.index)
+    .map(({ item }) => item);
+}
+
+/**
  * @template {{ nama: string; kodeBarang: string }} T
  * @param {T[]} inventoryItems
  * @param {string} query

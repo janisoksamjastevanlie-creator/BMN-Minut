@@ -1,7 +1,11 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { InventoryRequestItem } from '../../types';
-import { getRequestableStock, searchInventoryItems } from '../../../requestStockValidation.mjs';
+import {
+  getRequestableStock,
+  getStockRequestInventoryItems,
+  searchInventoryItems
+} from '../../../requestStockValidation.mjs';
 import confetti from 'canvas-confetti';
 import {
   ClipboardList,
@@ -43,8 +47,14 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
 }) => {
   const { inventoryItems, requests, rooms, addInventoryRequest, currentUser, setActiveView } = useApp();
 
-  const initialItemId = defaultItemId || inventoryItems[0]?.id || '';
-  const initialItem = inventoryItems.find(item => item.id === initialItemId);
+  const stockRequestItems = useMemo(
+    () => getStockRequestInventoryItems(inventoryItems, requests),
+    [inventoryItems, requests]
+  );
+  const initialItemId = defaultItemId && stockRequestItems.some(item => item.id === defaultItemId)
+    ? defaultItemId
+    : stockRequestItems[0]?.id || '';
+  const initialItem = stockRequestItems.find(item => item.id === initialItemId);
   const [requestItems, setRequestItems] = useState<RequestItemDraft[]>([
     { key: crypto.randomUUID(), itemId: initialItemId, itemSearch: initialItem?.nama || '', jumlahDiminta: '2', spesifikasi: '', catatan: '' }
   ]);
@@ -64,7 +74,7 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
 
   const requestLines = requestItems.map(line => ({
     ...line,
-    item: inventoryItems.find(item => item.id === line.itemId),
+    item: stockRequestItems.find(item => item.id === line.itemId),
     quantity: Number(line.jumlahDiminta),
     availableStock: line.itemId ? getRequestableStock(line.itemId, inventoryItems, requests) : 0
   }));
@@ -156,8 +166,8 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
 
   const handleReset = () => {
     setIsSuccess(false);
-    const resetItemId = defaultItemId || inventoryItems[0]?.id || '';
-    const resetItem = inventoryItems.find(item => item.id === resetItemId);
+    const resetItemId = initialItemId;
+    const resetItem = stockRequestItems.find(item => item.id === resetItemId);
     setRequestItems([{ key: crypto.randomUUID(), itemId: resetItemId, itemSearch: resetItem?.nama || '', jumlahDiminta: '2', spesifikasi: '', catatan: '' }]);
     setKeperluan('Administrasi kegiatan survei lapangan BPS Minahasa Utara');
     setCatatan('');
@@ -242,7 +252,7 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
                 </div>
                 <div className="border-t border-slate-800 pt-2">
                   {requestItems.map((line, index) => {
-                    const item = inventoryItems.find(candidate => candidate.id === line.itemId);
+                    const item = stockRequestItems.find(candidate => candidate.id === line.itemId);
                     return (
                       <div key={line.key} className="flex justify-between gap-3 py-1">
                         <span className="text-slate-300">{index + 1}. {item?.nama}</span>
@@ -286,7 +296,7 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <h3 className="text-xs font-bold text-white">Daftar Barang yang Dimohon</h3>
-                  <p className="mt-0.5 text-[10px] text-slate-400">Pilih barang dari master; kode dan satuan mengikuti data persediaan.</p>
+                  <p className="mt-0.5 text-[10px] text-slate-400">Hanya barang ATK/ARK; urutan berdasarkan stok tersedia terbesar.</p>
                 </div>
                 <button type="button" onClick={addLine} disabled={requestItems.length >= 100} className="inline-flex items-center gap-1 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-3 py-2 text-[11px] font-bold text-indigo-200 hover:bg-indigo-500/20 disabled:cursor-not-allowed disabled:opacity-40">
                   <Plus className="h-3.5 w-3.5" /> Tambah Barang
@@ -294,9 +304,9 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
               </div>
               <div className="space-y-3">
                 {requestItems.map((line, index) => {
-                  const item = inventoryItems.find(candidate => candidate.id === line.itemId);
+                  const item = stockRequestItems.find(candidate => candidate.id === line.itemId);
                   const availableStock = line.itemId ? getRequestableStock(line.itemId, inventoryItems, requests) : 0;
-                  const matchingItems = searchInventoryItems(inventoryItems, line.itemSearch);
+                  const matchingItems = searchInventoryItems(stockRequestItems, line.itemSearch);
                   const isSearching = searchingLineKey === line.key;
                   const isDuplicate = Boolean(line.itemId && requestItems.some((candidate, candidateIndex) => candidateIndex !== index && candidate.itemId === line.itemId));
                   const hasInvalidQuantity = line.jumlahDiminta !== '' && (!Number.isSafeInteger(Number(line.jumlahDiminta)) || Number(line.jumlahDiminta) <= 0);
@@ -384,7 +394,7 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
                                     </span>
                                   </button>
                                 );
-                              }) : <p role="status" className="px-2.5 py-2 text-[11px] font-normal text-slate-400">Barang tidak ditemukan</p>}
+                              }) : <p role="status" className="px-2.5 py-2 text-[11px] font-normal text-slate-400">Barang ATK/ARK tidak ditemukan</p>}
                             </div>
                           )}
                         </div>

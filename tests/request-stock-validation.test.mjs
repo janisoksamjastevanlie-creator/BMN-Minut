@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   getRequestableStock,
+  getStockRequestInventoryItems,
   searchInventoryItems,
   validateAdditionalStockOut,
   validateNewRequestStock
@@ -79,6 +80,20 @@ test('aggregates multiple new requests for the same item', () => {
 test('available request stock updates when physical stock or active requests change', () => {
   assert.equal(getRequestableStock('item-1', [item('item-1', 5)], [request('req-1', 'item-1', 2)]), 3);
   assert.equal(getRequestableStock('item-1', [item('item-1', 2)], [request('req-1', 'item-1', 2)]), 0);
+});
+
+test('stock request item options include only ATK and ARK ordered by available stock', () => {
+  const inventory = [
+    { ...item('atk-reserved', 12), jenis: 'ATK' },
+    { ...item('other', 100), jenis: 'Aset' },
+    { ...item('ark-first', 8), jenis: 'ARK' },
+    { ...item('atk-second', 8), jenis: 'ATK' }
+  ];
+  const activeRequests = [request('req-1', 'atk-reserved', 10)];
+
+  const options = getStockRequestInventoryItems(inventory, activeRequests);
+
+  assert.deepEqual(options.map(candidate => candidate.id), ['ark-first', 'atk-second', 'atk-reserved']);
 });
 
 test('uses approved quantities for requests waiting for receipt confirmation', () => {
