@@ -20,6 +20,7 @@ import { getWebChatConfig } from './ai/webchatConfig.mjs';
 import { buildRequestEvents, createN8nIntegration } from './automation/n8n/integration.mjs';
 import { createDocumentStorage, DocumentStorageError, validateStoredFile } from './documentStorage.mjs';
 import { readDocumentWithBackup, saveDocumentBackup, verifyDocumentBytes } from './documentFileBackup.mjs';
+import { authorizeChangedCollections } from './stateAuthorization.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(root, '.env') });
@@ -850,41 +851,6 @@ function userHasPermission(user, permission, source = collectionCache) {
   const roles = source.roles || [];
   const role = roles.find(item => item.name?.toLowerCase() === String(user.role).toLowerCase());
   return Boolean(role?.permissions?.[permission]);
-}
-
-function authorizeChangedCollections(user, state, current = collectionCache) {
-  if (!Object.values(current).some(value => value !== null)) return user.role === 'Administrator';
-  const changed = collections.filter(key => JSON.stringify(current[key]) !== JSON.stringify(state[key]));
-  for (const key of changed) {
-    if (key === 'notifications' || user.role === 'Administrator') continue;
-    if (key === 'roles') return false;
-    if (key === 'users') {
-      if (!userHasPermission(user, 'manageUsers', current)) return false;
-      const previousUsers = current.users || [];
-      const nextUsers = state.users || [];
-      const previousAdminIds = previousUsers.filter(item => item.role === 'Administrator').map(item => item.id);
-      if (previousAdminIds.some(id => !nextUsers.some(item => item.id === id && item.role === 'Administrator'))) return false;
-      for (const item of nextUsers) {
-        const previous = previousUsers.find(existing => existing.id === item.id);
-        if ((!previous && item.role === 'Administrator') || (previous && previous.role !== item.role)) return false;
-        if (previous?.role === 'Administrator' && JSON.stringify(previous) !== JSON.stringify(item)) return false;
-      }
-      continue;
-    }
-    if (key === 'auditLogs') {
-      const previousLogs = current.auditLogs || [];
-      const nextLogs = state.auditLogs || [];
-      if (!userHasPermission(user, 'systemSettings', current) &&
-          previousLogs.some(log => JSON.stringify(nextLogs.find(item => item.id === log.id)) !== JSON.stringify(log))) {
-        return false;
-      }
-      continue;
-    }
-    const permissions = permissionsByCollection[key];
-    if (permissions === null) continue;
-    if (!permissions?.some(permission => userHasPermission(user, permission, current))) return false;
-  }
-  return true;
 }
 
 function validateRoomAssetRelations(state) {
@@ -2367,7 +2333,13 @@ app.put('/api/state', requireUser, asyncRoute(async (request, response) => {
       )) {
         return { status: 403, body: { error: 'Referensi penyimpanan backend hanya dapat dibuat melalui endpoint unggah dokumen.', revision } };
       }
-      if (!authorizeChangedCollections(request.user, state, currentState)) {
+      if (!authorizeChangedCollections({
+        user: request.user,
+        state,
+        current: currentState,
+        permissionsByCollection,
+        userHasPermission
+      })) {
         return { status: 403, body: { error: 'Role Anda tidak memiliki izin untuk menyimpan perubahan ini.' } };
       }
       const relationError = validateRoomAssetRelations(state);
