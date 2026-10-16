@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { useTheme } from '../../context/ThemeContext';
 import { getHomeView } from '../../utils/rbac';
 import {
   Search,
@@ -14,10 +15,13 @@ import {
   CheckCheck,
   Building,
   QrCode,
-  Menu
+  Menu,
+  Moon,
+  Sun
 } from 'lucide-react';
 
 export const Navbar: React.FC = () => {
+  const { theme, toggleTheme } = useTheme();
   const {
     currentUser,
     logout,
@@ -103,6 +107,22 @@ export const Navbar: React.FC = () => {
             className="sm:hidden p-2 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
           >
             <Search className="w-4 h-4" />
+          </button>
+
+          <button
+            type="button"
+            onClick={toggleTheme}
+            title={`Tema ${theme === 'light' ? 'Siang' : 'Malam'} aktif. Klik untuk beralih ke Tema ${theme === 'light' ? 'Malam' : 'Siang'}.`}
+            aria-label={`Tema ${theme === 'light' ? 'Siang' : 'Malam'} aktif; beralih ke Tema ${theme === 'light' ? 'Malam' : 'Siang'}`}
+            aria-pressed={theme === 'light'}
+            className="p-2 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800 transition-colors flex items-center gap-1.5"
+          >
+            {theme === 'light'
+              ? <Sun className="w-4 h-4 text-amber-500" aria-hidden="true" />
+              : <Moon className="w-4 h-4 text-indigo-300" aria-hidden="true" />}
+            <span className="hidden xl:inline text-[10px] font-semibold">
+              {theme === 'light' ? 'Siang' : 'Malam'}
+            </span>
           </button>
 
           {/* Quick Scan QR Button */}

@@ -1,12 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { useApp } from '../../context/AppContext';
+import { useTheme } from '../../context/ThemeContext';
 import { WarehouseRack, InventoryItem } from '../../types';
 import { Package, Layers, AlertTriangle, AlertCircle, CheckCircle2, ArrowRight, PlusCircle, Search } from 'lucide-react';
 
 export const Warehouse3D: React.FC<{ onSelectItem?: (item: InventoryItem) => void }> = ({ onSelectItem }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const { warehouseRacks, inventoryItems, performance3D, setActiveView, setIsQuickActionOpen, setSelectedInventoryItem, hasPermission } = useApp();
+  const { theme } = useTheme();
   const [selectedRackId, setSelectedRackId] = useState<string>('rack-a');
   const [hoveredRackName, setHoveredRackName] = useState<string | null>(null);
 
@@ -32,8 +34,9 @@ export const Warehouse3D: React.FC<{ onSelectItem?: (item: InventoryItem) => voi
     // 1. Scene
     const scene = new THREE.Scene();
     sceneRef.current = scene;
-    scene.background = new THREE.Color(0x0a0f1d);
-    scene.fog = new THREE.FogExp2(0x0a0f1d, 0.03);
+    const sceneColor = theme === 'light' ? 0xf8fafc : 0x0a0f1d;
+    scene.background = new THREE.Color(sceneColor);
+    scene.fog = new THREE.FogExp2(sceneColor, 0.03);
 
     // 2. Camera
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
@@ -68,7 +71,7 @@ export const Warehouse3D: React.FC<{ onSelectItem?: (item: InventoryItem) => voi
     // 5. Floor (Warehouse Polished Concrete)
     const floorGeo = new THREE.PlaneGeometry(24, 18);
     const floorMat = new THREE.MeshStandardMaterial({
-      color: 0x0f172a,
+      color: theme === 'light' ? 0xe2e8f0 : 0x0f172a,
       roughness: 0.6,
       metalness: 0.3
     });
@@ -78,7 +81,12 @@ export const Warehouse3D: React.FC<{ onSelectItem?: (item: InventoryItem) => voi
     scene.add(floor);
 
     // Grid lines for warehouse aisles
-    const grid = new THREE.GridHelper(24, 24, 0x1e3a8a, 0x334155);
+    const grid = new THREE.GridHelper(
+      24,
+      24,
+      theme === 'light' ? 0x93c5fd : 0x1e3a8a,
+      theme === 'light' ? 0xcbd5e1 : 0x334155
+    );
     grid.position.y = 0.01;
     scene.add(grid);
 
@@ -120,7 +128,7 @@ export const Warehouse3D: React.FC<{ onSelectItem?: (item: InventoryItem) => voi
         const shelfY = -1.0 + s * 0.75;
         const shelfGeo = new THREE.BoxGeometry(rackWidth, 0.06, rackDepth);
         const shelfMat = new THREE.MeshStandardMaterial({
-          color: 0x475569,
+          color: theme === 'light' ? 0x64748b : 0x475569,
           roughness: 0.5,
           metalness: 0.6
         });
@@ -156,7 +164,7 @@ export const Warehouse3D: React.FC<{ onSelectItem?: (item: InventoryItem) => voi
       // Overhead Rack Sign Tag
       const signGeo = new THREE.BoxGeometry(1.2, 0.35, 0.08);
       const signMat = new THREE.MeshStandardMaterial({
-        color: isSelected ? 0x0284c7 : 0x1e293b,
+        color: isSelected ? 0x0284c7 : theme === 'light' ? 0x64748b : 0x1e293b,
         emissive: isSelected ? 0x0284c7 : 0x000000,
         emissiveIntensity: 0.3
       });
@@ -274,7 +282,7 @@ export const Warehouse3D: React.FC<{ onSelectItem?: (item: InventoryItem) => voi
       window.removeEventListener('resize', handleResize);
       renderer.dispose();
     };
-  }, [warehouseRacks, selectedRackId, performance3D, inventoryItems]);
+  }, [warehouseRacks, selectedRackId, performance3D, inventoryItems, theme]);
 
   return (
     <div className="relative w-full h-[540px] rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl flex flex-col md:flex-row">

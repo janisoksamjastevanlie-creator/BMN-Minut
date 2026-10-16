@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { useApp } from '../../context/AppContext';
+import { useTheme } from '../../context/ThemeContext';
 import { BmnAsset, OfficeRoom } from '../../types';
 import { canAccessView } from '../../utils/rbac';
 import { Building2, Layers, ZoomIn, ZoomOut, RotateCcw, AlertTriangle, CheckCircle2, XCircle, Info, ArrowRight } from 'lucide-react';
@@ -8,6 +9,7 @@ import { Building2, Layers, ZoomIn, ZoomOut, RotateCcw, AlertTriangle, CheckCirc
 export const OfficeTwin3D: React.FC<{ onSelectRoom?: (room: OfficeRoom) => void; assets?: BmnAsset[] }> = ({ onSelectRoom, assets: displayedAssets }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const { rooms, assets: allAssets, performance3D, setActiveView, updateRoom, currentUser, hasPermission } = useApp();
+  const { theme } = useTheme();
   const assets = displayedAssets ?? allAssets;
   const updateRoomRef = useRef(updateRoom);
   updateRoomRef.current = updateRoom;
@@ -39,8 +41,9 @@ export const OfficeTwin3D: React.FC<{ onSelectRoom?: (room: OfficeRoom) => void;
     // 1. Scene
     const scene = new THREE.Scene();
     sceneRef.current = scene;
-    scene.background = new THREE.Color(0x090d16);
-    scene.fog = new THREE.FogExp2(0x090d16, 0.025);
+    const sceneColor = theme === 'light' ? 0xf8fafc : 0x090d16;
+    scene.background = new THREE.Color(sceneColor);
+    scene.fog = new THREE.FogExp2(sceneColor, 0.025);
 
     // 2. Camera
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
@@ -75,14 +78,19 @@ export const OfficeTwin3D: React.FC<{ onSelectRoom?: (room: OfficeRoom) => void;
     scene.add(bluePointLight);
 
     // 5. Ground Grid & Foundation
-    const grid = new THREE.GridHelper(24, 24, 0x1e3a8a, 0x1e293b);
+    const grid = new THREE.GridHelper(
+      24,
+      24,
+      theme === 'light' ? 0x93c5fd : 0x1e3a8a,
+      theme === 'light' ? 0xcbd5e1 : 0x1e293b
+    );
     grid.position.y = -0.01;
     scene.add(grid);
 
     // Building Foundation Slab
     const foundationGeo = new THREE.BoxGeometry(16, 0.2, 12);
     const foundationMat = new THREE.MeshStandardMaterial({
-      color: 0x0f172a,
+      color: theme === 'light' ? 0xe2e8f0 : 0x0f172a,
       roughness: 0.8,
       metalness: 0.2
     });
@@ -134,7 +142,10 @@ export const OfficeTwin3D: React.FC<{ onSelectRoom?: (room: OfficeRoom) => void;
       // Inner office furniture representation (low-poly desks)
       if (performance3D !== 'low') {
         const deskGeo = new THREE.BoxGeometry(w * 0.45, 0.3, d * 0.4);
-        const deskMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.9 });
+        const deskMat = new THREE.MeshStandardMaterial({
+          color: theme === 'light' ? 0x94a3b8 : 0x334155,
+          roughness: 0.9
+        });
         const desk = new THREE.Mesh(deskGeo, deskMat);
         desk.position.set(0, -(h / 2) + 0.25, 0);
         roomGroup.add(desk);
@@ -343,7 +354,7 @@ export const OfficeTwin3D: React.FC<{ onSelectRoom?: (room: OfficeRoom) => void;
       window.removeEventListener('resize', handleResize);
       renderer.dispose();
     };
-  }, [rooms, selectedRoomId, selectedFloor, performance3D, assets, canManageRooms]);
+  }, [rooms, selectedRoomId, selectedFloor, performance3D, assets, canManageRooms, theme]);
 
   return (
     <div className="relative w-full h-[540px] rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl flex flex-col md:flex-row">
