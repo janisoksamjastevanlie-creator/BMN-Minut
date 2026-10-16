@@ -1,5 +1,45 @@
 import { isDeepStrictEqual } from 'node:util';
 
+// Restores hidden fields exactly as stored: absent fields stay absent (an `undefined`
+// property breaks isDeepStrictEqual) and key order follows the stored row so that
+// JSON.stringify-based workflow checks treat untouched rows as unchanged.
+function restoreStoredFields(row, stored, fields) {
+  for (const field of fields) {
+    if (Object.hasOwn(stored, field)) row[field] = stored[field];
+    else delete row[field];
+  }
+  const order = new Map(Object.keys(stored).map((key, index) => [key, index]));
+  const entries = Object.entries(row).sort(([a], [b]) =>
+    (order.get(a) ?? order.size) - (order.get(b) ?? order.size));
+  for (const [key] of entries) delete row[key];
+  for (const [key, value] of entries) row[key] = value;
+}
+
+export function restoreRestrictedFinancialData(next, current) {
+  const preserve = (collection, idField, fields) => {
+    const previousById = new Map((current[collection] || []).map(row => [row[idField], row]));
+    for (const row of next[collection] || []) {
+      const previous = previousById.get(row[idField]);
+      if (!previous) continue;
+      restoreStoredFields(row, previous, fields);
+    }
+  };
+  preserve('inventoryItems', 'id', ['hargaSatuan', 'totalNilai']);
+  preserve('stockInList', 'id', ['hargaSatuan', 'totalHarga']);
+  const documents = new Map((current.documents || []).map(row => [row.id, row]));
+  for (const document of next.documents || []) {
+    const previous = documents.get(document.id);
+    if (!previous) continue;
+    const receiptItems = new Map((previous.items || []).map(item => [item.id, item]));
+    for (const item of document.items || []) {
+      const old = receiptItems.get(item.id);
+      if (!old) continue;
+      restoreStoredFields(item, old, ['hargaSatuan', 'totalHarga', 'subtotal']);
+    }
+    restoreStoredFields(document, previous, ['totalNilaiNota']);
+  }
+}
+
 export function authorizeChangedCollections({
   user,
   state,

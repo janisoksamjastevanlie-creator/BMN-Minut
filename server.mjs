@@ -20,7 +20,7 @@ import { getWebChatConfig } from './ai/webchatConfig.mjs';
 import { buildRequestEvents, createN8nIntegration } from './automation/n8n/integration.mjs';
 import { createDocumentStorage, DocumentStorageError, validateStoredFile } from './documentStorage.mjs';
 import { readDocumentWithBackup, saveDocumentBackup, verifyDocumentBytes } from './documentFileBackup.mjs';
-import { authorizeChangedCollections } from './stateAuthorization.mjs';
+import { authorizeChangedCollections, restoreRestrictedFinancialData } from './stateAuthorization.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(root, '.env') });
@@ -579,33 +579,6 @@ function stateForUser(source, user) {
     }
   }
   return state;
-}
-
-function restoreRestrictedFinancialData(next, current) {
-  const preserve = (collection, idField, fields) => {
-    const previousById = new Map((current[collection] || []).map(row => [row[idField], row]));
-    for (const row of next[collection] || []) {
-      const previous = previousById.get(row[idField]);
-      if (!previous) continue;
-      for (const field of fields) row[field] = previous[field];
-    }
-  };
-  preserve('inventoryItems', 'id', ['hargaSatuan', 'totalNilai']);
-  preserve('stockInList', 'id', ['hargaSatuan', 'totalHarga']);
-  const documents = new Map((current.documents || []).map(row => [row.id, row]));
-  for (const document of next.documents || []) {
-    const previous = documents.get(document.id);
-    if (!previous) continue;
-    document.totalNilaiNota = previous.totalNilaiNota;
-    const receiptItems = new Map((previous.items || []).map(item => [item.id, item]));
-    for (const item of document.items || []) {
-      const old = receiptItems.get(item.id);
-      if (!old) continue;
-      item.hargaSatuan = old.hargaSatuan;
-      item.totalHarga = old.totalHarga;
-      item.subtotal = old.subtotal;
-    }
-  }
 }
 
 async function refreshCollections(executor = db) {
