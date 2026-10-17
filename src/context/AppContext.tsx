@@ -116,11 +116,16 @@ const readApiResponse = async <T,>(
 
 const apiFailureMessage = (error: unknown): string => {
   if (error instanceof ApiResponseError) return error.message;
+  if (error instanceof DOMException && error.name === 'TimeoutError') {
+    return 'Server terlalu lama merespons. Periksa status data di server sebelum mengulangi transaksi.';
+  }
   if (error instanceof TypeError) return 'Server tidak dapat dihubungi. Periksa koneksi jaringan lalu coba lagi.';
   return error instanceof Error ? error.message : 'Terjadi kesalahan saat menghubungi server.';
 };
 const sameSharedState = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
 const MAX_STATE_CONFLICT_RETRIES = 3;
+const fetchWithTimeout = (url: string, options: RequestInit = {}) =>
+  fetch(url, { ...options, signal: AbortSignal.timeout(30_000) });
 
 export type ActiveView =
   | 'landing'
@@ -590,9 +595,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const sharedState = {
     rooms, assets, inventoryItems, stockInList, stockOutList, requests, opnames,
-    movements, maintenances, disposals, documents, auditLogs, notifications, users, roles
+    movements, maintenances, disposals, documents, auditLogs, notifications, users, roles,
+    ...(dataBackend === 'operational' ? { warehouseRacks } : {})
   };
-  const latestSharedStateRef = useRef(sharedState);
+  const latestSharedStateRef = useRef<Record<string, unknown>>(sharedState);
   latestSharedStateRef.current = sharedState;
 
   useEffect(() => {
@@ -615,6 +621,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [pageRefreshVersion, currentUser, dataReady, syncError, sharedState]);
 
   const applySharedState = (state: Record<string, unknown>) => {
+    latestSharedStateRef.current = { ...latestSharedStateRef.current, ...state };
     if (Array.isArray(state.rooms)) setRooms(state.rooms as OfficeRoom[]);
     if (Array.isArray(state.assets)) setAssets(state.assets as BmnAsset[]);
     if (Array.isArray(state.inventoryItems)) setInventoryItems(state.inventoryItems as InventoryItem[]);
@@ -636,7 +643,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const loadSessionData = async (authenticatedUser: User) => {
-    const response = await fetch('/api/state');
+    const response = await fetchWithTimeout('/api/state');
     const result = await readApiResponse<{
       revision: number;
       dataBackend: 'legacy' | 'operational';
@@ -717,10 +724,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => { mounted = false; };
   }, []);
 
-  useEffect(() => {
-    if (!currentUser || !dataReady) return;
-    const timer = window.setTimeout(async () => {
-      immediateStateSyncRef.current = false;
+  const settleRequestPersistence = (
+    savedState: Record<string, unknown>,
+    submittedState: Record<string, unknown>
+  ) => {
+    const submittedRequests = submittedState.requests as InventoryRequest[];
+    const savedRequests = savedState.requests as InventoryRequest[];
+    for (const [id, waiter] of requestPersistenceWaitersRef.current) {
+      const submitted = submittedRequests.find(request => request.id === id);
+      if (!submitted || (waiter.expectedStatus && submitted.status !== waiter.expectedStatus)) continue;
+      const saved = savedRequests.find(request => request.id === id);
+      requestPersistenceWaitersRef.current.delete(id);
+      if (!saved || (waiter.expectedStatus && saved.status !== waiter.expectedStatus)) {
+        waiter.reject(new StateSyncError('Status permohonan berubah di server sebelum perubahan dapat dipastikan.', true));
+      } else {
+        waiter.resolve(saved);
+      }
+    }
+  };
+
+  const persistSharedState = () => {
       syncQueueRef.current = syncQueueRef.current.then(async () => {
         if (syncBlockedRef.current) {
           const error = new StateSyncError('Sinkronisasi terhenti. Muat ulang halaman untuk memeriksa status permohonan.', true);
@@ -728,14 +751,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           requestPersistenceWaitersRef.current.clear();
           return;
         }
-        let stateToSave: Record<string, unknown> = cloneSharedState(sharedState);
-        if (lastSyncedStateRef.current && sameSharedState(stateToSave, lastSyncedStateRef.current)) return;
+        let stateToSave = cloneSharedState(latestSharedStateRef.current);
+        const submittedState = cloneSharedState(stateToSave);
+        if (lastSyncedStateRef.current && sameSharedState(stateToSave, lastSyncedStateRef.current)) {
+          settleRequestPersistence(lastSyncedStateRef.current, submittedState);
+          return;
+        }
         let saveResult: {
           revision?: number;
           requestNumbers?: Record<string, string>;
+          requests?: InventoryRequest[];
         } | null = null;
         for (let attempt = 0; attempt < MAX_STATE_CONFLICT_RETRIES; attempt += 1) {
-          const response = await fetch('/api/state', {
+          const response = await fetchWithTimeout('/api/state', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ state: stateToSave, revision: revisionRef.current })
@@ -743,11 +771,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           let result: {
             revision?: number;
             requestNumbers?: Record<string, string>;
+            requests?: InventoryRequest[];
           };
           try {
             result = await readApiResponse<{
               revision?: number;
               requestNumbers?: Record<string, string>;
+              requests?: InventoryRequest[];
             }>(response, '/api/state', [409]);
           } catch (error) {
             if (error instanceof ApiResponseError && error.status === 401) {
@@ -768,7 +798,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             break;
           }
 
-          const latestResponse = await fetch('/api/state');
+          const latestResponse = await fetchWithTimeout('/api/state');
           let latest: { state?: Record<string, unknown>; revision?: number };
           try {
             latest = await readApiResponse<{ state?: Record<string, unknown>; revision?: number }>(latestResponse, '/api/state');
@@ -809,22 +839,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           revisionRef.current = latest.revision;
           lastSyncedStateRef.current = cloneSharedState(latest.state);
           stateToSave = mergedState;
-          applySharedState(mergedState);
           if (sameSharedState(mergedState, latest.state)) {
-            const persistedRequests = (latest.state.requests as InventoryRequest[]) || [];
-            for (const request of persistedRequests) {
-              const waiter = requestPersistenceWaitersRef.current.get(request.id);
-              if (waiter) {
-                requestPersistenceWaitersRef.current.delete(request.id);
-                if (waiter.expectedStatus && request.status !== waiter.expectedStatus) {
-                  waiter.reject(new StateSyncError('Status permohonan berubah di perangkat lain sebelum perubahan dapat dipastikan.', true));
-                } else {
-                  waiter.resolve(request);
-                }
-              }
-            }
-            requestPageRefresh();
-            return;
+            saveResult = { revision: latest.revision, requests: latest.state.requests as InventoryRequest[] };
+            break;
           }
         }
         if (!saveResult) {
@@ -839,24 +856,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           throw new Error('Server menyimpan perubahan dengan respons revisi yang tidak valid.');
         }
         stateToSave = applyRequestNumberAssignments(stateToSave, saveResult.requestNumbers);
-        if (saveResult.requestNumbers && Object.keys(saveResult.requestNumbers).length > 0) {
-          applySharedState(stateToSave);
-        }
+        if (Array.isArray(saveResult.requests)) stateToSave = { ...stateToSave, requests: saveResult.requests };
         revisionRef.current = saveResult.revision as number;
         lastSyncedStateRef.current = cloneSharedState(stateToSave);
+        const rebased = mergeStateAfterConflict(submittedState, latestSharedStateRef.current, stateToSave);
+        if (rebased.conflicts.length > 0) {
+          syncBlockedRef.current = true;
+          throw new StateSyncError(`Perubahan telah tersimpan, tetapi perubahan lokal berikutnya bertabrakan (${rebased.conflicts.slice(0, 3).join(', ')}). Periksa data server sebelum melanjutkan.`);
+        }
+        if (!sameSharedState(latestSharedStateRef.current, rebased.mergedState)) {
+          applySharedState(rebased.mergedState);
+        }
         setSyncError(null);
         const persistedRequests = (stateToSave.requests as InventoryRequest[]) || [];
-        for (const request of persistedRequests) {
-          const waiter = requestPersistenceWaitersRef.current.get(request.id);
-          if (waiter) {
-            requestPersistenceWaitersRef.current.delete(request.id);
-            if (waiter.expectedStatus && request.status !== waiter.expectedStatus) {
-              waiter.reject(new StateSyncError('Status permohonan berubah di perangkat lain sebelum perubahan dapat dipastikan.', true));
-            } else {
-              waiter.resolve(request);
-            }
-          }
-        }
+        settleRequestPersistence(stateToSave, submittedState);
         const pendingEvents = pendingRequestWhatsAppEventsRef.current;
         const readyEvents = pendingEvents.filter(event =>
           persistedRequests.some(request => request.id === event.requestId && request.status === event.status)
@@ -870,13 +883,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           !readyEvents.includes(event) && !persistedRequests.some(request => request.id === event.requestId && request.status !== event.status)
         );
         await Promise.all(readyEvents.map(event =>
-          fetch('/api/whatsapp/request-events', {
+          fetchWithTimeout('/api/whatsapp/request-events', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(event)
+            body: JSON.stringify({ ...event, deferDelivery: true })
           }).then(async notificationResponse => {
             const responseBody = await notificationResponse.text();
-            let notificationResult: { skipped?: boolean; success?: boolean; error?: string };
+            let notificationResult: { skipped?: boolean; queued?: boolean; success?: boolean; error?: string };
             try {
               notificationResult = JSON.parse(responseBody);
             } catch {
@@ -888,7 +901,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             if (!notificationResult || typeof notificationResult !== 'object' || Array.isArray(notificationResult)) {
               throw new Error(`Respons server notifikasi tidak valid (HTTP ${notificationResponse.status}).`);
             }
-            if (notificationResult.skipped) return;
+            if (notificationResponse.ok && (notificationResult.skipped || notificationResult.queued)) return;
             const success = notificationResponse.ok && notificationResult.success;
             pushNotification(
               success ? 'TRANSAKSI' : 'PERINGATAN',
@@ -924,12 +937,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         setSyncError(reportedError.message);
       });
+      return syncQueueRef.current;
+  };
+
+  useEffect(() => {
+    if (!currentUser || !dataReady) return;
+    const timer = window.setTimeout(() => {
+      immediateStateSyncRef.current = false;
+      void persistSharedState();
     }, immediateStateSyncRef.current ? 0 : 350);
     return () => window.clearTimeout(timer);
   }, [
     currentUser, dataReady, rooms, assets, inventoryItems, stockInList, stockOutList,
     requests, opnames, movements, maintenances, disposals, documents, auditLogs,
-    notifications, users, roles
+    notifications, users, roles, warehouseRacks, dataBackend
   ]);
 
   const login = async (nip: string, password: string) => {
@@ -990,7 +1011,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     reloadInFlightRef.current = true;
     setIsReloadingServerData(true);
     try {
-      const userResponse = await fetch('/api/auth/me');
+      const userResponse = await fetchWithTimeout('/api/auth/me');
       const { user } = await readApiResponse<{ user: User }>(userResponse, '/api/auth/me');
       setCurrentUser(user);
       await loadSessionData(user);
@@ -1789,7 +1810,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const requestDate = now.toISOString().split('T')[0];
     const newReq: InventoryRequest = {
       ...reqData,
-      id: `req-${Date.now()}`,
+      id: crypto.randomUUID(),
       nomorPermintaan: getNextRequestNumber(requests, requestDate.slice(0, 4)),
       tanggal: requestDate,
       status: 'Diajukan',
@@ -1801,18 +1822,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     const persisted = new Promise<InventoryRequest>((resolve, reject) => {
-      requestPersistenceWaitersRef.current.set(newReq.id, { resolve, reject });
+      requestPersistenceWaitersRef.current.set(newReq.id, { resolve, reject, expectedStatus: 'Diajukan' });
       requestImmediateStateSync();
       setRequests(prev => [newReq, ...prev]);
-    });
-    const finalizePersistedRequest = (persistedRequest: InventoryRequest) => {
-      queueRequestWhatsAppEvent(persistedRequest, 'submitted', persistedRequest.catatan);
+      queueRequestWhatsAppEvent(newReq, 'submitted', newReq.catatan);
       const itemSummary = normalizedItems.map(requestedItem => `${requestedItem.namaBarang} (${requestedItem.jumlahDiminta} ${requestedItem.satuan})`).join(', ');
-      logAudit('Pengajuan Permohonan Barang', 'PERSEDIAAN', `Permohonan baru ${persistedRequest.nomorPermintaan}: ${itemSummary} diajukan oleh ${persistedRequest.pemohonNama}`);
-      pushNotification('PERMINTAAN_BARU', '📋 Permohonan Barang Baru', `${persistedRequest.pemohonNama} mengajukan ${normalizedItems.length} jenis barang: ${itemSummary}`, 'requests');
-      return persistedRequest;
-    };
-    return persisted.then(finalizePersistedRequest).catch(async error => {
+      logAudit('Pengajuan Permohonan Barang', 'PERSEDIAAN', `Permohonan baru (${newReq.id}): ${itemSummary} diajukan oleh ${newReq.pemohonNama}`);
+      pushNotification('PERMINTAAN_BARU', '📋 Permohonan Barang Baru', `${newReq.pemohonNama} mengajukan ${normalizedItems.length} jenis barang: ${itemSummary}`, 'requests');
+    });
+    return persisted.catch(async error => {
       if (error instanceof StateSyncError && !error.definitelyNotSaved) {
         try {
           await reloadServerData();
@@ -1828,7 +1846,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const persistedRequest = Array.isArray(latestRequests)
           ? (latestRequests as InventoryRequest[]).find(request => request.id === newReq.id)
           : undefined;
-        if (persistedRequest) return finalizePersistedRequest(persistedRequest);
+        if (persistedRequest) return persistedRequest;
         throw new StateSyncError(
           'Server memastikan permohonan belum tersimpan. Isian formulir tetap tersedia; Anda dapat mencoba kembali.',
           true
@@ -1836,6 +1854,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       if (error instanceof StateSyncError && error.definitelyNotSaved) {
         setRequests(prev => prev.filter(request => request.id !== newReq.id));
+        pendingRequestWhatsAppEventsRef.current = pendingRequestWhatsAppEventsRef.current.filter(event => event.requestId !== newReq.id);
       }
       throw error;
     });
@@ -2015,14 +2034,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const syncAfterRequestAction = async (revision: number) => {
-    const latestResponse = await fetch('/api/state');
-    const latest = await latestResponse.json();
-    if (!latestResponse.ok || !latest.state || latest.revision !== revision) {
-      throw new Error(latest.error || 'Perubahan berhasil dicatat, tetapi data terbaru tidak dapat dimuat. Muat ulang halaman.');
+    const latestResponse = await fetchWithTimeout('/api/state');
+    const latest = await readApiResponse<{ state: Record<string, unknown>; revision: number }>(latestResponse, '/api/state');
+    if (!latest.state || !Number.isInteger(latest.revision) || latest.revision < revision) {
+      throw new Error('Perubahan berhasil dicatat, tetapi data terbaru tidak dapat dimuat. Muat ulang halaman.');
+    }
+    const rebased = mergeStateAfterConflict(lastSyncedStateRef.current, latestSharedStateRef.current, latest.state);
+    if (rebased.conflicts.length > 0) {
+      syncBlockedRef.current = true;
+      throw new Error(`Tindakan tersimpan, tetapi ada konflik perubahan lokal (${rebased.conflicts.slice(0, 3).join(', ')}). Periksa data server.`);
     }
     revisionRef.current = latest.revision;
     lastSyncedStateRef.current = cloneSharedState(latest.state);
-    applySharedState(latest.state);
+    applySharedState(rebased.mergedState);
     setSyncError(null);
   };
 
@@ -2034,23 +2058,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   ) => {
     pendingServerActionsRef.current += 1;
     try {
-      await syncQueueRef.current;
-      const response = await fetch(path, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-      const result = await response.json();
-      if (!response.ok || result.success !== true || !Number.isInteger(result.revision)) {
-        throw new Error(result.error || fallbackMessage);
+      await persistSharedState();
+      if (syncBlockedRef.current || !sameSharedState(latestSharedStateRef.current, lastSyncedStateRef.current)) {
+        pageRefreshRequestedRef.current = false;
+        return { success: false, message: 'Perubahan lokal belum tersimpan. Selesaikan sinkronisasi sebelum memproses permohonan.' };
       }
-      await syncAfterRequestAction(result.revision);
+      const action = syncQueueRef.current.then(async () => {
+        const response = await fetchWithTimeout(path, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        const result = await readApiResponse<{ success: boolean; revision: number; alreadyConfirmed?: boolean }>(response, path);
+        if (result.success !== true || !Number.isInteger(result.revision)) {
+          throw new Error(fallbackMessage);
+        }
+        await syncAfterRequestAction(result.revision);
+        return result;
+      });
+      // The caller reports action failures; subsequent queued saves must still be able to run.
+      syncQueueRef.current = action.then(() => undefined, () => undefined);
+      const result = await action;
       requestPageRefresh();
       return { success: true, message: result.alreadyConfirmed
         ? 'Penerimaan ini sudah pernah dikonfirmasi; stok tidak dikurangi kembali.'
         : fallbackMessage };
     } catch (error) {
       const message = error instanceof Error ? error.message : fallbackMessage;
+      if (syncBlockedRef.current) {
+        pageRefreshRequestedRef.current = false;
+        setSyncError(message);
+        return { success: false, message };
+      }
       const reloaded = await reloadServerData();
       if (reloaded && alreadyApplied?.(lastSyncedStateRef.current || {})) {
         requestPageRefresh();

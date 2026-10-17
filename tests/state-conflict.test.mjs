@@ -52,3 +52,27 @@ test('reports conflicts for collections without stable IDs when both sides chang
   const { conflicts } = mergeStateAfterConflict(base, local, remote);
   assert.deepEqual(conflicts, ['data']);
 });
+
+test('rebases later local changes without reverting the canonical saved request', () => {
+  const submitted = {
+    requests: [{ id: 'req-1', status: 'Menunggu Konfirmasi', penerimaan: { diserahkanPada: 'client-time' } }],
+    notifications: []
+  };
+  const local = { ...submitted, notifications: [{ id: 'new-notification' }] };
+  const saved = {
+    ...submitted,
+    requests: [{ id: 'req-1', status: 'Menunggu Konfirmasi', penerimaan: { diserahkanPada: 'server-time' } }]
+  };
+  const result = mergeStateAfterConflict(submitted, local, saved);
+  assert.deepEqual(result.conflicts, []);
+  assert.deepEqual(result.mergedState.requests, saved.requests);
+  assert.deepEqual(result.mergedState.notifications, local.notifications);
+});
+
+test('retains the next workflow status queued while a prior save completes', () => {
+  const submitted = { requests: [{ id: 'req-1', status: 'Diverifikasi' }] };
+  const local = { requests: [{ id: 'req-1', status: 'Disetujui' }] };
+  const result = mergeStateAfterConflict(submitted, local, structuredClone(submitted));
+  assert.deepEqual(result.conflicts, []);
+  assert.equal(result.mergedState.requests[0].status, 'Disetujui');
+});

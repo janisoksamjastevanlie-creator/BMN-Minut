@@ -27,6 +27,7 @@ import { sendTwilioWhatsAppMessage } from './twilioWhatsAppService.mjs';
 import { createWhatsAppService } from './whatsapp/service.mjs';
 import { getWhatsAppConfig } from './whatsapp/config.mjs';
 import { buildFonnteRequestNotification } from './whatsapp/request-notification.mjs';
+import { dispatchNotificationDelivery } from './whatsapp/notification-delivery.mjs';
 import { createWebChat, WEB_CHAT_ERRORS } from './ai/webchat.mjs';
 import { getWebChatConfig } from './ai/webchatConfig.mjs';
 import { buildRequestEvents, createN8nIntegration } from './automation/n8n/integration.mjs';
@@ -604,7 +605,7 @@ const collectionCache = Object.fromEntries(collections.map(key => [key, null]));
 
 function stateForUser(source, user) {
   const state = JSON.parse(JSON.stringify(source));
-  if (userHasPermission(user, 'manageInventory')) return state;
+  if (userHasPermission(user, 'manageInventory', source)) return state;
   for (const item of state.inventoryItems || []) {
     delete item.hargaSatuan;
     delete item.totalNilai;
@@ -1401,15 +1402,16 @@ app.put('/api/auth/users/:id/password', requireUser, asyncRoute(async (request, 
   response.json({ success: true });
 }));
 
-app.get('/api/state', performanceTiming('GET /api/state'), requireUser, asyncRoute(async (_request, response) => {
-  const state = stateForUser(
-    Object.fromEntries(collections.map(key => [key, getCollection(key)])),
-    _request.user
-  );
-  if (dataBackend === 'operational') state.warehouseRacks = getCollection('warehouseRacks') || [];
-  const revisionRow = await queryOne(db, "SELECT value FROM app_meta WHERE `key` = 'revision'");
-  const revision = Number(revisionRow?.value || 0);
-  response.json({ state, initialized: state.users !== null, revision, dataBackend });
+app.get('/api/state', performanceTiming('GET /api/state'), requireUserFromTransactionState, asyncRoute(async (request, response) => {
+  const snapshot = await withTransaction(async connection => {
+    const revisionRow = await queryOne(connection, "SELECT value FROM app_meta WHERE `key` = 'revision' LOCK IN SHARE MODE");
+    const state = await readCollections(connection);
+    const error = bindRequestUserToState(request, state);
+    return { state, error, revision: Number(revisionRow?.value || 0) };
+  });
+  if (snapshot.error) return response.status(403).json({ error: snapshot.error });
+  const state = stateForUser(snapshot.state, request.user);
+  response.json({ state, initialized: state.users !== null, revision: snapshot.revision, dataBackend });
 }));
 
 app.post('/api/requests/:id/confirm-receipt', requireUserFromTransactionState, asyncRoute(async (request, response) => {
@@ -2616,7 +2618,8 @@ app.put('/api/state', performanceTiming('PUT /api/state'), requireUserFromTransa
         body: {
           success: true,
           revision: revision + 1,
-          requestNumbers: requestNumberAssignments.assignedNumbers
+          requestNumbers: requestNumberAssignments.assignedNumbers,
+          requests: state.requests
         }
       };
     });
@@ -2677,7 +2680,7 @@ app.put('/api/state', performanceTiming('PUT /api/state'), requireUserFromTransa
     }
   } catch (error) {
     console.error('Failed to save shared application state:', error);
-    response.status(400).json({ error: 'Perubahan data gagal disimpan. Periksa kembali data dan coba lagi.' });
+    response.status(500).json({ error: 'Perubahan data gagal disimpan. Periksa status data di server sebelum mencoba lagi.' });
   } finally {
     if (!transactionMs && transactionStartedAt) transactionMs = Date.now() - transactionStartedAt;
     const legacyWriteCount = legacyCollectionsWritten == null ? 'n/a' : legacyCollectionsWritten;
@@ -2686,13 +2689,14 @@ app.put('/api/state', performanceTiming('PUT /api/state'), requireUserFromTransa
 }));
 
 app.post('/api/whatsapp/request-events', performanceTiming('POST /api/whatsapp/request-events'), requireUser, asyncRoute(async (request, response) => {
-  const { eventId, requestId, status, action, note } = request.body || {};
-  const allowedStatuses = ['Diajukan', 'Diverifikasi', 'Disetujui', 'Diproses', 'Selesai', 'Ditolak'];
+  const { eventId, requestId, status, action, note, deferDelivery } = request.body || {};
+  const allowedStatuses = ['Diajukan', 'Diverifikasi', 'Disetujui', 'Diproses', 'Menunggu Konfirmasi', 'Selesai', 'Ditolak'];
   if (typeof eventId !== 'string' || !/^[\da-f-]{36}$/i.test(eventId) ||
       typeof requestId !== 'string' || requestId.length > 100 ||
       !allowedStatuses.includes(status) ||
       !['submitted', 'status_changed'].includes(action) ||
-      (note !== undefined && typeof note !== 'string')) {
+      (note !== undefined && typeof note !== 'string') ||
+      (deferDelivery !== undefined && typeof deferDelivery !== 'boolean')) {
     return response.status(400).json({ success: false, error: 'Data notifikasi permohonan tidak valid.' });
   }
   if (whatsappProvider === 'fonnte') {
@@ -2703,6 +2707,10 @@ app.post('/api/whatsapp/request-events', performanceTiming('POST /api/whatsapp/r
   }
 
   const notificationEventId = eventId;
+  const onDeliveryFailure = async () => {
+    console.error(`WhatsApp request notification failed: provider=${whatsappProvider} event=${notificationEventId}`);
+    await execute(db, 'UPDATE whatsapp_notification_events SET status = ? WHERE event_id = ?', ['failed', notificationEventId]);
+  };
   const existingEvent = await queryOne(db, 'SELECT event_id, request_id, request_status, action, status FROM whatsapp_notification_events WHERE event_id = ?', [eventId]);
   if (existingEvent) {
     if (existingEvent.request_id !== requestId || existingEvent.request_status !== status || existingEvent.action !== action) {
@@ -2783,51 +2791,53 @@ app.post('/api/whatsapp/request-events', performanceTiming('POST /api/whatsapp/r
       });
     }
 
-    let result;
-    if (whatsappProvider === 'fonnte') {
-      const owner = action === 'submitted'
-        ? request.user.id
-        : (await queryOne(db, 'SELECT user_id FROM whatsapp_request_owners WHERE request_id = ?', [requestId]))?.user_id
-          || (getCollection('users') || []).find(user =>
-            String(user.name || '').trim().toLocaleLowerCase('id-ID') ===
-            String(inventoryRequest.pemohonNama || '').trim().toLocaleLowerCase('id-ID')
-          )?.id;
-      const notification = buildFonnteRequestNotification(
-        inventoryRequest,
-        action,
-        note,
-        request.user.name,
-        currentMakassarDate()
-      );
-      result = await measureExternalService(whatsappProvider, () => whatsapp.notifyRequestEvent({
-        eventKey: `request:${requestId}:${status}:${action}`,
-        ownerUserId: owner,
-        status,
-        action,
-        ...notification
-      }));
-      await execute(db, 'UPDATE whatsapp_notification_events SET status = ? WHERE event_id = ?', [result.success ? 'sent' : 'failed', notificationEventId]);
-    } else {
-      result = await measureExternalService(whatsappProvider, () => sendTwilioRequestEvent({
-        eventId: notificationEventId,
-        inventoryRequest,
-        eventType: action === 'submitted' ? 'submitted' : 'approved',
-        users: getCollection('users') || [],
-        note
-      }));
-    }
-    if (result.success) {
-      return response.json({
-        success: true,
-        sentCount: result.sentCount,
-        failedCount: result.failedCount,
-        warning: result.error
-      });
-    }
-    return response.status(502).json({
-      success: false,
-      sentCount: result.sentCount,
-      error: result.error || 'Permohonan berhasil disimpan, tetapi WhatsApp service temporarily unavailable.'
+    return dispatchNotificationDelivery({
+      response,
+      deferred: deferDelivery === true,
+      onFailure: onDeliveryFailure,
+      deliver: async () => {
+        let result;
+        if (whatsappProvider === 'fonnte') {
+          const owner = action === 'submitted'
+            ? request.user.id
+            : (await queryOne(db, 'SELECT user_id FROM whatsapp_request_owners WHERE request_id = ?', [requestId]))?.user_id
+              || (getCollection('users') || []).find(user =>
+                String(user.name || '').trim().toLocaleLowerCase('id-ID') ===
+                String(inventoryRequest.pemohonNama || '').trim().toLocaleLowerCase('id-ID')
+              )?.id;
+          const notification = buildFonnteRequestNotification(
+            inventoryRequest,
+            action,
+            note,
+            request.user.name,
+            currentMakassarDate()
+          );
+          result = await measureExternalService(whatsappProvider, () => whatsapp.notifyRequestEvent({
+            eventKey: `request:${requestId}:${status}:${action}`,
+            ownerUserId: owner,
+            status,
+            action,
+            ...notification
+          }));
+          await execute(db, 'UPDATE whatsapp_notification_events SET status = ? WHERE event_id = ?', [result.success ? 'sent' : 'failed', notificationEventId]);
+        } else {
+          result = await measureExternalService(whatsappProvider, () => sendTwilioRequestEvent({
+            eventId: notificationEventId,
+            inventoryRequest,
+            eventType: action === 'submitted' ? 'submitted' : 'approved',
+            users: getCollection('users') || [],
+            note
+          }));
+        }
+        return {
+          success: Boolean(result.success),
+          sentCount: result.sentCount,
+          failedCount: result.failedCount,
+          ...(result.success
+            ? { warning: result.error }
+            : { error: result.error || 'Permohonan berhasil disimpan, tetapi WhatsApp service temporarily unavailable.' })
+        };
+      }
     });
   }
 
@@ -2945,43 +2955,50 @@ app.post('/api/whatsapp/request-events', performanceTiming('POST /api/whatsapp/r
     });
   }
 
-  const failures = [];
-  const providerConfigured = Boolean(whatsappPhoneNumberId && whatsappAccessToken);
-  if (!providerConfigured) {
-    failures.push('Konfigurasi WHATSAPP_PHONE_NUMBER_ID atau WHATSAPP_ACCESS_TOKEN belum diatur di server.');
-  } else if (recipients.size === 0) {
-    failures.push('Konfigurasi WHATSAPP_RECIPIENT_NUMBER belum diatur di server.');
-  } else {
-    for (const [phone] of recipients) {
-      const recipientHash = crypto.createHash('sha256').update(phone).digest('hex');
-      try {
-        const sendMessage = whatsappProvider === 'twilio' ? sendTwilioWhatsAppMessage : sendWhatsAppMessage;
-        await measureExternalService(whatsappProvider, () => sendMessage({ phone, message }));
-        await execute(db, `
-          INSERT INTO whatsapp_notification_recipients (event_id, recipient_hash, status)
-          VALUES (?, ?, 'sent')
-        `, [eventId, recipientHash]);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Pengiriman WhatsApp gagal.';
-        failures.push(message);
-        console.error(`${whatsappProvider} WhatsApp notification failed:`, message);
-        await execute(db, `
-          INSERT INTO whatsapp_notification_recipients (event_id, recipient_hash, status, error)
-          VALUES (?, ?, 'failed', ?)
-        `, [eventId, recipientHash, message.slice(0, 500)]);
+  return dispatchNotificationDelivery({
+    response,
+    deferred: deferDelivery === true,
+    onFailure: onDeliveryFailure,
+    deliver: async () => {
+      const failures = [];
+      const providerConfigured = Boolean(whatsappPhoneNumberId && whatsappAccessToken);
+      if (!providerConfigured) {
+        failures.push('Konfigurasi WHATSAPP_PHONE_NUMBER_ID atau WHATSAPP_ACCESS_TOKEN belum diatur di server.');
+      } else if (recipients.size === 0) {
+        failures.push('Konfigurasi WHATSAPP_RECIPIENT_NUMBER belum diatur di server.');
+      } else {
+        for (const [phone] of recipients) {
+          const recipientHash = crypto.createHash('sha256').update(phone).digest('hex');
+          try {
+            const sendMessage = whatsappProvider === 'twilio' ? sendTwilioWhatsAppMessage : sendWhatsAppMessage;
+            await measureExternalService(whatsappProvider, () => sendMessage({ phone, message }));
+            await execute(db, `
+              INSERT INTO whatsapp_notification_recipients (event_id, recipient_hash, status)
+              VALUES (?, ?, 'sent')
+            `, [eventId, recipientHash]);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Pengiriman WhatsApp gagal.';
+            failures.push(message);
+            console.error(`${whatsappProvider} WhatsApp notification failed:`, message);
+            await execute(db, `
+              INSERT INTO whatsapp_notification_recipients (event_id, recipient_hash, status, error)
+              VALUES (?, ?, 'failed', ?)
+            `, [eventId, recipientHash, message.slice(0, 500)]);
+          }
+        }
       }
-    }
-  }
 
-  const countRow = await queryOne(db, "SELECT COUNT(*) AS count FROM whatsapp_notification_recipients WHERE event_id = ? AND status = 'sent'", [eventId]);
-  const sentCount = Number(countRow.count);
-  const finalStatus = failures.length === 0 && sentCount > 0 ? 'sent' : 'failed';
-  await execute(db, 'UPDATE whatsapp_notification_events SET status = ? WHERE event_id = ?', [finalStatus, eventId]);
-  if (finalStatus === 'sent') return response.json({ success: true, sentCount });
-  return response.status(502).json({
-    success: false,
-    sentCount,
-    error: 'Permohonan berhasil diproses, tetapi WhatsApp service temporarily unavailable.'
+      const countRow = await queryOne(db, "SELECT COUNT(*) AS count FROM whatsapp_notification_recipients WHERE event_id = ? AND status = 'sent'", [eventId]);
+      const sentCount = Number(countRow.count);
+      const finalStatus = failures.length === 0 && sentCount > 0 ? 'sent' : 'failed';
+      await execute(db, 'UPDATE whatsapp_notification_events SET status = ? WHERE event_id = ?', [finalStatus, eventId]);
+      if (finalStatus === 'sent') return { success: true, sentCount };
+      return {
+        success: false,
+        sentCount,
+        error: 'Permohonan berhasil diproses, tetapi WhatsApp service temporarily unavailable.'
+      };
+    }
   });
 }));
 
