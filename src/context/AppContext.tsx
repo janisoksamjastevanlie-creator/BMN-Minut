@@ -753,6 +753,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         let stateToSave = cloneSharedState(latestSharedStateRef.current);
         const submittedState = cloneSharedState(stateToSave);
+        const refreshAfterSave = lastSyncedStateRef.current !== null &&
+          Object.entries(submittedState).some(([key, value]) =>
+            key !== 'notifications' && key !== 'auditLogs' &&
+            !sameSharedState(value, lastSyncedStateRef.current?.[key])
+          );
         if (lastSyncedStateRef.current && sameSharedState(stateToSave, lastSyncedStateRef.current)) {
           settleRequestPersistence(lastSyncedStateRef.current, submittedState);
           return;
@@ -921,7 +926,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             );
           })
         ));
-        requestPageRefresh();
+        if (refreshAfterSave) requestPageRefresh();
       }).catch(error => {
         pageRefreshRequestedRef.current = false;
         const message = error instanceof Error ? error.message : 'Perubahan tidak tersimpan ke server.';
