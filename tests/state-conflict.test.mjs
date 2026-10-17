@@ -76,3 +76,25 @@ test('retains the next workflow status queued while a prior save completes', () 
   assert.deepEqual(result.conflicts, []);
   assert.equal(result.mergedState.requests[0].status, 'Disetujui');
 });
+
+test('applies a confirmed staged request without treating the unchanged visible status as a rollback', () => {
+  const visible = {
+    requests: [{ id: 'req-1', status: 'Diverifikasi' }],
+    notifications: [],
+    inventoryItems: [{ id: 'item-1', stokSaatIni: 5 }]
+  };
+  const saved = {
+    ...visible,
+    requests: [{ id: 'req-1', status: 'Disetujui' }],
+    notifications: [{ id: 'success-notification' }]
+  };
+  const current = {
+    ...visible,
+    inventoryItems: [{ id: 'item-1', stokSaatIni: 6 }]
+  };
+  const result = mergeStateAfterConflict(visible, current, saved);
+  assert.deepEqual(result.conflicts, []);
+  assert.deepEqual(result.mergedState.requests, saved.requests);
+  assert.deepEqual(result.mergedState.notifications, saved.notifications);
+  assert.deepEqual(result.mergedState.inventoryItems, current.inventoryItems);
+});

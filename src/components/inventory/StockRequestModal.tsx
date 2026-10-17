@@ -66,6 +66,7 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
   const [isSuccess, setIsSuccess] = useState(false);
   const [submittedId, setSubmittedId] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isConfirmingSubmit, setIsConfirmingSubmit] = useState(false);
   const submitInFlightRef = useRef(false);
   const [formError, setFormError] = useState('');
   const [searchingLineKey, setSearchingLineKey] = useState<string | null>(null);
@@ -97,7 +98,7 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
   );
   const requestedItemCount = requestLines.filter(line => line.item).length;
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent, confirmed = false) => {
     e.preventDefault();
     if (submitInFlightRef.current || isSubmitting) return;
     setFormError('');
@@ -121,11 +122,15 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
       setFormError('Unit kerja dan keperluan wajib diisi.');
       return;
     }
+    if (!confirmed) {
+      setIsConfirmingSubmit(true);
+      return;
+    }
 
+    setIsConfirmingSubmit(false);
     submitInFlightRef.current = true;
     setIsSubmitting(true);
     try {
-      await new Promise<void>(resolve => window.requestAnimationFrame(() => resolve()));
       const items: InventoryRequestItem[] = requestLines.map(line => ({
         itemId: line.item!.id,
         namaBarang: line.item!.nama,
@@ -230,6 +235,28 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
               </p>
             </div>
           </div>
+
+          {isConfirmingSubmit && (
+            <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-4">
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="submit-request-confirmation-title"
+                className="w-full max-w-sm rounded-2xl border border-slate-700 bg-slate-900 p-5 space-y-4 shadow-2xl"
+              >
+                <h3 id="submit-request-confirmation-title" className="text-sm font-bold text-white">Konfirmasi Pengajuan Permohonan</h3>
+                <p className="text-xs text-slate-300">Apakah Anda yakin ingin mengajukan permohonan barang ini?</p>
+                <div className="flex items-center justify-end gap-2">
+                  <button type="button" onClick={() => setIsConfirmingSubmit(false)} disabled={isSubmitting} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl disabled:opacity-50">
+                    Tidak, Batal
+                  </button>
+                  <button type="button" onClick={event => void handleSubmit(event, true)} disabled={isSubmitting} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl disabled:opacity-50">
+                    Iya, Ajukan
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           <button
             type="button"

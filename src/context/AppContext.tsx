@@ -68,6 +68,12 @@ class StateSyncError extends Error {
   }
 }
 
+type RequestStateChange = {
+  request: InventoryRequest;
+  auditLogs: AuditLog[];
+  notifications: NotificationItem[];
+};
+
 class ApiResponseError extends Error {
   constructor(message: string, readonly status: number) {
     super(message);
@@ -743,19 +749,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const persistSharedState = () => {
+  const persistSharedState = (requestChange?: RequestStateChange) => {
       syncQueueRef.current = syncQueueRef.current.then(async () => {
+        if (requestChange && !requestPersistenceWaitersRef.current.has(requestChange.request.id)) return;
         if (syncBlockedRef.current) {
           const error = new StateSyncError('Sinkronisasi terhenti. Muat ulang halaman untuk memeriksa status permohonan.', true);
           for (const waiter of requestPersistenceWaitersRef.current.values()) waiter.reject(error);
           requestPersistenceWaitersRef.current.clear();
           return;
         }
-        let stateToSave = cloneSharedState(latestSharedStateRef.current);
+        const localStateBeforeSave = cloneSharedState(latestSharedStateRef.current);
+        let stateToSave = cloneSharedState(localStateBeforeSave);
+        if (requestChange) {
+          const existingRequests = stateToSave.requests as InventoryRequest[];
+          const exists = existingRequests.some(request => request.id === requestChange.request.id);
+          stateToSave = {
+            ...stateToSave,
+            requests: exists
+              ? existingRequests.map(request => request.id === requestChange.request.id ? requestChange.request : request)
+              : [requestChange.request, ...existingRequests],
+            auditLogs: [...requestChange.auditLogs, ...(stateToSave.auditLogs as AuditLog[])],
+            notifications: [...requestChange.notifications, ...(stateToSave.notifications as NotificationItem[])]
+          };
+        }
         const submittedState = cloneSharedState(stateToSave);
         const refreshAfterSave = lastSyncedStateRef.current !== null &&
           Object.entries(submittedState).some(([key, value]) =>
-            key !== 'notifications' && key !== 'auditLogs' &&
+            key !== 'notifications' && key !== 'auditLogs' && key !== 'requests' &&
             !sameSharedState(value, lastSyncedStateRef.current?.[key])
           );
         if (lastSyncedStateRef.current && sameSharedState(stateToSave, lastSyncedStateRef.current)) {
@@ -864,7 +884,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (Array.isArray(saveResult.requests)) stateToSave = { ...stateToSave, requests: saveResult.requests };
         revisionRef.current = saveResult.revision as number;
         lastSyncedStateRef.current = cloneSharedState(stateToSave);
-        const rebased = mergeStateAfterConflict(submittedState, latestSharedStateRef.current, stateToSave);
+        const rebased = mergeStateAfterConflict(localStateBeforeSave, latestSharedStateRef.current, stateToSave);
         if (rebased.conflicts.length > 0) {
           syncBlockedRef.current = true;
           throw new StateSyncError(`Perubahan telah tersimpan, tetapi perubahan lokal berikutnya bertabrakan (${rebased.conflicts.slice(0, 3).join(', ')}). Periksa data server sebelum melanjutkan.`);
@@ -1188,7 +1208,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Audit Logger Helper
-  const logAudit = (aktivitas: string, modul: AuditLog['modul'], detail: string) => {
+  const logAudit = (aktivitas: string, modul: AuditLog['modul'], detail: string, requestChange?: RequestStateChange) => {
     const now = new Date();
     const newLog: AuditLog = {
       id: crypto.randomUUID(),
@@ -1202,11 +1222,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ipAddress: '',
       detail
     };
-    setAuditLogs(prev => [newLog, ...prev]);
+    if (requestChange) requestChange.auditLogs.unshift(newLog);
+    else setAuditLogs(prev => [newLog, ...prev]);
   };
 
   // Helper for notifications
-  const pushNotification = (type: NotificationItem['type'], title: string, message: string, link?: string) => {
+  const pushNotification = (type: NotificationItem['type'], title: string, message: string, link?: string, requestChange?: RequestStateChange) => {
     const newNotif: NotificationItem = {
       id: crypto.randomUUID(),
       type,
@@ -1216,7 +1237,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       read: false,
       link
     };
-    setNotifications(prev => [newNotif, ...prev]);
+    if (requestChange) requestChange.notifications.unshift(newNotif);
+    else setNotifications(prev => [newNotif, ...prev]);
   };
 
   const queueRequestWhatsAppEvent = (
@@ -1826,15 +1848,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       items: normalizedItems
     };
 
+    const requestChange: RequestStateChange = { request: newReq, auditLogs: [], notifications: [] };
     const persisted = new Promise<InventoryRequest>((resolve, reject) => {
       requestPersistenceWaitersRef.current.set(newReq.id, { resolve, reject, expectedStatus: 'Diajukan' });
-      requestImmediateStateSync();
-      setRequests(prev => [newReq, ...prev]);
-      queueRequestWhatsAppEvent(newReq, 'submitted', newReq.catatan);
-      const itemSummary = normalizedItems.map(requestedItem => `${requestedItem.namaBarang} (${requestedItem.jumlahDiminta} ${requestedItem.satuan})`).join(', ');
-      logAudit('Pengajuan Permohonan Barang', 'PERSEDIAAN', `Permohonan baru (${newReq.id}): ${itemSummary} diajukan oleh ${newReq.pemohonNama}`);
-      pushNotification('PERMINTAAN_BARU', '📋 Permohonan Barang Baru', `${newReq.pemohonNama} mengajukan ${normalizedItems.length} jenis barang: ${itemSummary}`, 'requests');
     });
+    queueRequestWhatsAppEvent(newReq, 'submitted', newReq.catatan);
+    const itemSummary = normalizedItems.map(requestedItem => `${requestedItem.namaBarang} (${requestedItem.jumlahDiminta} ${requestedItem.satuan})`).join(', ');
+    logAudit('Pengajuan Permohonan Barang', 'PERSEDIAAN', `Permohonan baru (${newReq.id}): ${itemSummary} diajukan oleh ${newReq.pemohonNama}`, requestChange);
+    pushNotification('PERMINTAAN_BARU', '📋 Permohonan Barang Baru', `${newReq.pemohonNama} mengajukan ${normalizedItems.length} jenis barang: ${itemSummary}`, 'requests', requestChange);
+    void persistSharedState(requestChange);
     return persisted.catch(async error => {
       if (error instanceof StateSyncError && !error.definitelyNotSaved) {
         try {
@@ -1858,8 +1880,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         );
       }
       if (error instanceof StateSyncError && error.definitelyNotSaved) {
-        setRequests(prev => prev.filter(request => request.id !== newReq.id));
         pendingRequestWhatsAppEventsRef.current = pendingRequestWhatsAppEventsRef.current.filter(event => event.requestId !== newReq.id);
+        if (error.status === 400) syncBlockedRef.current = false;
       }
       throw error;
     });
@@ -1986,10 +2008,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       items: shouldSetApprovedItems || status === 'Menunggu Konfirmasi' ? approvedItems : target.items,
       penerimaan: nextPenerimaan
     };
+    const requestChange: RequestStateChange = { request: nextRequest, auditLogs: [], notifications: [] };
     const persisted = new Promise<InventoryRequest>((resolve, reject) => {
       requestPersistenceWaitersRef.current.set(id, { resolve, reject, expectedStatus: status });
-      requestImmediateStateSync();
-      setRequests(prev => prev.map(request => request.id === id ? nextRequest : request));
     });
 
     if (target.status !== status && status !== 'Dibatalkan' &&
@@ -2002,16 +2023,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       logAudit(
         'Pembatalan Permohonan Barang',
         'PERSEDIAAN',
-        `Permohonan ${target.id} dibatalkan. Alasan: ${reason}`
+        `Permohonan ${target.id} dibatalkan. Alasan: ${reason}`,
+        requestChange
       );
     }
-    logAudit('Pembaruan Status Permohonan', 'PERSEDIAAN', `Permohonan ${target.nomorPermintaan} (${requestedItems.map(item => item.namaBarang).join(', ')}) diubah statusnya menjadi ${status}.`);
+    logAudit('Pembaruan Status Permohonan', 'PERSEDIAAN', `Permohonan ${target.nomorPermintaan} (${requestedItems.map(item => item.namaBarang).join(', ')}) diubah statusnya menjadi ${status}.`, requestChange);
     pushNotification(
       'TRANSAKSI',
       status === 'Dibatalkan' ? 'Permohonan Dibatalkan' : `📋 Status Permohonan: ${status}`,
       `Permohonan ${target.nomorPermintaan} (${requestedItems.map(item => item.namaBarang).join(', ')}) kini berstatus ${status}.`,
-      'requests'
+      'requests',
+      requestChange
     );
+    void persistSharedState(requestChange);
     try {
       const savedRequest = await persisted;
       if (savedRequest.status !== status) {
@@ -2020,6 +2044,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { success: true, message: `Status permohonan berhasil diperbarui menjadi ${status}.` };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Perubahan status permohonan tidak dapat disimpan.';
+      if (error instanceof StateSyncError && error.definitelyNotSaved) {
+        pendingRequestWhatsAppEventsRef.current = pendingRequestWhatsAppEventsRef.current.filter(event => event.requestId !== id);
+        queuedRequestWhatsAppStatusRef.current.delete(id);
+        if (error.status === 400) syncBlockedRef.current = false;
+        return { success: false, message };
+      }
       const reloaded = await reloadServerData();
       if (!reloaded) {
         return {
@@ -2084,7 +2114,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // The caller reports action failures; subsequent queued saves must still be able to run.
       syncQueueRef.current = action.then(() => undefined, () => undefined);
       const result = await action;
-      requestPageRefresh();
       return { success: true, message: result.alreadyConfirmed
         ? 'Penerimaan ini sudah pernah dikonfirmasi; stok tidak dikurangi kembali.'
         : fallbackMessage };
@@ -2097,7 +2126,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       const reloaded = await reloadServerData();
       if (reloaded && alreadyApplied?.(lastSyncedStateRef.current || {})) {
-        requestPageRefresh();
         return { success: true, message: 'Server telah mencatat tindakan ini; data terbaru sudah dimuat tanpa mengulang mutasi stok.' };
       }
       pageRefreshRequestedRef.current = false;

@@ -167,6 +167,7 @@ export const StockRequestsView: React.FC = () => {
     const selectedRequests = requests.filter(request => selectedRequestIds.has(request.id));
     const missingCount = selectedRequestIds.size - selectedRequests.length;
     let cancelledCount = 0;
+    const failedIds = new Set([...selectedRequestIds].filter(id => !selectedRequests.some(request => request.id === id)));
     const errors: string[] = missingCount > 0
       ? [`${missingCount} permohonan tidak ditemukan.`]
       : [];
@@ -175,16 +176,24 @@ export const StockRequestsView: React.FC = () => {
       try {
         const result = await cancelInventoryRequest(request.id, reason);
         if (result.success) cancelledCount += 1;
-        else errors.push(`${request.nomorPermintaan}: ${result.message}`);
+        else {
+          failedIds.add(request.id);
+          errors.push(`${request.nomorPermintaan}: ${result.message}`);
+        }
       } catch (error) {
+        failedIds.add(request.id);
         errors.push(error instanceof Error ? error.message : `Gagal membatalkan permohonan ${request.nomorPermintaan}.`);
       }
     }
 
-    setSelectedRequestIds(new Set());
-    setIsBulkDeleteConfirmOpen(false);
-    setBulkCancelReason('');
-    setBulkCancelError(null);
+    setSelectedRequestIds(failedIds);
+    if (errors.length === 0) {
+      setIsBulkDeleteConfirmOpen(false);
+      setBulkCancelReason('');
+      setBulkCancelError(null);
+    } else {
+      setBulkCancelError(errors.join(' '));
+    }
     setBulkDeleteNotice(
       errors.length > 0
         ? { type: 'error', message: `${cancelledCount} permohonan berhasil dibatalkan; riwayat tetap tersimpan. ${errors.join(' ')}` }
@@ -351,6 +360,7 @@ export const StockRequestsView: React.FC = () => {
 
       setWorkflowTarget(null);
       setErrorMessage(null);
+      setBulkDeleteNotice({ type: 'success', message: result.message });
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Tindakan permohonan gagal dipastikan.');
     } finally {
@@ -1108,8 +1118,8 @@ export const StockRequestsView: React.FC = () => {
             {receiptError && <p role="alert" className="text-xs text-rose-300">{receiptError}</p>}
             <p className="text-xs text-slate-400">
               {isReportingDiscrepancy
-                ? 'Laporan tidak mengurangi stok. Petugas akan memeriksa dan menindaklanjuti selisih.'
-                : 'Pastikan semua barang dan jumlah di atas sudah Anda terima. Konfirmasi ini akan mencatat mutasi stok dan tidak dapat dibatalkan.'}
+                ? 'Apakah Anda yakin ingin mengirim laporan selisih penerimaan barang ini? Laporan tidak mengurangi stok. Petugas akan memeriksa dan menindaklanjuti selisih.'
+                : 'Apakah Anda yakin semua barang dan jumlah di atas sudah diterima? Konfirmasi ini akan mencatat mutasi stok dan tidak dapat dibatalkan.'}
             </p>
             <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-2">
               <button
@@ -1127,7 +1137,7 @@ export const StockRequestsView: React.FC = () => {
                   disabled={isReceiptBusy}
                   className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl"
                 >
-                  Batal
+                  Tidak, Batal
                 </button>
                 <button
                   type="button"
@@ -1139,7 +1149,7 @@ export const StockRequestsView: React.FC = () => {
                 >
                   {isReceiptBusy
                     ? 'Memproses...'
-                    : isReportingDiscrepancy ? 'Kirim Laporan' : 'Konfirmasi Barang Diterima'}
+                    : isReportingDiscrepancy ? 'Iya, Kirim Laporan' : 'Iya, Konfirmasi Diterima'}
                 </button>
               </div>
             </div>
@@ -1159,7 +1169,7 @@ export const StockRequestsView: React.FC = () => {
               Konfirmasi Pembatalan Permohonan
             </h3>
             <p className="text-xs text-slate-300">
-              Batalkan {selectedRequestIds.size} permohonan terpilih? Riwayat dan rincian barang tetap tersimpan.
+              Apakah Anda yakin ingin membatalkan {selectedRequestIds.size} permohonan terpilih? Riwayat dan rincian barang tetap tersimpan.
             </p>
             <div>
               <label htmlFor="bulk-request-cancellation-reason" className="block text-xs font-semibold text-slate-300 mb-1">
@@ -1188,14 +1198,14 @@ export const StockRequestsView: React.FC = () => {
                 disabled={isBulkCancelBusy}
                 className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl"
               >
-                Batal
+                Tidak, Batal
               </button>
               <button
                 onClick={() => void handleBulkCancelRequests()}
                 disabled={isBulkCancelBusy || bulkCancelReason.trim().length < 5 || bulkCancelReason.trim().length > 500}
                 className="px-4 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl"
               >
-                {isBulkCancelBusy ? 'Membatalkan...' : 'Batalkan Permohonan'}
+                {isBulkCancelBusy ? 'Membatalkan...' : 'Iya, Batalkan'}
               </button>
             </div>
           </div>
@@ -1214,7 +1224,7 @@ export const StockRequestsView: React.FC = () => {
               Batalkan Permohonan
             </h3>
             <p className="text-xs text-slate-300">
-              Permohonan {cancelTarget.nomorPermintaan} akan dibatalkan dan tetap tersimpan sebagai riwayat.
+              Apakah Anda yakin ingin membatalkan permohonan barang ini? Permohonan {cancelTarget.nomorPermintaan} akan tetap tersimpan sebagai riwayat.
             </p>
             <div>
               <label htmlFor="request-cancellation-reason" className="block text-xs font-semibold text-slate-300 mb-1">
@@ -1248,7 +1258,7 @@ export const StockRequestsView: React.FC = () => {
                 disabled={isCancelBusy}
                 className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl"
               >
-                Kembali
+                Tidak, Batal
               </button>
               <button
                 type="button"
@@ -1256,7 +1266,7 @@ export const StockRequestsView: React.FC = () => {
                 disabled={isCancelBusy || cancelReason.trim().length < 5 || cancelReason.trim().length > 500}
                 className="px-4 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl"
               >
-                {isCancelBusy ? 'Membatalkan...' : 'Batalkan Permohonan'}
+                {isCancelBusy ? 'Membatalkan...' : 'Iya, Batalkan'}
               </button>
             </div>
           </div>
@@ -1274,9 +1284,9 @@ export const StockRequestsView: React.FC = () => {
       {/* Request workflow confirmation dialog */}
       {workflowTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-150">
-          <div className="w-full max-w-md bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl p-5 space-y-4">
+          <div role="dialog" aria-modal="true" aria-labelledby="request-workflow-title" className="w-full max-w-md bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl p-5 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <h3 id="request-workflow-title" className="text-sm font-bold text-white flex items-center gap-2">
                 {(workflowTarget.action === 'verify' || workflowTarget.action === 'process') && <CheckCircle2 className="w-4 h-4 text-cyan-400" />}
                 {workflowTarget.action === 'approve' && <CheckCircle2 className="w-4 h-4 text-amber-400" />}
                 {workflowTarget.action === 'reject' && <X className="w-4 h-4 text-rose-400" />}
@@ -1299,6 +1309,15 @@ export const StockRequestsView: React.FC = () => {
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            <p className="text-xs text-slate-300">
+              {workflowTarget.action === 'verify' ? 'Apakah Anda yakin ingin memverifikasi permohonan barang ini?'
+                : workflowTarget.action === 'approve' ? 'Apakah Anda yakin ingin menyetujui permohonan barang ini?'
+                : workflowTarget.action === 'reject' ? 'Apakah Anda yakin ingin menolak permohonan barang ini?'
+                : workflowTarget.action === 'process' ? 'Apakah Anda yakin ingin memproses permohonan barang ini di gudang?'
+                : workflowTarget.action === 'complete' ? 'Apakah Anda yakin ingin menandai barang pada permohonan ini sudah diserahkan?'
+                : 'Apakah Anda yakin ingin mengembalikan permohonan ini ke tahap penyerahan untuk menindaklanjuti selisih?'}
+            </p>
 
             <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-xs space-y-1.5">
               <div className="text-slate-400">
@@ -1330,7 +1349,7 @@ export const StockRequestsView: React.FC = () => {
             </div>
 
             {errorMessage && (
-              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-start gap-2">
+              <div role="alert" className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
                 <div>{errorMessage}</div>
               </div>
@@ -1384,7 +1403,7 @@ export const StockRequestsView: React.FC = () => {
                 disabled={isWorkflowBusy}
                 className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl"
               >
-                Batal
+                Tidak, Batal
               </button>
 
               <button
@@ -1403,12 +1422,12 @@ export const StockRequestsView: React.FC = () => {
               >
                 {isWorkflowBusy ? (
                   <span className="flex items-center gap-2"><RotateCcw className="w-3.5 h-3.5 animate-spin" /> Menyimpan...</span>
-                ) : workflowTarget.action === 'verify' ? 'Konfirmasi Verifikasi'
-                  : workflowTarget.action === 'approve' ? 'Setujui Permohonan'
-                  : workflowTarget.action === 'reject' ? 'Konfirmasi Tolak Permohonan'
-                  : workflowTarget.action === 'process' ? 'Konfirmasi Proses Gudang'
-                  : workflowTarget.action === 'complete' ? 'Konfirmasi Penyerahan Barang'
-                  : 'Konfirmasi Tindak Lanjut'}
+                ) : workflowTarget.action === 'verify' ? 'Iya, Verifikasi'
+                  : workflowTarget.action === 'approve' ? 'Iya, Setujui'
+                  : workflowTarget.action === 'reject' ? 'Iya, Tolak'
+                  : workflowTarget.action === 'process' ? 'Iya, Proses Gudang'
+                  : workflowTarget.action === 'complete' ? 'Iya, Tandai Diserahkan'
+                  : 'Iya, Tindak Lanjuti'}
               </button>
             </div>
           </div>
