@@ -232,16 +232,17 @@ export interface StockOutTransaction {
   keterangan?: string;
 }
 
-export type RequestStatus = 'Draft' | 'Diajukan' | 'Diverifikasi' | 'Disetujui' | 'Diproses' | 'Menunggu Konfirmasi' | 'Diterima' | 'Selesai' | 'Ditolak';
+export type RequestStatus = 'Draft' | 'Diajukan' | 'Diverifikasi' | 'Disetujui' | 'Diproses' | 'Menunggu Konfirmasi' | 'Diterima' | 'Selesai' | 'Ditolak' | 'Dibatalkan';
 
 export interface InventoryRequestReceipt {
-  status: 'Menunggu Konfirmasi' | 'Diterima';
-  diserahkanOleh: string;
-  diserahkanPada: string;
+  status: 'Menunggu Konfirmasi' | 'Diterima' | 'Diproses';
+  diserahkanOleh?: string;
+  diserahkanPada?: string;
   dikonfirmasiOlehId?: string;
   dikonfirmasiOleh?: string;
   dikonfirmasiPada?: string;
   items?: Array<{ itemId: string; jumlah: number }>;
+  diterimaItems?: Array<{ itemId: string; jumlah: number }>;
   mutasiIds?: string[];
   catatanSelisih?: string;
 }

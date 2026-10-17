@@ -2,6 +2,11 @@ const ACTIVE_REQUEST_STATUSES = new Set([
   'Diajukan', 'Diverifikasi', 'Disetujui', 'Diproses', 'Menunggu Konfirmasi'
 ]);
 
+/**
+ * @typedef {{ itemId: string; jumlahDiminta?: number; jumlahDisetujui?: number; jumlah?: number; satuan?: string; namaBarang?: string }} StockRequestItem
+ * @typedef {{ status: string; itemId?: string; jumlahDiminta?: number; jumlahDisetujui?: number; items?: StockRequestItem[]; penerimaan?: { items?: StockRequestItem[]; diterimaItems?: StockRequestItem[] } }} StockRequest
+ */
+
 function requestItems(request) {
   return Array.isArray(request.items) && request.items.length
     ? request.items
@@ -14,15 +19,86 @@ function requestItems(request) {
       }];
 }
 
+/**
+ * @param {StockRequest} request
+ * @returns {Array<StockRequestItem & { jumlahDiminta: number; jumlahDisetujui: number; jumlahDiterima: number; jumlahTersisa: number }>}
+ */
+export function getRequestItemQuantities(request) {
+      const rows = requestItems(request);
+      const receivedByItem = new Map();
+      const receivedRows = Array.isArray(request.penerimaan?.diterimaItems)
+        ? request.penerimaan.diterimaItems
+        : [];
+      for (const item of receivedRows) {
+        if (typeof item?.itemId !== 'string' || !Number.isSafeInteger(item.jumlah) || item.jumlah <= 0) continue;
+        receivedByItem.set(item.itemId, (receivedByItem.get(item.itemId) || 0) + item.jumlah);
+      }
+
+      return rows.map(row => {
+        const requestedQuantity = Number.isSafeInteger(row.jumlahDiminta) && row.jumlahDiminta > 0
+          ? row.jumlahDiminta
+          : 0;
+        const approvedQuantityValue = row.jumlahDisetujui
+          ?? (rows.length === 1 ? request.jumlahDisetujui : undefined)
+          ?? requestedQuantity;
+        const approvedQuantity = Number.isSafeInteger(approvedQuantityValue) && approvedQuantityValue > 0
+          ? approvedQuantityValue
+          : requestedQuantity;
+        const receivedQuantity = receivedByItem.get(row.itemId) || 0;
+        return {
+          ...row,
+          jumlahDiminta: requestedQuantity,
+          jumlahDisetujui: approvedQuantity,
+          jumlahDiterima: receivedQuantity,
+          jumlahTersisa: Math.max(0, approvedQuantity - receivedQuantity)
+        };
+      });
+}
+
+/**
+ * @param {StockRequest} request
+ * @param {StockRequestItem[]} submittedItems
+ * @returns {{ items: Array<{ itemId: string; jumlah: number }> | null; error: string | null }}
+ */
+export function normalizeRequestHandoverItems(request, submittedItems) {
+      if (!Array.isArray(submittedItems) || submittedItems.length === 0) {
+        return { items: null, error: 'Rincian barang yang akan diserahkan tidak tersedia.' };
+      }
+      const outstandingById = new Map(getRequestItemQuantities(request).map(item => [item.itemId, item]));
+      const submittedIds = new Set();
+      const items = [];
+      for (const submitted of submittedItems) {
+        const outstanding = outstandingById.get(submitted?.itemId);
+        const quantity = Number.isSafeInteger(submitted?.jumlah)
+          ? submitted.jumlah
+          : submitted?.jumlahDisetujui;
+        if (!outstanding || submittedIds.has(submitted.itemId) ||
+            typeof quantity !== 'number' || !Number.isSafeInteger(quantity) || quantity <= 0 ||
+            quantity > outstanding.jumlahTersisa) {
+          return {
+            items: null,
+            error: `Jumlah yang diserahkan untuk ${outstanding?.namaBarang || 'barang'} harus positif dan tidak melebihi sisa yang disetujui.`
+          };
+        }
+        submittedIds.add(submitted.itemId);
+        items.push({ itemId: submitted.itemId, jumlah: quantity });
+      }
+      return { items, error: null };
+}
+
 function reservedQuantity(request, itemId) {
-  const rows = requestItems(request);
-  return rows.reduce((total, row) => {
-    if (row.itemId !== itemId) return total;
-    const quantity = ['Disetujui', 'Diproses', 'Menunggu Konfirmasi'].includes(request.status)
-      ? row.jumlahDisetujui ?? (rows.length === 1 ? request.jumlahDisetujui : undefined) ?? row.jumlahDiminta
-      : row.jumlahDiminta;
-    return total + (Number.isSafeInteger(quantity) && quantity > 0 ? quantity : 0);
-  }, 0);
+      const lines = getRequestItemQuantities(request);
+      return lines.reduce((total, line) => {
+        if (line.itemId !== itemId) return total;
+        const quantity = ['Disetujui', 'Diproses', 'Menunggu Konfirmasi'].includes(request.status)
+          ? line.jumlahTersisa
+          : line.jumlahDiminta;
+        return total + quantity;
+      }, 0);
+}
+
+export function getRequestReservedQuantity(request, itemId) {
+  return reservedQuantity(request, itemId);
 }
 
 export function getRequestableStock(itemId, inventoryItems, requests) {
@@ -32,11 +108,6 @@ export function getRequestableStock(itemId, inventoryItems, requests) {
     ACTIVE_REQUEST_STATUSES.has(request.status) ? total + reservedQuantity(request, itemId) : total, 0);
   return Math.max(0, item.stokSaatIni - committed);
 }
-
-/**
- * @typedef {{ itemId: string; jumlahDiminta?: number; jumlahDisetujui?: number }} StockRequestItem
- * @typedef {{ status: string; itemId?: string; jumlahDiminta?: number; jumlahDisetujui?: number; items?: StockRequestItem[] }} StockRequest
- */
 
 /**
  * @template {{ id: string; jenis: string; stokSaatIni: number; nama: string; kodeBarang: string; satuan: string }} T

@@ -335,7 +335,7 @@ export function createTools({ getCollection, userHasPermission }) {
         scope: staff ? 'petugas' : 'sendiri',
         periode: filter.tanggalDari ? `${filter.tanggalDari} s/d ${filter.tanggalSampai}` : null,
         total: requests.length,
-        pending: requests.filter(request => !['Selesai', 'Ditolak'].includes(request.status)).length,
+        pending: requests.filter(request => !['Selesai', 'Ditolak', 'Dibatalkan'].includes(request.status)).length,
         items: requests.slice(0, MAX_RESULTS).map(request => ({
           nomor: request.nomorPermintaan,
           tanggal: request.tanggal,

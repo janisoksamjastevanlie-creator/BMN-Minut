@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   getRequestableStock,
+  getRequestItemQuantities,
+  normalizeRequestHandoverItems,
   getStockRequestInventoryItems,
   searchInventoryItems,
   validateAdditionalStockOut,
@@ -100,6 +102,38 @@ test('uses approved quantities for requests waiting for receipt confirmation', (
   const waiting = request('req-1', 'item-1', 5, 'Menunggu Konfirmasi');
   waiting.jumlahDisetujui = 2;
   assert.equal(getRequestableStock('item-1', [item('item-1', 10)], [waiting]), 8);
+});
+
+test('releases only cumulatively received quantities from an approved partial request reservation', () => {
+  const partiallyReceived = request('req-1', 'item-1', 8, 'Diproses');
+  partiallyReceived.jumlahDisetujui = 8;
+  partiallyReceived.items = [{ itemId: 'item-1', jumlahDiminta: 8, jumlahDisetujui: 8 }];
+  partiallyReceived.penerimaan = { diterimaItems: [{ itemId: 'item-1', jumlah: 3 }] };
+  assert.equal(getRequestableStock('item-1', [item('item-1', 7)], [partiallyReceived]), 2);
+  assert.deepEqual(getRequestItemQuantities(partiallyReceived).map(line => [
+    line.itemId, line.jumlahDisetujui, line.jumlahDiterima, line.jumlahTersisa
+  ]), [['item-1', 8, 3, 5]]);
+  assert.equal(getRequestItemQuantities({
+    ...partiallyReceived,
+    penerimaan: { diterimaItems: [{ itemId: 'item-1', jumlah: 8 }] }
+  })[0].jumlahTersisa, 0);
+  const reopened = {
+    ...partiallyReceived,
+    penerimaan: {
+      status: 'Diproses',
+      diterimaItems: partiallyReceived.penerimaan.diterimaItems
+    }
+  };
+  assert.equal(getRequestItemQuantities(reopened)[0].jumlahTersisa, 5);
+  assert.match(normalizeRequestHandoverItems(reopened, [
+    { itemId: 'item-1', jumlah: 6 }
+  ]).error, /tidak melebihi sisa/);
+  assert.deepEqual(normalizeRequestHandoverItems(partiallyReceived, [
+    { itemId: 'item-1', jumlah: 5 }
+  ]), { items: [{ itemId: 'item-1', jumlah: 5 }], error: null });
+  assert.match(normalizeRequestHandoverItems(partiallyReceived, [
+    { itemId: 'item-1', jumlah: 6 }
+  ]).error, /tidak melebihi sisa/);
 });
 
 test('rejects manual stock-out that would consume stock reserved by an active request', () => {

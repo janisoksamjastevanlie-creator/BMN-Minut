@@ -145,6 +145,24 @@ test('request event mapping uses only existing business statuses and verified ca
   }), []);
 });
 
+test('request cancellation status changes emit a cancellation event while preserving the request', () => {
+  const previousRequest = { id: 'r-1', status: 'Diproses' };
+  const cancelledRequest = { ...previousRequest, status: 'Dibatalkan' };
+  const [event] = buildRequestEvents({
+    previousRequests: [previousRequest],
+    nextRequests: [cancelledRequest],
+    revision: 7,
+    occurredAt: new Date('2026-10-13T00:00:00.000Z')
+  });
+
+  assert.equal(event.eventType, 'request.cancelled');
+  assert.deepEqual(event.data, {
+    requestId: 'r-1',
+    status: 'Dibatalkan',
+    previousStatus: 'Diproses'
+  });
+});
+
 test('importable workflow uses built-in header authentication and verifies event freshness and allowlisted types', async () => {
   const workflow = JSON.parse(await readFile(new URL('../automation/n8n/bmn-minut-request-events.json', import.meta.url), 'utf8'));
   const webhook = workflow.nodes.find(node => node.name === 'Receive BMN-Minut event');

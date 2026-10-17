@@ -10,7 +10,8 @@ const perms = {
 };
 const has = (user, p) => user.role === 'Administrator' || Boolean(perms[user.role]?.[p]);
 const user = role => ({ id: `user-${role}`, role, name: role });
-const run = (role, before, after) => validateRequestAuthorization(user(role), [before], [after], has);
+const run = (role, before, after, previousAuditLogs = [], nextAuditLogs = []) =>
+  validateRequestAuthorization(user(role), [before], [after], has, previousAuditLogs, nextAuditLogs);
 const req = status => ({ id: 'r1', status });
 
 test('Pemohon tidak dapat menyetujui atau menolak', () => {
@@ -20,14 +21,16 @@ test('Pemohon tidak dapat menyetujui atau menolak', () => {
   assert.ok(run('Pemohon', req('Diajukan'), req('Disetujui')));
 });
 
-test('Pemohon tidak dapat menghapus atau mengubah permohonan', () => {
+test('permohonan tidak dapat dihapus dan Pemohon tidak dapat mengubah data', () => {
   assert.ok(validateRequestAuthorization(user('Pemohon'), [req('Diajukan')], [], has));
+  assert.ok(validateRequestAuthorization(user('Administrator'), [req('Diajukan')], [], has));
   assert.ok(run('Pemohon', req('Diajukan'), { ...req('Diajukan'), keperluan: 'x' }));
 });
 
-test('Pemohon hanya dapat membatalkan permohonan sendiri yang diajukan dengan alasan', () => {
+test('Pemohon hanya dapat membatalkan permohonan sendiri berdasarkan ID dengan alasan', () => {
   const requester = user('Pemohon');
-  const ownSubmittedRequest = { ...req('Diajukan'), pemohonNama: requester.name };
+  const ownSubmittedRequest = { ...req('Diajukan'), pemohonNama: requester.name, pemohonUserId: requester.id };
+  const cancelledRequest = { ...ownSubmittedRequest, status: 'Dibatalkan' };
   const cancellationLog = {
     id: 'cancel-log',
     userId: requester.id,
@@ -35,21 +38,21 @@ test('Pemohon hanya dapat membatalkan permohonan sendiri yang diajukan dengan al
     detail: 'Permohonan r1 dibatalkan. Alasan: Salah memilih barang'
   };
   assert.equal(validateRequestAuthorization(
-    requester, [ownSubmittedRequest], [], has, [], [cancellationLog]
+    requester, [ownSubmittedRequest], [cancelledRequest], has, [], [cancellationLog]
   ), null);
   assert.ok(validateRequestAuthorization(requester, [ownSubmittedRequest], [], has, [], []));
   assert.ok(validateRequestAuthorization(
     requester,
     [{ ...ownSubmittedRequest, status: 'Diverifikasi' }],
-    [],
+    [{ ...ownSubmittedRequest, status: 'Dibatalkan' }],
     has,
     [],
     [cancellationLog]
   ));
   assert.ok(validateRequestAuthorization(
     requester,
-    [{ ...ownSubmittedRequest, pemohonNama: 'Pengguna lain' }],
-    [],
+    [{ ...ownSubmittedRequest, pemohonUserId: 'user-lain' }],
+    [{ ...ownSubmittedRequest, pemohonUserId: 'user-lain', status: 'Dibatalkan' }],
     has,
     [],
     [cancellationLog]
@@ -57,7 +60,7 @@ test('Pemohon hanya dapat membatalkan permohonan sendiri yang diajukan dengan al
   assert.ok(validateRequestAuthorization(
     requester,
     [ownSubmittedRequest],
-    [],
+    [cancelledRequest],
     has,
     [],
     [{ ...cancellationLog, detail: 'Permohonan r1 dibatalkan. Alasan: no' }]
@@ -66,11 +69,39 @@ test('Pemohon hanya dapat membatalkan permohonan sendiri yang diajukan dengan al
   assert.ok(validateRequestAuthorization(
     pimpinan,
     [{ ...ownSubmittedRequest, pemohonNama: pimpinan.name }],
-    [],
+    [{ ...ownSubmittedRequest, pemohonNama: pimpinan.name, status: 'Dibatalkan' }],
     has,
     [],
     [{ ...cancellationLog, userId: pimpinan.id }]
   ));
+});
+
+test('petugas berwenang dapat membatalkan permohonan yang belum diserahkan, tetapi tidak yang terminal', () => {
+  const operator = user('Operator');
+  const pending = { ...req('Disetujui'), pemohonUserId: 'user-Pemohon' };
+  const cancelled = { ...pending, status: 'Dibatalkan' };
+  const cancellationLog = {
+    id: 'operator-cancel-log',
+    userId: operator.id,
+    aktivitas: 'Pembatalan Permohonan Barang',
+    detail: 'Permohonan r1 dibatalkan. Alasan: Stok perlu dialihkan'
+  };
+  assert.equal(validateRequestAuthorization(
+    operator, [pending], [cancelled], has, [], [cancellationLog]
+  ), null);
+  assert.ok(validateRequestAuthorization(
+    operator, [{ ...pending, status: 'Menunggu Konfirmasi' }], [cancelled], has, [], [cancellationLog]
+  ));
+  assert.ok(validateRequestAuthorization(
+    operator, [cancelled], [{ ...cancelled, catatan: 'Perubahan' }], has, [], [cancellationLog]
+  ));
+});
+
+test('penolakan memerlukan alasan baru yang jelas', () => {
+  const before = { ...req('Diverifikasi'), catatan: 'Catatan lama' };
+  assert.equal(run('Kasubag', before, { ...before, status: 'Ditolak', catatan: 'Ditolak: Stok tidak mencukupi' }), null);
+  assert.ok(run('Kasubag', before, { ...before, status: 'Ditolak', catatan: 'Catatan lama' }));
+  assert.ok(run('Kasubag', before, { ...before, status: 'Ditolak', catatan: 'Ditolak: no' }));
 });
 
 test('Pemohon tetap dapat mengajukan permohonan baru', () => {
@@ -83,7 +114,10 @@ test('Pimpinan hanya memantau', () => {
 
 test('Pejabat berwenang dapat memutuskan, tidak dapat ganda', () => {
   assert.equal(run('Kasubag', req('Diverifikasi'), req('Disetujui')), null);
-  assert.equal(run('Kasubag', req('Diverifikasi'), req('Ditolak')), null);
+  assert.equal(run('Kasubag', req('Diverifikasi'), {
+    ...req('Ditolak'),
+    catatan: 'Ditolak: Stok tidak mencukupi'
+  }), null);
   assert.ok(run('Kasubag', req('Disetujui'), req('Ditolak')));
   assert.ok(run('Kasubag', req('Selesai'), req('Disetujui')));
 });

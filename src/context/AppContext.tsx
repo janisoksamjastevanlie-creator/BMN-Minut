@@ -42,7 +42,7 @@ import { getHomeView, isPimpinanUser } from '../utils/rbac';
 import { getPathForView, getViewForPath } from '../utils/viewRoutes';
 import { planStockInDeletion } from '../../stockInDeletion.mjs';
 import { mergeStateAfterConflict } from '../../stateConflict.mjs';
-import { getRequestableStock } from '../../requestStockValidation.mjs';
+import { getRequestableStock, normalizeRequestHandoverItems } from '../../requestStockValidation.mjs';
 import { getNextRequestNumber } from '../../requestNumber.mjs';
 
 const cloneSharedState = <T,>(state: T): T => JSON.parse(JSON.stringify(state)) as T;
@@ -161,7 +161,7 @@ interface AppContextType {
   isInitializing: boolean;
   syncError: string | null;
   isReloadingServerData: boolean;
-  reloadServerData: () => Promise<void>;
+  reloadServerData: () => Promise<boolean>;
   login: (nip: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   activeView: ActiveView;
@@ -247,11 +247,11 @@ interface AppContextType {
   }, sequenceOffset?: number) => { success: boolean; message: string };
   
   addInventoryRequest: (req: Omit<InventoryRequest, 'id' | 'nomorPermintaan' | 'tanggal' | 'status'>) => Promise<InventoryRequest>;
-  updateRequestStatus: (id: string, status: InventoryRequest['status'], catatan?: string, jumlahDisetujui?: number, itemsDisetujui?: InventoryRequestItem[]) => { success: boolean; message: string };
+  updateRequestStatus: (id: string, status: InventoryRequest['status'], catatan?: string, jumlahDisetujui?: number, itemsDisetujui?: InventoryRequestItem[]) => Promise<{ success: boolean; message: string }>;
   confirmInventoryRequestReceipt: (id: string) => Promise<{ success: boolean; message: string }>;
   reportInventoryReceiptDiscrepancy: (id: string, reason: string) => Promise<{ success: boolean; message: string }>;
   reopenInventoryRequestHandover: (id: string) => Promise<{ success: boolean; message: string }>;
-  deleteInventoryRequest: (id: string, reason?: string) => { success: boolean; message: string };
+  cancelInventoryRequest: (id: string, reason: string) => Promise<{ success: boolean; message: string }>;
   
   addAssetMovement: (mov: Omit<AssetMovement, 'id' | 'nomorTransaksi' | 'status' | 'createdAt' | 'updatedAt'>) => void;
   updateMovementStatus: (id: string, status: AssetMovement['status'], catatan?: string) => void;
@@ -376,6 +376,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const requestPersistenceWaitersRef = useRef(new Map<string, {
     resolve: (request: InventoryRequest) => void;
     reject: (error: Error) => void;
+    expectedStatus?: InventoryRequest['status'];
   }>());
   const pendingRequestWhatsAppEventsRef = useRef<Array<{
     eventId: string;
@@ -776,7 +777,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               const waiter = requestPersistenceWaitersRef.current.get(request.id);
               if (waiter) {
                 requestPersistenceWaitersRef.current.delete(request.id);
-                waiter.resolve(request);
+                if (waiter.expectedStatus && request.status !== waiter.expectedStatus) {
+                  waiter.reject(new StateSyncError('Status permohonan berubah di perangkat lain sebelum perubahan dapat dipastikan.', true));
+                } else {
+                  waiter.resolve(request);
+                }
               }
             }
             return;
@@ -805,7 +810,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const waiter = requestPersistenceWaitersRef.current.get(request.id);
           if (waiter) {
             requestPersistenceWaitersRef.current.delete(request.id);
-            waiter.resolve(request);
+            if (waiter.expectedStatus && request.status !== waiter.expectedStatus) {
+              waiter.reject(new StateSyncError('Status permohonan berubah di perangkat lain sebelum perubahan dapat dipastikan.', true));
+            } else {
+              waiter.resolve(request);
+            }
           }
         }
         const pendingEvents = pendingRequestWhatsAppEventsRef.current;
@@ -933,7 +942,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const reloadServerData = async () => {
-    if (reloadInFlightRef.current) return;
+    if (reloadInFlightRef.current) return false;
     reloadInFlightRef.current = true;
     setIsReloadingServerData(true);
     try {
@@ -944,12 +953,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       pendingSessionRecoveryRef.current = null;
       syncBlockedRef.current = false;
       setSyncError(null);
+      return true;
     } catch (error) {
       if (error instanceof ApiResponseError && error.status === 401) {
         expireSession();
       } else {
         setSyncError(apiFailureMessage(error));
       }
+      return false;
     } finally {
       reloadInFlightRef.current = false;
       setIsReloadingServerData(false);
@@ -1768,25 +1779,52 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
-  const updateRequestStatus = (
+  const updateRequestStatus = async (
     id: string,
     status: InventoryRequest['status'],
     catatan?: string,
     jumlahDisetujui?: number,
     itemsDisetujui?: InventoryRequestItem[]
-  ) => {
+  ): Promise<{ success: boolean; message: string }> => {
     const target = requests.find(r => r.id === id);
     if (!target) return { success: false, message: 'Permohonan tidak ditemukan' };
     const canApprove = hasPermission('approveRequests') && !isPimpinanUser(currentUser);
     const canManage = hasPermission('manageInventory');
-    const allowed = status === 'Disetujui' || (status === 'Ditolak' && target.status === 'Diverifikasi')
-      ? canApprove
-      : canApprove || canManage;
+    const canRequest = hasPermission('requestSupplies');
+    const isPimpinan = isPimpinanUser(currentUser);
+    const canCancelOwn = status === 'Dibatalkan' && canRequest && !canApprove && !canManage &&
+      !isPimpinan && target.pemohonUserId === currentUser?.id && target.status === 'Diajukan';
+    const canCancelManaged = status === 'Dibatalkan' && (canApprove || canManage) && !isPimpinan &&
+      ['Diajukan', 'Diverifikasi', 'Disetujui', 'Diproses'].includes(target.status);
+    const allowed = status === 'Dibatalkan'
+      ? canCancelOwn || canCancelManaged
+      : status === 'Disetujui' || (status === 'Ditolak' && target.status === 'Diverifikasi')
+        ? canApprove
+        : canApprove || canManage;
     if (!allowed) return { success: false, message: 'Anda tidak berwenang mengubah status permohonan ini.' };
+    if (requestPersistenceWaitersRef.current.has(id)) {
+      return { success: false, message: 'Perubahan status permohonan ini masih diproses.' };
+    }
+    if (target.status === status) {
+      return { success: false, message: `Permohonan sudah berstatus ${status}.` };
+    }
 
-    const approvedQty = jumlahDisetujui !== undefined
-      ? jumlahDisetujui
-      : (status === 'Disetujui' || status === 'Diproses' ? (target.jumlahDisetujui || target.jumlahDiminta) : target.jumlahDisetujui);
+    let actionNote = catatan;
+    if (status === 'Ditolak') {
+      const reason = String(catatan || '').replace(/^Ditolak:\s*/i, '').trim();
+      if (reason.length < 5 || reason.length > 500) {
+        return { success: false, message: 'Alasan penolakan wajib diisi antara 5 sampai 500 karakter.' };
+      }
+      actionNote = `Ditolak: ${reason}`;
+    }
+    if (status === 'Dibatalkan') {
+      const reason = String(catatan || '').replace(/^Dibatalkan:\s*/i, '').trim();
+      if (reason.length < 5 || reason.length > 500) {
+        return { success: false, message: 'Alasan pembatalan wajib diisi antara 5 sampai 500 karakter.' };
+      }
+      actionNote = `Dibatalkan: ${reason}`;
+    }
+
     const requestedItems = target.items?.length
       ? target.items
       : [{
@@ -1796,17 +1834,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           jumlahDisetujui: target.jumlahDisetujui,
           satuan: target.satuan
         }];
+    const approvedQty = status === 'Menunggu Konfirmasi'
+      ? target.jumlahDisetujui
+        ?? (requestedItems.length === 1
+          ? requestedItems[0].jumlahDisetujui ?? requestedItems[0].jumlahDiminta
+          : undefined)
+      : jumlahDisetujui !== undefined
+        ? jumlahDisetujui
+        : (status === 'Disetujui' || status === 'Diproses'
+          ? target.jumlahDisetujui || target.jumlahDiminta
+          : target.jumlahDisetujui);
     const approvedItems = requestedItems.map(item => {
       const approvedItem = itemsDisetujui?.find(candidate => candidate.itemId === item.itemId);
       return {
         ...item,
-        jumlahDisetujui: approvedItem?.jumlahDisetujui
-          ?? item.jumlahDisetujui
-          ?? (requestedItems.length === 1 ? approvedQty : item.jumlahDiminta)
+        jumlahDisetujui: status === 'Menunggu Konfirmasi'
+          ? item.jumlahDisetujui
+            ?? (requestedItems.length === 1 ? target.jumlahDisetujui : undefined)
+            ?? item.jumlahDiminta
+          : approvedItem?.jumlahDisetujui
+            ?? item.jumlahDisetujui
+            ?? (requestedItems.length === 1 ? approvedQty : item.jumlahDiminta)
       };
     });
     const shouldSetApprovedItems = status === 'Disetujui' || status === 'Diproses' ||
-      status === 'Menunggu Konfirmasi' || status === 'Selesai';
+      status === 'Selesai';
     if (shouldSetApprovedItems) {
       const invalidApprovedItem = approvedItems.find(item =>
         !Number.isSafeInteger(item.jumlahDisetujui)
@@ -1817,50 +1869,86 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return { success: false, message: `Jumlah yang disetujui untuk ${invalidApprovedItem.namaBarang} harus lebih dari nol dan tidak melebihi jumlah permohonan.` };
       }
     }
+    let handoverItems: Array<{ itemId: string; jumlah: number }> = [];
+    if (status === 'Menunggu Konfirmasi') {
+      const handoverResult = normalizeRequestHandoverItems(
+        { ...target, items: approvedItems },
+        itemsDisetujui || []
+      );
+      if (handoverResult.error || !handoverResult.items) {
+        return { success: false, message: handoverResult.error || 'Rincian barang yang akan diserahkan tidak valid.' };
+      }
+      handoverItems = handoverResult.items;
+    }
 
-    setRequests(prev =>
-      prev.map(r =>
-        r.id === id
-          ? {
-              ...r,
-              status,
-              catatan: catatan !== undefined ? catatan : r.catatan,
-              jumlahDisetujui: approvedQty,
-              items: shouldSetApprovedItems ? approvedItems : r.items,
-              penerimaan: status === 'Menunggu Konfirmasi'
-                ? {
-                    status: 'Menunggu Konfirmasi',
-                    diserahkanOleh: currentUser?.name || '',
-                    diserahkanPada: new Date().toISOString(),
-                    mutasiIds: []
-                  }
-                : r.penerimaan
-            }
-          : r
-      )
-    );
+    const nextPenerimaan = status === 'Menunggu Konfirmasi'
+      ? {
+          status: 'Menunggu Konfirmasi' as const,
+          diserahkanOleh: currentUser?.name || '',
+          diserahkanPada: new Date().toISOString(),
+          items: handoverItems,
+          mutasiIds: [],
+          diterimaItems: target.penerimaan?.diterimaItems || []
+        }
+      : target.penerimaan;
+    const effectiveNote = actionNote?.trim() ? actionNote : undefined;
+    const nextRequest: InventoryRequest = {
+      ...target,
+      status,
+      catatan: effectiveNote !== undefined ? effectiveNote : target.catatan,
+      jumlahDisetujui: approvedQty,
+      items: shouldSetApprovedItems || status === 'Menunggu Konfirmasi' ? approvedItems : target.items,
+      penerimaan: nextPenerimaan
+    };
+    const persisted = new Promise<InventoryRequest>((resolve, reject) => {
+      requestPersistenceWaitersRef.current.set(id, { resolve, reject, expectedStatus: status });
+      setRequests(prev => prev.map(request => request.id === id ? nextRequest : request));
+    });
 
-    if (target.status !== status && queuedRequestWhatsAppStatusRef.current.get(id) !== status) {
+    if (target.status !== status && status !== 'Dibatalkan' &&
+        queuedRequestWhatsAppStatusRef.current.get(id) !== status) {
       queuedRequestWhatsAppStatusRef.current.set(id, status);
-      queueRequestWhatsAppEvent({
-        ...target,
-        status,
-        catatan: catatan !== undefined ? catatan : target.catatan,
-        jumlahDisetujui: approvedQty,
-        items: shouldSetApprovedItems ? approvedItems : target.items,
-        penerimaan: status === 'Menunggu Konfirmasi'
-          ? {
-              status: 'Menunggu Konfirmasi',
-              diserahkanOleh: currentUser?.name || '',
-              diserahkanPada: new Date().toISOString(),
-              mutasiIds: []
-            }
-          : target.penerimaan
-      }, 'status_changed', catatan);
+      queueRequestWhatsAppEvent(nextRequest, 'status_changed', effectiveNote);
+    }
+    if (status === 'Dibatalkan') {
+      const reason = String(actionNote || '').replace(/^Dibatalkan:\s*/i, '').trim();
+      logAudit(
+        'Pembatalan Permohonan Barang',
+        'PERSEDIAAN',
+        `Permohonan ${target.id} dibatalkan. Alasan: ${reason}`
+      );
     }
     logAudit('Pembaruan Status Permohonan', 'PERSEDIAAN', `Permohonan ${target.nomorPermintaan} (${requestedItems.map(item => item.namaBarang).join(', ')}) diubah statusnya menjadi ${status}.`);
-    pushNotification('TRANSAKSI', `📋 Status Permohonan: ${status}`, `Permohonan ${target.nomorPermintaan} (${requestedItems.map(item => item.namaBarang).join(', ')}) kini berstatus ${status}.`, 'requests');
-    return { success: true, message: `Status permohonan berhasil diperbarui menjadi ${status}.` };
+    pushNotification(
+      'TRANSAKSI',
+      status === 'Dibatalkan' ? 'Permohonan Dibatalkan' : `📋 Status Permohonan: ${status}`,
+      `Permohonan ${target.nomorPermintaan} (${requestedItems.map(item => item.namaBarang).join(', ')}) kini berstatus ${status}.`,
+      'requests'
+    );
+    try {
+      const savedRequest = await persisted;
+      if (savedRequest.status !== status) {
+        throw new StateSyncError('Server menyimpan status permohonan yang berbeda. Data terbaru telah dimuat.', true);
+      }
+      return { success: true, message: `Status permohonan berhasil diperbarui menjadi ${status}.` };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Perubahan status permohonan tidak dapat disimpan.';
+      const reloaded = await reloadServerData();
+      if (!reloaded) {
+        return {
+          success: false,
+          message: `${message} Status di server belum dapat diperiksa; jangan ulangi sebelum data berhasil dimuat ulang.`
+        };
+      }
+      const latestRequests = lastSyncedStateRef.current?.requests;
+      const savedRequest = Array.isArray(latestRequests)
+        ? (latestRequests as InventoryRequest[]).find(request => request.id === id)
+        : undefined;
+      if (savedRequest?.status === status) {
+        return { success: true, message: `Status permohonan ${status} telah tercatat di server.` };
+      }
+      return { success: false, message };
+    }
   };
 
   const syncAfterRequestAction = async (revision: number) => {
@@ -1878,7 +1966,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const submitRequestAction = async (
     path: string,
     body: Record<string, unknown>,
-    fallbackMessage: string
+    fallbackMessage: string,
+    alreadyApplied?: (state: Record<string, unknown>) => boolean
   ) => {
     try {
       await syncQueueRef.current;
@@ -1896,14 +1985,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ? 'Penerimaan ini sudah pernah dikonfirmasi; stok tidak dikurangi kembali.'
         : fallbackMessage };
     } catch (error) {
-      return { success: false, message: error instanceof Error ? error.message : fallbackMessage };
+      const message = error instanceof Error ? error.message : fallbackMessage;
+      const reloaded = await reloadServerData();
+      if (reloaded && alreadyApplied?.(lastSyncedStateRef.current || {})) {
+        return { success: true, message: 'Server telah mencatat tindakan ini; data terbaru sudah dimuat tanpa mengulang mutasi stok.' };
+      }
+      return {
+        success: false,
+        message: reloaded
+          ? message
+          : `${message} Status di server belum dapat diperiksa; jangan ulangi sebelum data berhasil dimuat ulang.`
+      };
     }
   };
 
   const confirmInventoryRequestReceipt = (id: string) => submitRequestAction(
     `/api/requests/${encodeURIComponent(id)}/confirm-receipt`,
     {},
-    'Penerimaan berhasil dikonfirmasi dan mutasi stok telah dicatat.'
+    'Penerimaan berhasil dikonfirmasi dan mutasi stok telah dicatat.',
+    state => {
+      const savedRequests = state.requests;
+      const savedRequest = Array.isArray(savedRequests)
+        ? (savedRequests as InventoryRequest[]).find(request => request.id === id)
+        : undefined;
+      return Boolean(savedRequest && ['Diproses', 'Diterima'].includes(savedRequest.status) &&
+        savedRequest.penerimaan?.status === 'Diterima');
+    }
   );
 
   const reportInventoryReceiptDiscrepancy = (id: string, reason: string) => submitRequestAction(
@@ -1915,50 +2022,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const reopenInventoryRequestHandover = (id: string) => submitRequestAction(
     `/api/requests/${encodeURIComponent(id)}/reopen-handover`,
     {},
-    'Permohonan dikembalikan ke tahap penyerahan untuk ditindaklanjuti.'
+    'Permohonan dikembalikan ke tahap penyerahan untuk ditindaklanjuti.',
+    state => {
+      const savedRequests = state.requests;
+      const savedRequest = Array.isArray(savedRequests)
+        ? (savedRequests as InventoryRequest[]).find(request => request.id === id)
+        : undefined;
+      return Boolean(savedRequest?.status === 'Diproses' && !savedRequest.penerimaan?.catatanSelisih);
+    }
   );
 
-  const deleteInventoryRequest = (id: string, reason?: string) => {
-    const target = requests.find(r => r.id === id);
-    if (!target) return { success: false, message: 'Permohonan tidak ditemukan.' };
-    const canApprove = hasPermission('approveRequests') && !isPimpinanUser(currentUser);
-    const canManage = hasPermission('manageInventory');
-    const isOwnRequest = String(target.pemohonNama || '').trim().toLocaleLowerCase('id-ID')
-      === String(currentUser?.name || '').trim().toLocaleLowerCase('id-ID');
-    const isRequesterCancellation = hasPermission('requestSupplies')
-      && !canApprove
-      && !canManage
-      && !isPimpinanUser(currentUser);
-    if (isRequesterCancellation) {
-      if (!isOwnRequest || target.status !== 'Diajukan') {
-        return { success: false, message: 'Anda hanya dapat membatalkan permohonan sendiri yang masih berstatus Diajukan.' };
-      }
-      const cancellationReason = reason?.trim() || '';
-      if (cancellationReason.length < 5 || cancellationReason.length > 500) {
-        return { success: false, message: 'Alasan pembatalan wajib diisi antara 5 sampai 500 karakter.' };
-      }
-      logAudit(
-        'Pembatalan Permohonan Barang',
-        'PERSEDIAAN',
-        `Permohonan ${target.id} dibatalkan. Alasan: ${cancellationReason}`
-      );
-    } else if (!canApprove && !canManage) {
-      return { success: false, message: 'Anda tidak berwenang menghapus permohonan barang.' };
-    }
-    setRequests(prev => prev.filter(r => r.id !== id));
-    if (!isRequesterCancellation) {
-      logAudit('Hapus Permohonan Barang', 'PERSEDIAAN', `Permohonan ${target.nomorPermintaan} (${target.namaBarang}) dihapus.`);
-    }
-    pushNotification(
-      'TRANSAKSI',
-      isRequesterCancellation ? 'Permohonan Dibatalkan' : '🗑️ Permohonan Dihapus',
-      isRequesterCancellation
-        ? `Permohonan ${target.nomorPermintaan} dibatalkan oleh pemohon. Alasan: ${reason?.trim()}`
-        : `Permohonan ${target.nomorPermintaan} telah dihapus dari sistem.`,
-      'requests'
-    );
-    return { success: true, message: isRequesterCancellation ? 'Permohonan berhasil dibatalkan dan dihapus.' : 'Permohonan berhasil dihapus.' };
-  };
+  const cancelInventoryRequest = (id: string, reason: string) =>
+    updateRequestStatus(id, 'Dibatalkan', reason);
 
   // Asset Movement Workflow (SETELAH SELESAI LOKASI ASET OTOMATIS BERUBAH)
   const addAssetMovement = (movData: Omit<AssetMovement, 'id' | 'nomorTransaksi' | 'status' | 'createdAt' | 'updatedAt'>) => {
@@ -2308,7 +2383,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         confirmInventoryRequestReceipt,
         reportInventoryReceiptDiscrepancy,
         reopenInventoryRequestHandover,
-        deleteInventoryRequest,
+        cancelInventoryRequest,
         addAssetMovement,
         updateMovementStatus,
         deleteAssetMovement,

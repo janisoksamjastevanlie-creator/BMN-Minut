@@ -12,9 +12,9 @@ This integration sends a minimal outbound event after an authorized `/api/state`
 | Status changed to `Ditolak` | `request.rejected` |
 | Status changed to `Diproses` | `request.processing` |
 | Status changed to `Selesai` | `request.completed` |
-| Request removed with a new `Pembatalan Permohonan Barang` audit entry | `request.cancelled` |
+| Request status changed to `Dibatalkan` with a new `Pembatalan Permohonan Barang` audit entry | `request.cancelled` |
 
-No event is emitted for drafts or unrelated collection changes. Status names are the values already used by the application. The payload excludes names, phone numbers, item details, reasons, credentials, and session data:
+No event is emitted for drafts or unrelated collection changes. Cancellations retain the request and its audit history; physical removal is rejected by the server. Status names are the values already used by the application. The payload excludes names, phone numbers, item details, reasons, credentials, and session data:
 
 ```json
 {

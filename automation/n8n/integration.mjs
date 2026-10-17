@@ -6,7 +6,8 @@ const REQUEST_EVENT_TYPES = new Map([
   ['Disetujui', 'request.approved'],
   ['Ditolak', 'request.rejected'],
   ['Diproses', 'request.processing'],
-  ['Selesai', 'request.completed']
+  ['Selesai', 'request.completed'],
+  ['Dibatalkan', 'request.cancelled']
 ]);
 
 function makeEventId(requestId, eventType, previousStatus, status, revision) {

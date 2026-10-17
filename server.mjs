@@ -10,7 +10,13 @@ import { assertOperationalSchema, readOperationalState } from './operationalStor
 import { writeOperationalState } from './operationalWrites.mjs';
 import { sendWhatsAppMessage } from './whatsappService.mjs';
 import { validateRequestAuthorization } from './requestAccess.mjs';
-import { validateAdditionalStockOut, validateNewRequestStock } from './requestStockValidation.mjs';
+import {
+  getRequestItemQuantities,
+  getRequestReservedQuantity,
+  normalizeRequestHandoverItems,
+  validateAdditionalStockOut,
+  validateNewRequestStock
+} from './requestStockValidation.mjs';
 import { assignNewRequestNumbers } from './requestNumber.mjs';
 import { sendTwilioWhatsAppMessage } from './twilioWhatsAppService.mjs';
 import { createWhatsAppService } from './whatsapp/service.mjs';
@@ -907,59 +913,132 @@ function validateInventoryRequests(previousState, nextState) {
           satuan: previous.satuan
         }] : [];
     const itemRowsChanged = !previous || JSON.stringify(itemRows) !== JSON.stringify(oldRows);
-    if (!itemRowsChanged) continue;
+    const parentFieldsChanged = !previous || [
+      'tanggal', 'pemohonNama', 'unitKerja', 'ruangan', 'keperluan', 'prioritas', 'status'
+    ].some(field => request[field] !== previous[field]);
+    const summaryFieldsChanged = !previous || [
+      'itemId', 'namaBarang', 'jumlahDiminta', 'satuan'
+    ].some(field => request[field] !== previous[field]);
+    const approvalChanged = !previous || request.jumlahDisetujui !== previous.jumlahDisetujui;
+    const receiptChanged = !previous || JSON.stringify(request.penerimaan) !== JSON.stringify(previous.penerimaan);
+    if (!itemRowsChanged && !parentFieldsChanged && !summaryFieldsChanged && !approvalChanged && !receiptChanged) continue;
 
-    if (itemRows.length > 100) return `Permohonan ${number} melebihi batas 100 jenis barang.`;
     if (!isValidCalendarDate(request?.tanggal) ||
         !String(request?.pemohonNama || '').trim() ||
         !String(request?.unitKerja || '').trim() ||
         !String(request?.ruangan || '').trim() ||
         !String(request?.keperluan || '').trim() ||
         !['Rendah', 'Normal', 'Tinggi', 'Mendesak'].includes(request?.prioritas) ||
-        !['Draft', 'Diajukan', 'Diverifikasi', 'Disetujui', 'Diproses', 'Menunggu Konfirmasi', 'Diterima', 'Selesai', 'Ditolak'].includes(request?.status)) {
+        !['Draft', 'Diajukan', 'Diverifikasi', 'Disetujui', 'Diproses', 'Menunggu Konfirmasi', 'Diterima', 'Selesai', 'Ditolak', 'Dibatalkan'].includes(request?.status)) {
       return `Data induk permohonan ${number} tidak lengkap atau tidak valid.`;
     }
-    if (request.status === 'Menunggu Konfirmasi' &&
-        (request.penerimaan?.status !== 'Menunggu Konfirmasi' ||
-         !String(request.penerimaan.diserahkanOleh || '').trim() ||
-         !Number.isFinite(Date.parse(request.penerimaan.diserahkanPada)))) {
-      return `Data penyerahan barang permohonan ${number} tidak valid.`;
+    if (!Number.isSafeInteger(request.jumlahDiminta) || request.jumlahDiminta <= 0 ||
+        (request.jumlahDisetujui !== undefined &&
+         (!Number.isSafeInteger(request.jumlahDisetujui) || request.jumlahDisetujui <= 0 || request.jumlahDisetujui > request.jumlahDiminta))) {
+      return `Jumlah permohonan ${number} tidak valid.`;
     }
     if (!previous && previousState.requests !== null && request.status !== 'Diajukan') {
       return `Permohonan baru ${number} harus dimulai dengan status Diajukan.`;
     }
 
-    const itemIds = new Set();
-    for (let index = 0; index < itemRows.length; index += 1) {
-      const item = itemRows[index];
-      const itemId = String(item?.itemId || '').trim();
-      const masterItem = inventoryById.get(itemId);
-      if (!itemId || !masterItem) return `Barang pada baris ${index + 1} permohonan ${number} tidak ditemukan dalam master persediaan.`;
-      if (itemIds.has(itemId)) return `Barang yang sama tidak boleh berulang pada permohonan ${number}.`;
-      itemIds.add(itemId);
-      if (item.namaBarang !== masterItem.nama || item.satuan !== masterItem.satuan ||
-          (item.kodeBarang !== undefined && item.kodeBarang !== masterItem.kodeBarang) ||
-          !Number.isSafeInteger(item.jumlahDiminta) || item.jumlahDiminta <= 0) {
-        return `Nama, satuan, atau jumlah barang pada baris ${index + 1} permohonan ${number} tidak valid.`;
+    if (request.status === 'Menunggu Konfirmasi') {
+      const handoverRows = request.penerimaan?.items;
+      if (request.penerimaan?.status !== 'Menunggu Konfirmasi' ||
+          !String(request.penerimaan.diserahkanOleh || '').trim() ||
+          !Number.isFinite(Date.parse(request.penerimaan.diserahkanPada)) ||
+          !Array.isArray(handoverRows) || handoverRows.length === 0) {
+        return `Data penyerahan barang permohonan ${number} tidak valid.`;
       }
-      if (!previous && previousState.requests !== null && item.jumlahDisetujui !== undefined) {
-        return `Permohonan baru ${number} belum boleh memiliki jumlah yang disetujui.`;
+      const approvedById = new Map(itemRows.map(item => [
+        item.itemId,
+        item.jumlahDisetujui ?? (itemRows.length === 1 ? request.jumlahDisetujui : undefined) ?? item.jumlahDiminta
+      ]));
+      for (const item of itemRows) {
+        const approved = approvedById.get(item.itemId);
+        if (!Number.isSafeInteger(approved) || approved <= 0 || approved > item.jumlahDiminta) {
+          return `Jumlah disetujui pada permohonan ${number} tidak valid.`;
+        }
       }
-      if ((item.spesifikasi !== undefined && (typeof item.spesifikasi !== 'string' || item.spesifikasi.length > 250)) ||
-          (item.catatan !== undefined && (typeof item.catatan !== 'string' || item.catatan.length > 250))) {
-        return `Spesifikasi atau catatan pada baris ${index + 1} permohonan ${number} tidak valid.`;
+      const receivedById = new Map();
+      const receivedRows = request.penerimaan.diterimaItems ?? [];
+      if (!Array.isArray(receivedRows)) {
+        return `Riwayat penerimaan barang permohonan ${number} tidak valid.`;
       }
-      if (item.jumlahDisetujui !== undefined &&
-          (!Number.isSafeInteger(item.jumlahDisetujui) || item.jumlahDisetujui <= 0 || item.jumlahDisetujui > item.jumlahDiminta)) {
-        return `Jumlah disetujui pada baris ${index + 1} permohonan ${number} tidak valid.`;
+      for (const receivedItem of receivedRows) {
+        const approved = approvedById.get(receivedItem?.itemId);
+        if (approved === undefined || receivedById.has(receivedItem.itemId) ||
+            !Number.isSafeInteger(receivedItem.jumlah) || receivedItem.jumlah <= 0 ||
+            receivedItem.jumlah > approved) {
+          return `Riwayat penerimaan barang permohonan ${number} tidak valid.`;
+        }
+        receivedById.set(receivedItem.itemId, receivedItem.jumlah);
+      }
+      const handedIds = new Set();
+      for (const handedItem of handoverRows) {
+        const approved = approvedById.get(handedItem?.itemId);
+        const alreadyReceived = receivedById.get(handedItem?.itemId) || 0;
+        if (approved === undefined || handedIds.has(handedItem.itemId) ||
+            !Number.isSafeInteger(handedItem.jumlah) || handedItem.jumlah <= 0 ||
+            handedItem.jumlah > Math.max(0, approved - alreadyReceived)) {
+          return `Jumlah penyerahan barang permohonan ${number} tidak valid.`;
+        }
+        handedIds.add(handedItem.itemId);
       }
     }
 
-    if (request.itemId !== itemRows[0].itemId ||
-        request.namaBarang !== itemRows[0].namaBarang ||
-        request.jumlahDiminta !== itemRows[0].jumlahDiminta ||
-        request.satuan !== itemRows[0].satuan) {
-      return `Ringkasan barang pada permohonan ${number} tidak sesuai dengan detail pertama.`;
+    if (itemRowsChanged) {
+      if (itemRows.length > 100) return `Permohonan ${number} melebihi batas 100 jenis barang.`;
+
+      const itemIds = new Set();
+      for (let index = 0; index < itemRows.length; index += 1) {
+        const item = itemRows[index];
+        const itemId = String(item?.itemId || '').trim();
+        const masterItem = inventoryById.get(itemId);
+        if (!itemId || !masterItem) return `Barang pada baris ${index + 1} permohonan ${number} tidak ditemukan dalam master persediaan.`;
+        if (itemIds.has(itemId)) return `Barang yang sama tidak boleh berulang pada permohonan ${number}.`;
+        itemIds.add(itemId);
+        if (item.namaBarang !== masterItem.nama || item.satuan !== masterItem.satuan ||
+            (item.kodeBarang !== undefined && item.kodeBarang !== masterItem.kodeBarang) ||
+            !Number.isSafeInteger(item.jumlahDiminta) || item.jumlahDiminta <= 0) {
+          return `Nama, satuan, atau jumlah barang pada baris ${index + 1} permohonan ${number} tidak valid.`;
+        }
+        if (!previous && previousState.requests !== null && item.jumlahDisetujui !== undefined) {
+          return `Permohonan baru ${number} belum boleh memiliki jumlah yang disetujui.`;
+        }
+        if ((item.spesifikasi !== undefined && (typeof item.spesifikasi !== 'string' || item.spesifikasi.length > 250)) ||
+            (item.catatan !== undefined && (typeof item.catatan !== 'string' || item.catatan.length > 250))) {
+          return `Spesifikasi atau catatan pada baris ${index + 1} permohonan ${number} tidak valid.`;
+        }
+        if (item.jumlahDisetujui !== undefined &&
+            (!Number.isSafeInteger(item.jumlahDisetujui) || item.jumlahDisetujui <= 0 || item.jumlahDisetujui > item.jumlahDiminta)) {
+          return `Jumlah disetujui pada baris ${index + 1} permohonan ${number} tidak valid.`;
+        }
+        if (['Disetujui', 'Diproses', 'Menunggu Konfirmasi', 'Diterima', 'Selesai'].includes(request.status)) {
+          const approved = item.jumlahDisetujui
+            ?? (itemRows.length === 1 ? request.jumlahDisetujui : undefined)
+            ?? item.jumlahDiminta;
+          if (!Number.isSafeInteger(approved) || approved <= 0 || approved > item.jumlahDiminta) {
+            return `Jumlah disetujui pada baris ${index + 1} permohonan ${number} tidak valid.`;
+          }
+        }
+      }
+    }
+
+    if (itemRowsChanged || summaryFieldsChanged) {
+      if (request.itemId !== itemRows[0].itemId ||
+          request.namaBarang !== itemRows[0].namaBarang ||
+          request.jumlahDiminta !== itemRows[0].jumlahDiminta ||
+          request.satuan !== itemRows[0].satuan) {
+        return `Ringkasan barang pada permohonan ${number} tidak sesuai dengan detail pertama.`;
+      }
+    }
+    if (!itemRowsChanged && (approvalChanged || parentFieldsChanged) &&
+        ['Disetujui', 'Diproses', 'Menunggu Konfirmasi', 'Diterima', 'Selesai'].includes(request.status) &&
+        itemRows.length === 1) {
+      const approved = request.jumlahDisetujui ?? itemRows[0].jumlahDiminta;
+      if (!Number.isSafeInteger(approved) || approved <= 0 || approved > itemRows[0].jumlahDiminta) {
+        return `Jumlah disetujui pada permohonan ${number} tidak valid.`;
+      }
     }
   }
   return null;
@@ -1310,12 +1389,29 @@ app.post('/api/requests/:id/confirm-receipt', requireUser, asyncRoute(async (req
           jumlahDisetujui: target.jumlahDisetujui,
           satuan: target.satuan
         }];
-    const handedItems = target.penerimaan.items;
-    if (!Array.isArray(handedItems) || handedItems.length !== requestedItems.length) {
-      return { status: 400, error: 'Rincian jumlah barang yang diserahkan tidak lengkap.' };
+    const handover = normalizeRequestHandoverItems(target, target.penerimaan.items);
+    if (!handover.items) {
+        return { status: 400, error: handover.error || 'Rincian jumlah barang yang diserahkan tidak valid.' };
     }
+    const handedItems = handover.items;
     const stockById = new Map((currentState.inventoryItems || []).map(item => [item.id, item]));
     const requestedById = new Map(requestedItems.map(item => [item.itemId, item]));
+    const quantityById = new Map(getRequestItemQuantities(target).map(item => [item.itemId, item]));
+    const receivedById = new Map();
+    const receivedRows = target.penerimaan.diterimaItems ?? [];
+    if (!Array.isArray(receivedRows)) {
+        return { status: 400, error: 'Riwayat jumlah penerimaan tidak valid.' };
+    }
+    for (const receivedItem of receivedRows) {
+        const requestedItem = requestedById.get(receivedItem?.itemId);
+        const approvedQuantity = quantityById.get(receivedItem?.itemId)?.jumlahDisetujui;
+        if (!requestedItem || receivedById.has(receivedItem.itemId) ||
+            !Number.isSafeInteger(approvedQuantity) || !Number.isSafeInteger(receivedItem.jumlah) ||
+            receivedItem.jumlah <= 0 || receivedItem.jumlah > approvedQuantity) {
+          return { status: 400, error: 'Riwayat jumlah penerimaan tidak valid.' };
+        }
+        receivedById.set(receivedItem.itemId, receivedItem.jumlah);
+    }
     const handedIds = new Set();
     const now = new Date();
     const transactionHeaderId = crypto.randomUUID();
@@ -1328,11 +1424,14 @@ app.post('/api/requests/:id/confirm-receipt', requireUser, asyncRoute(async (req
       }
       handedIds.add(handedItem.itemId);
       const item = stockById.get(handedItem.itemId);
-      const approvedQuantity = requestedItem.jumlahDisetujui ??
-        (requestedItems.length === 1 ? target.jumlahDisetujui : undefined);
+      const approvedQuantity = quantityById.get(handedItem.itemId)?.jumlahDisetujui;
+      const alreadyReceived = quantityById.get(handedItem.itemId)?.jumlahDiterima || 0;
       const quantity = handedItem.jumlah;
       if (!item || !Number.isSafeInteger(quantity) || quantity <= 0 ||
-          !Number.isSafeInteger(approvedQuantity) || quantity > approvedQuantity) {
+          !Number.isSafeInteger(approvedQuantity) || approvedQuantity <= 0 ||
+          approvedQuantity > requestedItem.jumlahDiminta ||
+          alreadyReceived > approvedQuantity ||
+          quantity > approvedQuantity - alreadyReceived) {
         return { status: 400, error: `Jumlah penerimaan untuk ${requestedItem.namaBarang || 'barang'} tidak valid.` };
       }
       if (dataBackend === 'operational') {
@@ -1346,28 +1445,12 @@ app.post('/api/requests/:id/confirm-receipt', requireUser, asyncRoute(async (req
       const reservedByOthers = requests
         .filter(other => other.id !== target.id &&
           ['Diajukan', 'Diverifikasi', 'Disetujui', 'Diproses', 'Menunggu Konfirmasi'].includes(other.status))
-        .reduce((sum, other) => {
-          const lines = Array.isArray(other.items) && other.items.length ? other.items : [{
-            itemId: other.itemId,
-            jumlahDiminta: other.jumlahDiminta,
-            jumlahDisetujui: other.jumlahDisetujui
-          }];
-          return sum + lines.reduce((subtotal, line) => {
-            if (line.itemId !== item.id) return subtotal;
-            const reserved = ['Disetujui', 'Diproses', 'Menunggu Konfirmasi'].includes(other.status)
-              ? line.jumlahDisetujui ?? (lines.length === 1 ? other.jumlahDisetujui : undefined) ?? line.jumlahDiminta
-              : line.jumlahDiminta;
-            return subtotal + (Number.isSafeInteger(reserved) && reserved > 0 ? reserved : 0);
-          }, 0);
-        }, 0);
+        .reduce((sum, other) => sum + getRequestReservedQuantity(other, item.id), 0);
       if (!Number.isSafeInteger(item.stokSaatIni) || item.stokSaatIni < quantity ||
           item.stokSaatIni - quantity < reservedByOthers) {
         return { status: 409, error: `Stok ${item.nama} tidak mencukupi setelah mempertahankan reservasi permohonan lain.` };
       }
-      issuedItems.push({ item, quantity, requestedItem });
-    }
-    if (handedIds.size !== requestedItems.length) {
-      return { status: 400, error: 'Ada rincian barang permohonan yang belum diserahkan.' };
+      issuedItems.push({ item, quantity, requestedItem       });
     }
 
     nextState = JSON.parse(JSON.stringify(currentState));
@@ -1401,14 +1484,26 @@ app.post('/api/requests/:id/confirm-receipt', requireUser, asyncRoute(async (req
         keterangan: `Penerimaan dikonfirmasi oleh ${request.user.name}; permohonan ${target.nomorPermintaan}.`
       });
     }
-    nextRequest.status = 'Diterima';
+    const cumulativeReceivedById = new Map(receivedById);
+    for (const { item, quantity } of issuedItems) {
+      cumulativeReceivedById.set(item.id, (cumulativeReceivedById.get(item.id) || 0) + quantity);
+    }
+    const cumulativeReceivedItems = requestedItems
+      .map(item => ({ itemId: item.itemId, jumlah: cumulativeReceivedById.get(item.itemId) || 0 }))
+      .filter(item => item.jumlah > 0);
+    const allApprovedQuantitiesReceived = getRequestItemQuantities({
+      ...target,
+      penerimaan: { ...target.penerimaan, diterimaItems: cumulativeReceivedItems }
+    }).every(item => item.jumlahTersisa === 0);
+    nextRequest.status = allApprovedQuantitiesReceived ? 'Diterima' : 'Diproses';
     nextRequest.penerimaan = {
       ...nextRequest.penerimaan,
       status: 'Diterima',
       dikonfirmasiOlehId: request.user.id,
       dikonfirmasiOleh: request.user.name,
       dikonfirmasiPada: now.toISOString(),
-      mutasiIds: mutationIds
+      mutasiIds: mutationIds,
+      diterimaItems: cumulativeReceivedItems
     };
     const makassarDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(now);
     const makassarTime = new Intl.DateTimeFormat('en-GB', {
@@ -1571,7 +1666,11 @@ app.post('/api/requests/:id/reopen-handover', requireUser, asyncRoute(async (req
     nextState = JSON.parse(JSON.stringify(currentState));
     const nextRequest = nextState.requests.find(item => item.id === target.id);
     nextRequest.status = 'Diproses';
-    delete nextRequest.penerimaan;
+    nextRequest.penerimaan = {
+      status: 'Diproses',
+      diterimaItems: target.penerimaan.diterimaItems || [],
+      mutasiIds: []
+    };
     const now = new Date();
     const date = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(now);
     const time = new Intl.DateTimeFormat('en-GB', {
@@ -2200,19 +2299,35 @@ app.put('/api/state', requireUser, asyncRoute(async (request, response) => {
               jumlahDisetujui: previous.jumlahDisetujui || previous.jumlahDiminta,
               satuan: previous.satuan
             }];
-            const submittedItems = new Map((inventoryRequest.items || []).map(item => [item.itemId, item]));
-            const deliveredItems = approvedItems.map(item => {
-              const submitted = submittedItems.get(item.itemId);
-              const quantity = submitted?.jumlahDisetujui ?? item.jumlahDisetujui ?? item.jumlahDiminta;
-              if (!Number.isSafeInteger(quantity) || quantity <= 0 ||
-                  quantity > (item.jumlahDisetujui ?? item.jumlahDiminta)) {
-                return null;
-              }
-              return { itemId: item.itemId, jumlah: quantity };
-            });
-            if (deliveredItems.some(item => !item)) {
-              return { status: 400, body: { error: 'Jumlah yang diserahkan harus positif dan tidak boleh melebihi jumlah yang disetujui.' } };
+            const submittedItems = Array.isArray(inventoryRequest.penerimaan?.items)
+              ? inventoryRequest.penerimaan.items
+              : inventoryRequest.items;
+            const alreadyReceivedItems = previous.penerimaan?.diterimaItems || [];
+            if (!Array.isArray(submittedItems) || submittedItems.length === 0 ||
+                !Array.isArray(alreadyReceivedItems)) {
+              return { status: 400, body: { error: 'Rincian barang yang akan diserahkan tidak valid.' } };
             }
+            const approvedById = new Map(approvedItems.map(item => [item.itemId, item]));
+            const receivedById = new Map();
+            for (const receivedItem of alreadyReceivedItems) {
+              const approvedItem = approvedById.get(receivedItem?.itemId);
+              const approvedQuantity = approvedItem?.jumlahDisetujui ?? approvedItem?.jumlahDiminta;
+              if (!approvedItem || receivedById.has(receivedItem.itemId) ||
+                  !Number.isSafeInteger(approvedQuantity) || approvedQuantity <= 0 ||
+                  !Number.isSafeInteger(receivedItem.jumlah) || receivedItem.jumlah <= 0 ||
+                  receivedItem.jumlah > approvedQuantity) {
+                return { status: 400, body: { error: 'Riwayat jumlah penerimaan permohonan tidak valid.' } };
+              }
+              receivedById.set(receivedItem.itemId, receivedItem.jumlah);
+            }
+            const handover = normalizeRequestHandoverItems(
+              { ...previous, items: approvedItems },
+              submittedItems
+            );
+            if (!handover.items) {
+              return { status: 400, body: { error: handover.error || 'Rincian barang yang akan diserahkan tidak valid.' } };
+            }
+            const deliveredItems = handover.items;
             inventoryRequest.items = approvedItems;
             inventoryRequest.itemId = approvedItems[0].itemId;
             inventoryRequest.jumlahDiminta = previous.jumlahDiminta;
@@ -2224,7 +2339,8 @@ app.put('/api/state', requireUser, asyncRoute(async (request, response) => {
               diserahkanOleh: request.user.name,
               diserahkanPada: new Date().toISOString(),
               items: deliveredItems,
-              mutasiIds: []
+              mutasiIds: [],
+              diterimaItems: alreadyReceivedItems
             };
           } else {
             inventoryRequest.penerimaan = previous.penerimaan;
@@ -2341,10 +2457,12 @@ app.put('/api/state', requireUser, asyncRoute(async (request, response) => {
         if (!Array.isArray(state[key])) return { status: 400, body: { error: `Koleksi ${key} tidak valid.` } };
       }
       const previousRequests = Array.isArray(currentState.requests) ? currentState.requests : [];
-      const nextRequestIds = new Set(state.requests.map(item => item.id));
       const previousAuditLogIds = new Set((currentState.auditLogs || []).map(log => log.id));
-      const removedRequests = whatsappProvider === 'twilio' || whatsappProvider === 'fonnte'
-        ? previousRequests.filter(item => !nextRequestIds.has(item.id))
+      const cancelledRequests = whatsappProvider === 'twilio' || whatsappProvider === 'fonnte'
+        ? previousRequests.filter(item => {
+            const nextRequest = state.requests.find(candidate => candidate.id === item.id);
+            return nextRequest && item.status !== 'Dibatalkan' && nextRequest.status === 'Dibatalkan';
+          })
         : [];
       cancellationEvents = [];
       if (dataBackend === 'operational') {
@@ -2366,7 +2484,7 @@ app.put('/api/state', requireUser, asyncRoute(async (request, response) => {
         INSERT INTO app_meta (\`key\`, value) VALUES ('revision', ?)
         ON DUPLICATE KEY UPDATE value = VALUES(value)
       `, [String(revision + 1)]);
-      for (const inventoryRequest of removedRequests) {
+      for (const inventoryRequest of cancelledRequests) {
         const existingEvent = await queryOne(connection, `
           SELECT event_id FROM whatsapp_notification_events
           WHERE request_id = ? AND request_status = 'Dibatalkan' AND action = 'cancelled'
@@ -2379,6 +2497,7 @@ app.put('/api/state', requireUser, asyncRoute(async (request, response) => {
           VALUES (?, ?, 'Dibatalkan', 'cancelled', 'sending')
         `, [eventId, inventoryRequest.id]);
         const owner = (await queryOne(connection, 'SELECT user_id FROM whatsapp_request_owners WHERE request_id = ?', [inventoryRequest.id]))?.user_id
+          || inventoryRequest.pemohonUserId
           || currentState.users.find(user =>
             String(user.name || '').trim().toLocaleLowerCase('id-ID') ===
             String(inventoryRequest.pemohonNama || '').trim().toLocaleLowerCase('id-ID')
