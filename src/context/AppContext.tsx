@@ -1023,6 +1023,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSyncError(null);
     setActiveView('login');
     returnViewRef.current = null;
+    window.location.replace(getPathForView('login'));
   };
 
   const setUserPassword = async (user: User, password: string) => {
