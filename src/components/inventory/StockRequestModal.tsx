@@ -53,7 +53,7 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
   );
   const initialItemId = defaultItemId && stockRequestItems.some(item => item.id === defaultItemId)
     ? defaultItemId
-    : stockRequestItems[0]?.id || '';
+    : '';
   const initialItem = stockRequestItems.find(item => item.id === initialItemId);
   const [requestItems, setRequestItems] = useState<RequestItemDraft[]>([
     { key: crypto.randomUUID(), itemId: initialItemId, itemSearch: initialItem?.nama || '', jumlahDiminta: '2', spesifikasi: '', catatan: '' }
@@ -309,9 +309,6 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
                   <h3 className="text-xs font-bold text-white">Daftar Barang yang Dimohon</h3>
                   <p className="mt-0.5 text-[10px] text-slate-400">Hanya barang ATK/ARK; urutan berdasarkan stok tersedia terbesar.</p>
                 </div>
-                <button type="button" onClick={addLine} disabled={requestItems.length >= 100} className="inline-flex items-center gap-1 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-3 py-2 text-[11px] font-bold text-indigo-200 hover:bg-indigo-500/20 disabled:cursor-not-allowed disabled:opacity-40">
-                  <Plus className="h-3.5 w-3.5" /> Tambah Barang
-                </button>
               </div>
               <div className="space-y-3">
                 {requestItems.map((line, index) => {
@@ -434,6 +431,11 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
                     </div>
                   );
                 })}
+              </div>
+              <div className="mt-3">
+                <button type="button" onClick={addLine} disabled={requestItems.length >= 100} className="inline-flex items-center gap-1 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-3 py-2 text-[11px] font-bold text-indigo-200 hover:bg-indigo-500/20 disabled:cursor-not-allowed disabled:opacity-40">
+                  <Plus className="h-3.5 w-3.5" /> Tambah Barang
+                </button>
               </div>
               <p className="mt-2 text-right text-[10px] text-slate-400">{requestedItemCount} barang dipilih</p>
               </section>
