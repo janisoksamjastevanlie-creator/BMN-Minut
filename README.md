@@ -42,6 +42,8 @@ Frontend memakai History API tanpa router tambahan. URL menu utama: `/dashboard`
 
 Sesi aplikasi memakai cookie HTTP-only dan masa berlaku tetap 12 jam; tidak ada refresh token atau perpanjangan diam-diam. Jika endpoint sinkronisasi membalas 401, aplikasi meminta pengguna masuk kembali dan mencoba menggabungkan perubahan lokal yang belum tersimpan dengan state server setelah login. Konflik ditahan untuk pemeriksaan, bukan ditimpa otomatis.
 
+Setelah perubahan data berhasil disimpan, halaman otomatis reload penuh pada URL yang sama untuk mengambil data terbaru dari server. Reload menunggu antrean penyimpanan, tindakan server, dan notifikasi WhatsApp terkait selesai; perubahan lokal yang belum tersinkron, kegagalan penyimpanan, atau konflik menahan reload. Membuka halaman atau masuk tanpa melakukan perubahan tidak memicu reload berulang. Formulir yang belum dikirim akan tertutup saat reload.
+
 Hostinger menyebut Node.js web app tersedia untuk paket Business dan Cloud; fitur/limitasi dapat berubah. Verifikasi paket aktif, kemampuan menjalankan proses Express berkelanjutan, port yang disediakan, konektivitas ke MySQL Hostinger, kuota koneksi, penyimpanan file yang persisten, dan opsi backup. Aplikasi membutuhkan disk privat yang tetap tersedia melewati deploy untuk menyimpan dokumen. Lihat [panduan Node.js app Hostinger](https://www.hostinger.com/support/how-to-deploy-a-nodejs-website-in-hostinger/) dan [versi Node.js yang didukung](https://www.hostinger.com/support/how-to-select-the-node-js-version-for-your-application/).
 
 ### Pengaturan build dan start

@@ -29,7 +29,7 @@ import {
 } from 'lucide-react';
 
 export const DocumentsView: React.FC = () => {
-  const { documents, deleteDocument, registerDeletedDocument, updateDocument, hasPermission } = useApp();
+  const { documents, deleteDocument, registerDeletedDocument, updateDocument, hasPermission, requestPageRefresh } = useApp();
   const canManageDocuments =
     hasPermission('manageAssets') || hasPermission('manageInventory') || hasPermission('systemSettings');
   const canViewFinancials = hasPermission('manageInventory');
@@ -102,6 +102,7 @@ export const DocumentsView: React.FC = () => {
         throw new Error(result.error || 'Gagal memulihkan lampiran. Silakan coba lagi.');
       }
       setPreviewReload(value => value + 1);
+      requestPageRefresh();
     } catch (error) {
       setRestoreError(error instanceof Error ? error.message : 'Gagal memulihkan lampiran.');
     } finally {

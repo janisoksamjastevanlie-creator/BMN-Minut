@@ -162,6 +162,7 @@ interface AppContextType {
   syncError: string | null;
   isReloadingServerData: boolean;
   reloadServerData: () => Promise<boolean>;
+  requestPageRefresh: () => void;
   login: (nip: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   activeView: ActiveView;
@@ -373,6 +374,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const lastSyncedStateRef = useRef<Record<string, unknown> | null>(null);
   const syncBlockedRef = useRef(false);
   const syncQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const [pageRefreshVersion, setPageRefreshVersion] = useState(0);
+  const pageRefreshRequestedRef = useRef(false);
+  const pendingServerActionsRef = useRef(0);
+  const requestPageRefresh = () => {
+    pageRefreshRequestedRef.current = true;
+    setPageRefreshVersion(version => version + 1);
+  };
   const immediateStateSyncRef = useRef(false);
   const requestImmediateStateSync = () => {
     immediateStateSyncRef.current = true;
@@ -584,6 +592,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     rooms, assets, inventoryItems, stockInList, stockOutList, requests, opnames,
     movements, maintenances, disposals, documents, auditLogs, notifications, users, roles
   };
+  const latestSharedStateRef = useRef(sharedState);
+  latestSharedStateRef.current = sharedState;
+
+  useEffect(() => {
+    if (!pageRefreshRequestedRef.current || !currentUser || !dataReady || syncError) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void syncQueueRef.current.then(() => {
+        if (cancelled || !pageRefreshRequestedRef.current || syncBlockedRef.current ||
+            reloadInFlightRef.current || pendingServerActionsRef.current > 0 ||
+            requestPersistenceWaitersRef.current.size > 0 ||
+            !sameSharedState(latestSharedStateRef.current, lastSyncedStateRef.current)) return;
+        pageRefreshRequestedRef.current = false;
+        window.location.reload();
+      });
+    }, 500);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [pageRefreshVersion, currentUser, dataReady, syncError, sharedState]);
 
   const applySharedState = (state: Record<string, unknown>) => {
     if (Array.isArray(state.rooms)) setRooms(state.rooms as OfficeRoom[]);
@@ -794,6 +823,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 }
               }
             }
+            requestPageRefresh();
             return;
           }
         }
@@ -839,8 +869,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         pendingRequestWhatsAppEventsRef.current = pendingEvents.filter(event =>
           !readyEvents.includes(event) && !persistedRequests.some(request => request.id === event.requestId && request.status !== event.status)
         );
-        for (const event of readyEvents) {
-          void fetch('/api/whatsapp/request-events', {
+        await Promise.all(readyEvents.map(event =>
+          fetch('/api/whatsapp/request-events', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(event)
@@ -876,9 +906,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               `Permohonan berhasil diproses, tetapi notifikasi WhatsApp gagal dikirim. ${details}`,
               'requests'
             );
-          });
-        }
+          })
+        ));
+        requestPageRefresh();
       }).catch(error => {
+        pageRefreshRequestedRef.current = false;
         const message = error instanceof Error ? error.message : 'Perubahan tidak tersimpan ke server.';
         const pendingWaiters = [...requestPersistenceWaitersRef.current.values()];
         requestPersistenceWaitersRef.current.clear();
@@ -982,6 +1014,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const logout = async () => {
     const response = await fetch('/api/auth/logout', { method: 'POST' });
     await readApiResponse<{ success: boolean }>(response, '/api/auth/logout');
+    pageRefreshRequestedRef.current = false;
     setDataReady(false);
     syncBlockedRef.current = false;
     lastSyncedStateRef.current = null;
@@ -993,13 +1026,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const setUserPassword = async (user: User, password: string) => {
-    const response = await fetch(`/api/auth/users/${encodeURIComponent(user.id)}/password`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user, password })
-    });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || 'Gagal menyimpan kata sandi akun.');
+    pendingServerActionsRef.current += 1;
+    try {
+      const response = await fetch(`/api/auth/users/${encodeURIComponent(user.id)}/password`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user, password })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Gagal menyimpan kata sandi akun.');
+      requestPageRefresh();
+    } catch (error) {
+      pageRefreshRequestedRef.current = false;
+      throw error;
+    } finally {
+      pendingServerActionsRef.current -= 1;
+    }
   };
 
   // User Management CRUD
@@ -1989,6 +2031,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     fallbackMessage: string,
     alreadyApplied?: (state: Record<string, unknown>) => boolean
   ) => {
+    pendingServerActionsRef.current += 1;
     try {
       await syncQueueRef.current;
       const response = await fetch(path, {
@@ -2001,6 +2044,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         throw new Error(result.error || fallbackMessage);
       }
       await syncAfterRequestAction(result.revision);
+      requestPageRefresh();
       return { success: true, message: result.alreadyConfirmed
         ? 'Penerimaan ini sudah pernah dikonfirmasi; stok tidak dikurangi kembali.'
         : fallbackMessage };
@@ -2008,14 +2052,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const message = error instanceof Error ? error.message : fallbackMessage;
       const reloaded = await reloadServerData();
       if (reloaded && alreadyApplied?.(lastSyncedStateRef.current || {})) {
+        requestPageRefresh();
         return { success: true, message: 'Server telah mencatat tindakan ini; data terbaru sudah dimuat tanpa mengulang mutasi stok.' };
       }
+      pageRefreshRequestedRef.current = false;
       return {
         success: false,
         message: reloaded
           ? message
           : `${message} Status di server belum dapat diperiksa; jangan ulangi sebelum data berhasil dimuat ulang.`
       };
+    } finally {
+      pendingServerActionsRef.current -= 1;
     }
   };
 
@@ -2318,6 +2366,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
     setDocuments(prev => prev.filter(item => item.id !== id));
     setAuditLogs(prev => [auditLog, ...prev.filter(item => item.id !== auditLog.id)]);
+    requestPageRefresh();
   };
 
   const importSystemBackup = (data: { assets?: BmnAsset[]; inventoryItems?: InventoryItem[]; documents?: DocumentItem[] }) => {
@@ -2343,6 +2392,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         syncError,
         isReloadingServerData,
         reloadServerData,
+        requestPageRefresh,
         login,
         logout,
         activeView,
