@@ -184,7 +184,7 @@ export const StockCardModal: React.FC<{
                 {canViewFinancials ? 'Satuan & Harga:' : 'Satuan:'}
               </span>
               <span className="font-medium text-slate-200 print:text-black">
-                {item.satuan}{canViewFinancials ? ` • Rp ${item.hargaSatuan.toLocaleString('id-ID')}` : ''}
+                {item.satuan}{canViewFinancials ? ` • Rp ${Number(item.hargaSatuan || 0).toLocaleString('id-ID')}` : ''}
               </span>
             </div>
           </div>
@@ -209,7 +209,7 @@ export const StockCardModal: React.FC<{
               <div className="p-2.5 bg-slate-900 rounded-xl border border-slate-800 print:bg-gray-50 print:border-gray-300">
                 <span className="text-[10px] text-slate-400 print:text-gray-600 block">Total Nilai Persediaan</span>
                 <span className="text-sm font-bold text-emerald-400 print:text-black mt-0.5 block font-mono">
-                  Rp {item.totalNilai.toLocaleString('id-ID')}
+                  Rp {Number(item.totalNilai || 0).toLocaleString('id-ID')}
                 </span>
               </div>
             )}

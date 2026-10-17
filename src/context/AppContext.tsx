@@ -388,7 +388,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const queuedRequestWhatsAppStatusRef = useRef<Map<string, InventoryRequest['status']>>(new Map());
 
   const [activeView, setActiveViewState] = useState<ActiveView>(() => getViewForPath(window.location.pathname));
+  // Halaman yang diminta sebelum diarahkan ke login, agar URL langsung tidak berakhir di dashboard.
+  const returnViewRef = useRef<ActiveView | null>(null);
   const setActiveView = (view: ActiveView) => {
+    if (view === 'login' && !['landing', 'login', 'not-found'].includes(activeView)) {
+      returnViewRef.current = activeView;
+    }
     const nextPath = getPathForView(view);
     if (window.location.pathname !== nextPath) {
       window.history.pushState(null, '', `${nextPath}${window.location.search}${window.location.hash}`);
@@ -930,7 +935,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } else {
         setSyncError(null);
       }
-      setActiveView(getHomeView(result.user));
+      const returnView = returnViewRef.current;
+      returnViewRef.current = null;
+      setActiveView(returnView || getHomeView(result.user));
     } catch (error) {
       await fetch('/api/auth/logout', { method: 'POST' });
       setCurrentUser(null);
@@ -977,6 +984,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCurrentUser(null);
     setSyncError(null);
     setActiveView('login');
+    returnViewRef.current = null;
   };
 
   const setUserPassword = async (user: User, password: string) => {

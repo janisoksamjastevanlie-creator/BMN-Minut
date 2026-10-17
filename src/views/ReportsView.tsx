@@ -326,10 +326,10 @@ export const ReportsView: React.FC = () => {
                       {i.stokSaatIni} {i.satuan}
                     </td>
                     <td className="py-2 px-2 text-right font-mono text-slate-300">
-                      Rp {i.hargaSatuan.toLocaleString('id-ID')}
+                      Rp {Number(i.hargaSatuan || 0).toLocaleString('id-ID')}
                     </td>
                     <td className="py-2 px-3 text-right font-mono font-bold text-emerald-400">
-                      Rp {i.totalNilai.toLocaleString('id-ID')}
+                      Rp {Number(i.totalNilai || 0).toLocaleString('id-ID')}
                     </td>
                     <td className="py-2 px-2 text-center font-bold">{i.status}</td>
                   </tr>

@@ -1090,7 +1090,7 @@ export const InventoryView: React.FC = () => {
                     <div className="text-right">
                       <span className="text-[10px] text-slate-400 block">Harga Satuan:</span>
                       <span className="font-mono text-slate-300 font-medium">
-                        Rp {item.hargaSatuan.toLocaleString('id-ID')}
+                        Rp {Number(item.hargaSatuan || 0).toLocaleString('id-ID')}
                       </span>
                     </div>
                   )}
@@ -1255,14 +1255,14 @@ export const InventoryView: React.FC = () => {
                   {/* Harga Satuan */}
                   {hasPermission('manageInventory') && (
                     <td className="py-3 px-3 text-right font-mono text-slate-300">
-                      Rp {item.hargaSatuan.toLocaleString('id-ID')}
+                      Rp {Number(item.hargaSatuan || 0).toLocaleString('id-ID')}
                     </td>
                   )}
 
                   {/* Total Nilai */}
                   {hasPermission('manageInventory') && (
                     <td className="py-3 px-3 text-right font-mono font-bold text-emerald-400">
-                      Rp {item.totalNilai.toLocaleString('id-ID')}
+                      Rp {Number(item.totalNilai || 0).toLocaleString('id-ID')}
                     </td>
                   )}
 
