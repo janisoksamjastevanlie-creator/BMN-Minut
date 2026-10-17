@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { authorizeChangedCollections, restoreRestrictedFinancialData } from '../stateAuthorization.mjs';
+import {
+  authorizeChangedCollections,
+  resolveRequestUser,
+  restoreRestrictedFinancialData
+} from '../stateAuthorization.mjs';
 
 const permissionsByCollection = {
   inventoryItems: ['manageInventory'],
@@ -106,4 +110,61 @@ test('restricted role cannot inject financial fields that are absent in stored d
   restoreRestrictedFinancialData(state, current);
 
   assert.deepEqual(state.documents, current.documents);
+});
+
+test('request authentication uses the current user profile from the transaction state', () => {
+  const resolved = resolveRequestUser(
+    { name: 'Old Name', role: 'Old Role' },
+    'user-1',
+    [{ id: 'user-1', name: 'Current Name', role: 'Operator', email: 'operator@example.gov' }],
+    { email: 'operator@example.gov' },
+    true
+  );
+
+  assert.equal(resolved.error, null);
+  assert.deepEqual(resolved.user, {
+    name: 'Current Name',
+    role: 'Operator',
+    id: 'user-1',
+    email: 'operator@example.gov'
+  });
+});
+
+test('request authentication rejects deleted and inactive users', () => {
+  assert.equal(resolveRequestUser({}, 'missing', [], null, false).error,
+    'Akun tidak lagi terdaftar di sistem.');
+  assert.equal(resolveRequestUser({ statusAktif: false }, 'user-1', null, null, false).error,
+    'Akun dinonaktifkan.');
+  assert.equal(resolveRequestUser({}, 'user-1', [{ id: 'user-1', statusAktif: false }], null, false).error,
+    'Akun dinonaktifkan.');
+});
+
+test('request authentication fails closed for an ambiguous Access email', () => {
+  const users = [
+    { id: 'user-1', email: 'operator@example.gov' },
+    { id: 'user-2', email: 'operator@example.gov' }
+  ];
+  const resolved = resolveRequestUser(
+    { id: 'user-1', email: 'operator@example.gov' },
+    'user-1',
+    users,
+    { email: 'operator@example.gov' },
+    true
+  );
+
+  assert.equal(resolved.user, null);
+  assert.equal(resolved.error, 'Identitas Cloudflare Access tidak cocok dengan akun aplikasi.');
+});
+
+test('legacy initialization can resolve a session profile before users are stored', () => {
+  const resolved = resolveRequestUser(
+    { role: 'Administrator' },
+    'admin-1',
+    null,
+    null,
+    false
+  );
+
+  assert.equal(resolved.error, null);
+  assert.deepEqual(resolved.user, { role: 'Administrator', id: 'admin-1' });
 });

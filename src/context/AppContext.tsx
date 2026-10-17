@@ -373,6 +373,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const lastSyncedStateRef = useRef<Record<string, unknown> | null>(null);
   const syncBlockedRef = useRef(false);
   const syncQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const immediateStateSyncRef = useRef(false);
+  const requestImmediateStateSync = () => {
+    immediateStateSyncRef.current = true;
+  };
   const requestPersistenceWaitersRef = useRef(new Map<string, {
     resolve: (request: InventoryRequest) => void;
     reject: (error: Error) => void;
@@ -687,6 +691,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     if (!currentUser || !dataReady) return;
     const timer = window.setTimeout(async () => {
+      immediateStateSyncRef.current = false;
       syncQueueRef.current = syncQueueRef.current.then(async () => {
         if (syncBlockedRef.current) {
           const error = new StateSyncError('Sinkronisasi terhenti. Muat ulang halaman untuk memeriksa status permohonan.', true);
@@ -887,7 +892,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         setSyncError(reportedError.message);
       });
-    }, 350);
+    }, immediateStateSyncRef.current ? 0 : 350);
     return () => window.clearTimeout(timer);
   }, [
     currentUser, dataReady, rooms, assets, inventoryItems, stockInList, stockOutList,
@@ -1484,6 +1489,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       status: 'Menunggu Pemeriksaan'
     };
 
+    requestImmediateStateSync();
     setStockInList(prev => [newTx, ...prev]);
     logAudit('Pencatatan Barang Masuk', 'PERSEDIAAN', `Penerimaan ${data.jumlah} ${item.satuan} ${item.nama} dicatat dan menunggu pemeriksaan. No: ${nomorTx}`);
     pushNotification('TRANSAKSI', '📥 Barang Masuk Menunggu Pemeriksaan', `${item.nama} (${data.jumlah} ${item.satuan}) menunggu pemeriksaan sebelum stok diperbarui.`, 'inventory');
@@ -1520,6 +1526,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       diverifikasiOleh: undefined,
       diverifikasiPada: undefined
     };
+    requestImmediateStateSync();
     setStockInList(prev => prev.map(tx => tx.id === id ? updated : tx));
     logAudit('Perubahan Barang Masuk', 'PERSEDIAAN', `Transaksi ${target.nomorTransaksi} diperbarui dan kembali menunggu pemeriksaan.`);
     return { success: true, message: 'Transaksi diperbarui dan menunggu pemeriksaan ulang.' };
@@ -1533,6 +1540,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         !['Baik', 'Rusak Ringan', 'Rusak Berat'].includes(pemeriksaan.kondisi)) {
       return { success: false, message: 'Data pemeriksaan belum lengkap.' };
     }
+    requestImmediateStateSync();
     setStockInList(prev => prev.map(tx => tx.id === id
       ? { ...tx, status: 'Sudah Diperiksa', pemeriksaan }
       : tx));
@@ -1556,6 +1564,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { success: false, message: 'Perubahan stok menghasilkan nilai yang tidak valid.' };
     }
     const status = diterima ? 'Diverifikasi' : 'Ditolak';
+    requestImmediateStateSync();
     if (diterima && item) {
       updateInventoryItem(item.id, {
         stokSaatIni: item.stokSaatIni + target.jumlah,
@@ -1612,6 +1621,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updated.status = stock === 0 ? 'Habis' : stock <= item.stokMinimum ? 'Menipis' : 'Aman';
         return updated;
       }));
+      requestImmediateStateSync();
       setStockInList(previous => previous.filter(tx => !result.deletedIds.includes(tx.id)));
       for (const transaction of result.deletedTransactions) {
         const isPosted = (transaction.status == null || transaction.status === 'Diverifikasi')
@@ -1749,6 +1759,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const persisted = new Promise<InventoryRequest>((resolve, reject) => {
       requestPersistenceWaitersRef.current.set(newReq.id, { resolve, reject });
+      requestImmediateStateSync();
       setRequests(prev => [newReq, ...prev]);
     });
     const finalizePersistedRequest = (persistedRequest: InventoryRequest) => {
@@ -1910,6 +1921,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     const persisted = new Promise<InventoryRequest>((resolve, reject) => {
       requestPersistenceWaitersRef.current.set(id, { resolve, reject, expectedStatus: status });
+      requestImmediateStateSync();
       setRequests(prev => prev.map(request => request.id === id ? nextRequest : request));
     });
 

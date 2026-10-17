@@ -1,5 +1,32 @@
 import { isDeepStrictEqual } from 'node:util';
 
+export function resolveRequestUser(profile, userId, users, claims, accessRequired) {
+  const currentProfile = Array.isArray(users) ? users.find(user => user.id === userId) : undefined;
+  if (Array.isArray(users) && !currentProfile) {
+    return { user: null, error: 'Akun tidak lagi terdaftar di sistem.' };
+  }
+  if (currentProfile?.statusAktif === false || profile.statusAktif === false) {
+    return { user: null, error: 'Akun dinonaktifkan.' };
+  }
+
+  const user = currentProfile ? { ...profile, ...currentProfile } : { ...profile };
+  user.id = userId;
+  if (accessRequired) {
+    const email = String(user.email || '').trim().toLowerCase();
+    const claimEmail = String(claims?.email || '').trim().toLowerCase();
+    const matches = Array.isArray(users) ? users.filter(candidate =>
+      candidate.statusAktif !== false &&
+      String(candidate.email || '').trim().toLowerCase() === claimEmail
+    ) : [];
+    if (!email || !claimEmail || matches.length !== 1 ||
+        matches[0].id !== user.id || email !== claimEmail) {
+      return { user: null, error: 'Identitas Cloudflare Access tidak cocok dengan akun aplikasi.' };
+    }
+  }
+
+  return { user, error: null };
+}
+
 // Restores hidden fields exactly as stored: absent fields stay absent (an `undefined`
 // property breaks isDeepStrictEqual) and key order follows the stored row so that
 // JSON.stringify-based workflow checks treat untouched rows as unchanged.

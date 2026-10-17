@@ -27,7 +27,11 @@ import { getWebChatConfig } from './ai/webchatConfig.mjs';
 import { buildRequestEvents, createN8nIntegration } from './automation/n8n/integration.mjs';
 import { createDocumentStorage, DocumentStorageError, validateStoredFile } from './documentStorage.mjs';
 import { readDocumentWithBackup, saveDocumentBackup, verifyDocumentBytes } from './documentFileBackup.mjs';
-import { authorizeChangedCollections, restoreRestrictedFinancialData } from './stateAuthorization.mjs';
+import {
+  authorizeChangedCollections,
+  resolveRequestUser,
+  restoreRestrictedFinancialData
+} from './stateAuthorization.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(root, '.env') });
@@ -652,6 +656,14 @@ function accessIdentityMatches(user, claims, users) {
 }
 
 function requireUser(request, response, next) {
+  return requireUserWithState(request, response, next, true);
+}
+
+function requireUserFromTransactionState(request, response, next) {
+  return requireUserWithState(request, response, next, false);
+}
+
+function requireUserWithState(request, response, next, refreshState) {
   return requireCloudflareAccess(request, response, () => {
     (async () => {
       const token = readCookie(request, 'siman_session');
@@ -668,30 +680,46 @@ function requireUser(request, response, next) {
         response.status(401).json({ error: 'Sesi berakhir. Silakan masuk kembali.' });
         return false;
       }
-      await refreshCollections();
       const profile = JSON.parse(session.profile_json);
-      const users = getCollection('users');
-      const currentProfile = users?.find(user => user.id === session.user_id);
-      if (users && !currentProfile) {
-        response.status(403).json({ error: 'Akun tidak lagi terdaftar di sistem.' });
-        return false;
+      if (refreshState) {
+        await refreshCollections();
+        const resolved = resolveRequestUser(
+          profile,
+          session.user_id,
+          getCollection('users'),
+          request.accessClaims,
+          cloudflareAccessRequired
+        );
+        if (resolved.error) {
+          response.status(403).json({ error: resolved.error });
+          return false;
+        }
+        request.user = resolved.user;
+      } else {
+        if (profile.statusAktif === false) {
+          response.status(403).json({ error: 'Akun dinonaktifkan.' });
+          return false;
+        }
+        request.user = { ...profile, id: session.user_id };
       }
-      if (currentProfile?.statusAktif === false || profile.statusAktif === false) {
-        response.status(403).json({ error: 'Akun dinonaktifkan.' });
-        return false;
-      }
-      const user = currentProfile ? { ...profile, ...currentProfile } : profile;
-      user.id = session.user_id;
-      if (!accessIdentityMatches(user, request.accessClaims, users)) {
-        response.status(403).json({ error: 'Identitas Cloudflare Access tidak cocok dengan akun aplikasi.' });
-        return false;
-      }
-      request.user = user;
       return true;
     })().then(authorized => {
       if (authorized) next();
     }).catch(next);
   });
+}
+
+function bindRequestUserToState(request, state) {
+  const resolved = resolveRequestUser(
+    request.user,
+    request.user.id,
+    state.users,
+    request.accessClaims,
+    cloudflareAccessRequired
+  );
+  if (resolved.error) return resolved.error;
+  request.user = resolved.user;
+  return null;
 }
 
 function getCollection(key) {
@@ -1352,12 +1380,7 @@ app.get('/api/state', requireUser, asyncRoute(async (_request, response) => {
   response.json({ state, initialized: state.users !== null, revision, dataBackend });
 }));
 
-app.post('/api/requests/:id/confirm-receipt', requireUser, asyncRoute(async (request, response) => {
-  if (!userHasPermission(request.user, 'requestSupplies') ||
-      String(request.user.role || '').trim().toLowerCase() === 'pimpinan') {
-    return response.status(403).json({ error: 'Hanya Pemohon yang berwenang dapat mengonfirmasi penerimaan.' });
-  }
-
+app.post('/api/requests/:id/confirm-receipt', requireUserFromTransactionState, asyncRoute(async (request, response) => {
   let currentState;
   let nextState;
   let nextRevision;
@@ -1365,6 +1388,12 @@ app.post('/api/requests/:id/confirm-receipt', requireUser, asyncRoute(async (req
     const revisionRow = await queryOne(connection, "SELECT value FROM app_meta WHERE `key` = 'revision' FOR UPDATE");
     const revision = Number(revisionRow?.value || 0);
     currentState = await readCollections(connection);
+    const authorizationError = bindRequestUserToState(request, currentState);
+    if (authorizationError) return { status: 403, error: authorizationError };
+    if (!userHasPermission(request.user, 'requestSupplies', currentState) ||
+        String(request.user.role || '').trim().toLowerCase() === 'pimpinan') {
+      return { status: 403, error: 'Hanya Pemohon yang berwenang dapat mengonfirmasi penerimaan.' };
+    }
     const requests = Array.isArray(currentState.requests) ? currentState.requests : [];
     const target = requests.find(item => item.id === request.params.id);
     if (!target) return { status: 404, error: 'Permohonan tidak ditemukan.' };
@@ -1563,14 +1592,10 @@ app.post('/api/requests/:id/confirm-receipt', requireUser, asyncRoute(async (req
   whatsapp.onStateSaved(currentState, nextState, request.user.id, nextRevision);
 }));
 
-app.post('/api/requests/:id/receipt-discrepancy', requireUser, asyncRoute(async (request, response) => {
+app.post('/api/requests/:id/receipt-discrepancy', requireUserFromTransactionState, asyncRoute(async (request, response) => {
   const reason = String(request.body?.reason || '').trim();
   if (reason.length < 5 || reason.length > 500) {
     return response.status(400).json({ error: 'Jelaskan selisih barang dalam 5 sampai 500 karakter.' });
-  }
-  if (!userHasPermission(request.user, 'requestSupplies') ||
-      String(request.user.role || '').trim().toLowerCase() === 'pimpinan') {
-    return response.status(403).json({ error: 'Hanya Pemohon yang berwenang melaporkan selisih penerimaan.' });
   }
 
   let currentState;
@@ -1580,6 +1605,12 @@ app.post('/api/requests/:id/receipt-discrepancy', requireUser, asyncRoute(async 
     const revisionRow = await queryOne(connection, "SELECT value FROM app_meta WHERE `key` = 'revision' FOR UPDATE");
     revision = Number(revisionRow?.value || 0);
     currentState = await readCollections(connection);
+    const authorizationError = bindRequestUserToState(request, currentState);
+    if (authorizationError) return { status: 403, error: authorizationError };
+    if (!userHasPermission(request.user, 'requestSupplies', currentState) ||
+        String(request.user.role || '').trim().toLowerCase() === 'pimpinan') {
+      return { status: 403, error: 'Hanya Pemohon yang berwenang melaporkan selisih penerimaan.' };
+    }
     const target = (currentState.requests || []).find(item => item.id === request.params.id);
     if (!target) return { status: 404, error: 'Permohonan tidak ditemukan.' };
     if (target.pemohonUserId !== request.user.id) {
@@ -1645,10 +1676,7 @@ app.post('/api/requests/:id/receipt-discrepancy', requireUser, asyncRoute(async 
   response.json({ success: true, revision });
 }));
 
-app.post('/api/requests/:id/reopen-handover', requireUser, asyncRoute(async (request, response) => {
-  if (!userHasPermission(request.user, 'manageInventory')) {
-    return response.status(403).json({ error: 'Tidak memiliki izin mengelola penyerahan barang.' });
-  }
+app.post('/api/requests/:id/reopen-handover', requireUserFromTransactionState, asyncRoute(async (request, response) => {
   let currentState;
   let nextState;
   let revision;
@@ -1656,6 +1684,11 @@ app.post('/api/requests/:id/reopen-handover', requireUser, asyncRoute(async (req
     const revisionRow = await queryOne(connection, "SELECT value FROM app_meta WHERE `key` = 'revision' FOR UPDATE");
     revision = Number(revisionRow?.value || 0);
     currentState = await readCollections(connection);
+    const authorizationError = bindRequestUserToState(request, currentState);
+    if (authorizationError) return { status: 403, error: authorizationError };
+    if (!userHasPermission(request.user, 'manageInventory', currentState)) {
+      return { status: 403, error: 'Tidak memiliki izin mengelola penyerahan barang.' };
+    }
     const target = (currentState.requests || []).find(item => item.id === request.params.id);
     if (!target) return { status: 404, error: 'Permohonan tidak ditemukan.' };
     if (target.status !== 'Menunggu Konfirmasi' ||
@@ -2259,7 +2292,7 @@ app.get('/api/inventory/:id/stock-card', requireUser, asyncRoute(async (request,
   });
 }));
 
-app.put('/api/state', requireUser, asyncRoute(async (request, response) => {
+app.put('/api/state', requireUserFromTransactionState, asyncRoute(async (request, response) => {
   const submittedState = request.body?.state;
   if (!submittedState || typeof submittedState !== 'object' || Array.isArray(submittedState)) {
     return response.status(400).json({ error: 'Format data tidak valid.' });
@@ -2276,6 +2309,10 @@ app.put('/api/state', requireUser, asyncRoute(async (request, response) => {
         return { status: 409, body: { error: 'Data berubah di perangkat lain. Muat ulang halaman sebelum menyimpan lagi.', revision } };
       }
       currentState = await readCollections(connection);
+      const authorizationError = bindRequestUserToState(request, currentState);
+      if (authorizationError) {
+        return { status: 403, body: { error: authorizationError, revision } };
+      }
       const requestNumberAssignments = assignNewRequestNumbers(currentState.requests, state.requests);
       state.requests = requestNumberAssignments.requests;
       if (!userHasPermission(request.user, 'manageInventory', currentState)) {
@@ -2377,14 +2414,14 @@ app.put('/api/state', requireUser, asyncRoute(async (request, response) => {
         const changed = !nextDocument || noteFields.some(field =>
           JSON.stringify(nextDocument[field]) !== JSON.stringify(previousDocument[field])
         );
-        if (changed && !userHasPermission(request.user, 'manageInventory')) {
+        if (changed && !userHasPermission(request.user, 'manageInventory', currentState)) {
           return {
             status: 403,
             body: { error: 'Nota belanja hanya dapat diubah oleh role yang berwenang atas persediaan.', revision }
           };
         }
         if (changed && previousDocument.status !== 'Draft' &&
-            !userHasPermission(request.user, 'systemSettings')) {
+            !userHasPermission(request.user, 'systemSettings', currentState)) {
           return {
             status: 403,
             body: { error: 'Nota final/terkunci hanya dapat diubah melalui otorisasi administrator.', revision }
@@ -2394,7 +2431,7 @@ app.put('/api/state', requireUser, asyncRoute(async (request, response) => {
       if (nextDocuments.some(document =>
         document?.jenis === 'Nota' &&
         !currentDocuments.some(previous => previous.id === document.id) &&
-        !userHasPermission(request.user, 'manageInventory')
+        !userHasPermission(request.user, 'manageInventory', currentState)
       )) {
         return {
           status: 403,
