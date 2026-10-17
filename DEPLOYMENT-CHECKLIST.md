@@ -60,6 +60,10 @@ The selected authentication direction is to preserve NIP/password login and appl
 8. Verify secret scanning and `git check-ignore` for private environment files, encrypted backups, key files, and database dumps.
 9. If n8n is used, import and activate the workflow only after configuring its Header Auth credential and HTTPS production webhook. Run the event smoke test from the integration guide against staging; n8n outage does not roll back an application transaction, and delivery is best-effort without durable retries.
 
+## Runtime performance diagnostics
+
+The backend emits `[performance]` timing records for slow database queries, `/api/state` reads/writes, and outbound WhatsApp calls. Query logs include only the SQL operation/table and duration, not parameters; endpoint logs include status and byte counts; provider logs include outcome and recipient counts, not phone numbers or messages. Compare these timings in the host logs on staging before and after a release. A 502 from a notification endpoint means delivery was not confirmed and must not be retried manually without checking its idempotency status.
+
 ## Deployment and rollback gate
 
 Do not perform a production cutover until all of these are true:

@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { logSlowDatabaseQuery } from './performanceMetrics.mjs';
 
 const WRITABLE_COLLECTIONS = [
   'rooms', 'assets', 'inventoryItems', 'stockInList', 'stockOutList', 'requests',
@@ -81,13 +82,23 @@ function assertCollection(rows, name) {
 }
 
 async function queryRows(executor, sql, params = []) {
-  const [rows] = await executor.execute(sql, params);
-  return rows;
+  const startedAt = Date.now();
+  try {
+    const [rows] = await executor.execute(sql, params);
+    return rows;
+  } finally {
+    logSlowDatabaseQuery(sql, Date.now() - startedAt);
+  }
 }
 
 async function execute(executor, sql, params = []) {
-  const [result] = await executor.execute(sql, params);
-  return result;
+  const startedAt = Date.now();
+  try {
+    const [result] = await executor.execute(sql, params);
+    return result;
+  } finally {
+    logSlowDatabaseQuery(sql, Date.now() - startedAt);
+  }
 }
 
 async function upsert(executor, table, columns, values) {
@@ -107,6 +118,7 @@ async function syncSimple(executor, previousRows, nextRows, table, columns, mapR
   for (const row of nextRows) {
     const previous = previousById.get(row.id);
     const values = await mapRow(row, previous);
+    if (previous && stable(previous) === stable(row)) continue;
     if (!previous || stable(await mapRow(previous, previous)) !== stable(values)) {
       await upsert(executor, table, columns, values);
     }
@@ -140,6 +152,12 @@ function referenceMap(rows, label) {
     if (!id) fail(`${label} is ambiguous: ${name}.`);
     return id;
   };
+}
+
+function locationKey(warehouse, rack, shelf, binCode) {
+  return JSON.stringify([warehouse, rack, shelf, binCode].map(value =>
+    String(value || '').trim().toLowerCase()
+  ));
 }
 
 function parseDataUrl(document) {
@@ -434,17 +452,19 @@ export async function writeOperationalState(executor, previous, next, actor = {}
   const inventoryCategoryId = referenceMap(inventoryCategories, 'Inventory category');
   const roleId = referenceMap(next.roles.map(role => ({ id: role.id, name: role.name })), 'Role');
   const roomIdById = new Map([...rooms, ...next.rooms].map(room => [room.id, room.id]));
+  const locationIdByKey = new Map();
+  for (const location of locations) {
+    const key = locationKey(location.gudang_name, location.rak_code, location.shelf, location.bin_code);
+    const current = locationIdByKey.get(key);
+    if (current) current.count += 1;
+    else locationIdByKey.set(key, { id: location.id, count: 1 });
+  }
   const locationId = item => {
     const locationData = [item.lokasiGudang, item.rak, item.shelf, item.binCode];
     if (locationData.every(value => !String(value || '').trim())) return null;
-    const matches = locations.filter(location =>
-      String(location.gudang_name || '').trim().toLowerCase() === String(item.lokasiGudang || '').trim().toLowerCase() &&
-      String(location.rak_code || '').trim().toLowerCase() === String(item.rak || '').trim().toLowerCase() &&
-      String(location.shelf || '').trim().toLowerCase() === String(item.shelf || '').trim().toLowerCase() &&
-      String(location.bin_code || '').trim().toLowerCase() === String(item.binCode || '').trim().toLowerCase()
-    );
-    if (matches.length !== 1) fail(`Inventory location does not exist or is ambiguous for item ${item.id}.`);
-    return matches[0].id;
+    const match = locationIdByKey.get(locationKey(...locationData));
+    if (!match || match.count !== 1) fail(`Inventory location does not exist or is ambiguous for item ${item.id}.`);
+    return match.id;
   };
   const deletions = {};
 

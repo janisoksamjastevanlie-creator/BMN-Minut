@@ -5,6 +5,11 @@ import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import express from 'express';
 import mysql from 'mysql2/promise';
+import {
+  logExternalServiceTiming,
+  logSlowDatabaseQuery,
+  performanceTiming
+} from './performanceMetrics.mjs';
 import { createCloudflareAccessMiddleware, createCloudflareAccessVerifier } from './cloudflareAccess.mjs';
 import { assertOperationalSchema, readOperationalState } from './operationalStore.mjs';
 import { writeOperationalState } from './operationalWrites.mjs';
@@ -29,6 +34,8 @@ import { createDocumentStorage, DocumentStorageError, validateStoredFile } from 
 import { readDocumentWithBackup, saveDocumentBackup, verifyDocumentBytes } from './documentFileBackup.mjs';
 import {
   authorizeChangedCollections,
+  getChangedCollections,
+  getChangedUserProfiles,
   resolveRequestUser,
   restoreRestrictedFinancialData
 } from './stateAuthorization.mjs';
@@ -225,8 +232,13 @@ try {
 }
 
 async function queryRows(executor, sql, params = []) {
-  const [rows] = await executor.execute(sql, params);
-  return rows;
+  const startedAt = Date.now();
+  try {
+    const [rows] = await executor.execute(sql, params);
+    return rows;
+  } finally {
+    logSlowDatabaseQuery(sql, Date.now() - startedAt);
+  }
 }
 
 async function queryOne(executor, sql, params = []) {
@@ -234,8 +246,28 @@ async function queryOne(executor, sql, params = []) {
 }
 
 async function execute(executor, sql, params = []) {
-  const [result] = await executor.execute(sql, params);
-  return result;
+  const startedAt = Date.now();
+  try {
+    const [result] = await executor.execute(sql, params);
+    return result;
+  } finally {
+    logSlowDatabaseQuery(sql, Date.now() - startedAt);
+  }
+}
+
+async function measureExternalService(provider, operation) {
+  const startedAt = Date.now();
+  try {
+    const result = await operation();
+    const metrics = result && typeof result.success === 'boolean'
+      ? result
+      : { success: true, sentCount: 1, failedCount: 0 };
+    logExternalServiceTiming(provider, startedAt, metrics);
+    return result;
+  } catch (error) {
+    logExternalServiceTiming(provider, startedAt, null);
+    throw error;
+  }
 }
 
 async function withTransaction(callback) {
@@ -1231,8 +1263,8 @@ function validateStockInWorkflow(previousState, nextState) {
   return null;
 }
 
-async function syncAccountProfiles(connection, users) {
-  for (const user of users) {
+async function syncAccountProfiles(connection, users, previousUsers) {
+  for (const user of getChangedUserProfiles(previousUsers, users)) {
     await execute(connection, 'UPDATE auth_users SET nip = ?, profile_json = ? WHERE id = ?', [
       String(user.nip).trim(), JSON.stringify(user), user.id
     ]);
@@ -1369,7 +1401,7 @@ app.put('/api/auth/users/:id/password', requireUser, asyncRoute(async (request, 
   response.json({ success: true });
 }));
 
-app.get('/api/state', requireUser, asyncRoute(async (_request, response) => {
+app.get('/api/state', performanceTiming('GET /api/state'), requireUser, asyncRoute(async (_request, response) => {
   const state = stateForUser(
     Object.fromEntries(collections.map(key => [key, getCollection(key)])),
     _request.user
@@ -1568,7 +1600,7 @@ app.post('/api/requests/:id/confirm-receipt', requireUserFromTransactionState, a
         ipAddress: request.ip
       }, nextRevision);
     } else {
-      for (const key of collections) {
+      for (const key of getChangedCollections(currentState, nextState, collections)) {
         await execute(connection, `
           INSERT INTO app_data (\`key\`, value_json)
           VALUES (?, ?)
@@ -1657,7 +1689,7 @@ app.post('/api/requests/:id/receipt-discrepancy', requireUserFromTransactionStat
         ipAddress: request.ip
       }, revision);
     } else {
-      for (const key of collections) {
+      for (const key of getChangedCollections(currentState, nextState, collections)) {
         await execute(connection, `
           INSERT INTO app_data (\`key\`, value_json)
           VALUES (?, ?)
@@ -1728,7 +1760,7 @@ app.post('/api/requests/:id/reopen-handover', requireUserFromTransactionState, a
         ipAddress: request.ip
       }, revision);
     } else {
-      for (const key of collections) {
+      for (const key of getChangedCollections(currentState, nextState, collections)) {
         await execute(connection, `
           INSERT INTO app_data (\`key\`, value_json)
           VALUES (?, ?)
@@ -2292,23 +2324,35 @@ app.get('/api/inventory/:id/stock-card', requireUser, asyncRoute(async (request,
   });
 }));
 
-app.put('/api/state', requireUserFromTransactionState, asyncRoute(async (request, response) => {
+app.put('/api/state', performanceTiming('PUT /api/state'), requireUserFromTransactionState, asyncRoute(async (request, response) => {
   const submittedState = request.body?.state;
   if (!submittedState || typeof submittedState !== 'object' || Array.isArray(submittedState)) {
     return response.status(400).json({ error: 'Format data tidak valid.' });
   }
   const state = JSON.parse(JSON.stringify(submittedState));
+  let transactionStartedAt = 0;
+  let transactionMs = 0;
+  let stateReadMs = 0;
+  let persistenceMs = 0;
+  let accountProfileSyncMs = 0;
+  let legacyCollectionsWritten = null;
   let currentState;
   let cancellationEvents;
   let revision;
   try {
+    transactionStartedAt = Date.now();
     const outcome = await withTransaction(async connection => {
       const revisionRow = await queryOne(connection, "SELECT value FROM app_meta WHERE `key` = 'revision' FOR UPDATE");
       revision = Number(revisionRow?.value || 0);
       if (!Number.isInteger(request.body?.revision) || request.body.revision !== revision) {
         return { status: 409, body: { error: 'Data berubah di perangkat lain. Muat ulang halaman sebelum menyimpan lagi.', revision } };
       }
-      currentState = await readCollections(connection);
+      const stateReadStartedAt = Date.now();
+      try {
+        currentState = await readCollections(connection);
+      } finally {
+        stateReadMs += Date.now() - stateReadStartedAt;
+      }
       const authorizationError = bindRequestUserToState(request, currentState);
       if (authorizationError) {
         return { status: 403, body: { error: authorizationError, revision } };
@@ -2502,21 +2546,33 @@ app.put('/api/state', requireUserFromTransactionState, asyncRoute(async (request
           })
         : [];
       cancellationEvents = [];
-      if (dataBackend === 'operational') {
-        await writeOperationalState(connection, currentState, state, {
-          ...request.user,
-          ipAddress: request.ip
-        }, revision + 1);
-      } else {
-        for (const key of collections) {
-          await execute(connection, `
-            INSERT INTO app_data (\`key\`, value_json)
-            VALUES (?, ?)
-            ON DUPLICATE KEY UPDATE value_json = VALUES(value_json)
-          `, [key, JSON.stringify(state[key])]);
+      const persistenceStartedAt = Date.now();
+      try {
+        if (dataBackend === 'operational') {
+          await writeOperationalState(connection, currentState, state, {
+            ...request.user,
+            ipAddress: request.ip
+          }, revision + 1);
+        } else {
+          const changedKeys = getChangedCollections(currentState, state, collections);
+          legacyCollectionsWritten = changedKeys.length;
+          for (const key of changedKeys) {
+            await execute(connection, `
+              INSERT INTO app_data (\`key\`, value_json)
+              VALUES (?, ?)
+              ON DUPLICATE KEY UPDATE value_json = VALUES(value_json)
+            `, [key, JSON.stringify(state[key])]);
+          }
         }
+      } finally {
+        persistenceMs += Date.now() - persistenceStartedAt;
       }
-      await syncAccountProfiles(connection, state.users);
+      const accountProfileSyncStartedAt = Date.now();
+      try {
+        await syncAccountProfiles(connection, state.users, currentState.users);
+      } finally {
+        accountProfileSyncMs += Date.now() - accountProfileSyncStartedAt;
+      }
       await execute(connection, `
         INSERT INTO app_meta (\`key\`, value) VALUES ('revision', ?)
         ON DUPLICATE KEY UPDATE value = VALUES(value)
@@ -2564,6 +2620,7 @@ app.put('/api/state', requireUserFromTransactionState, asyncRoute(async (request
         }
       };
     });
+    transactionMs = Date.now() - transactionStartedAt;
     if (outcome.status !== 200) return response.status(outcome.status).json(outcome.body);
     const n8nEvents = n8nIntegration.enabled
       ? buildRequestEvents({
@@ -2599,17 +2656,18 @@ app.put('/api/state', requireUserFromTransactionState, asyncRoute(async (request
               event.actorName,
               currentMakassarDate()
             );
-            const result = await whatsapp.notifyRequestEvent({
+            const result = await measureExternalService(whatsappProvider, () => whatsapp.notifyRequestEvent({
               eventKey: `request:${event.inventoryRequest.id}:Dibatalkan:cancelled`,
               ownerUserId: event.ownerUserId,
               status: 'Dibatalkan',
               action: 'cancelled',
               ...notification
-            });
+            }));
             await execute(db, 'UPDATE whatsapp_notification_events SET status = ? WHERE event_id = ?', [result.success ? 'sent' : 'failed', event.eventId]);
             if (!result.success) throw new Error(result.error || 'Pengiriman notifikasi pembatalan gagal.');
           }
-        : () => sendTwilioRequestEvent({ ...event, eventType: 'cancelled', note: event.note });
+        : () => measureExternalService(whatsappProvider,
+          () => sendTwilioRequestEvent({ ...event, eventType: 'cancelled', note: event.note }));
       void sendCancellation()
         .catch(async error => {
           await execute(db, 'UPDATE whatsapp_notification_events SET status = ? WHERE event_id = ?', ['failed', event.eventId]);
@@ -2620,10 +2678,14 @@ app.put('/api/state', requireUserFromTransactionState, asyncRoute(async (request
   } catch (error) {
     console.error('Failed to save shared application state:', error);
     response.status(400).json({ error: 'Perubahan data gagal disimpan. Periksa kembali data dan coba lagi.' });
+  } finally {
+    if (!transactionMs && transactionStartedAt) transactionMs = Date.now() - transactionStartedAt;
+    const legacyWriteCount = legacyCollectionsWritten == null ? 'n/a' : legacyCollectionsWritten;
+    console.info(`[performance] state_write backend=${dataBackend} status=${response.statusCode} transaction_ms=${transactionMs} snapshot_read_ms=${stateReadMs} persistence_ms=${persistenceMs} account_profile_sync_ms=${accountProfileSyncMs} legacy_collections_written=${legacyWriteCount} request_bytes=${Number(request.get('content-length') || 0)}`);
   }
 }));
 
-app.post('/api/whatsapp/request-events', requireUser, asyncRoute(async (request, response) => {
+app.post('/api/whatsapp/request-events', performanceTiming('POST /api/whatsapp/request-events'), requireUser, asyncRoute(async (request, response) => {
   const { eventId, requestId, status, action, note } = request.body || {};
   const allowedStatuses = ['Diajukan', 'Diverifikasi', 'Disetujui', 'Diproses', 'Selesai', 'Ditolak'];
   if (typeof eventId !== 'string' || !/^[\da-f-]{36}$/i.test(eventId) ||
@@ -2737,22 +2799,22 @@ app.post('/api/whatsapp/request-events', requireUser, asyncRoute(async (request,
         request.user.name,
         currentMakassarDate()
       );
-      result = await whatsapp.notifyRequestEvent({
+      result = await measureExternalService(whatsappProvider, () => whatsapp.notifyRequestEvent({
         eventKey: `request:${requestId}:${status}:${action}`,
         ownerUserId: owner,
         status,
         action,
         ...notification
-      });
+      }));
       await execute(db, 'UPDATE whatsapp_notification_events SET status = ? WHERE event_id = ?', [result.success ? 'sent' : 'failed', notificationEventId]);
     } else {
-      result = await sendTwilioRequestEvent({
+      result = await measureExternalService(whatsappProvider, () => sendTwilioRequestEvent({
         eventId: notificationEventId,
         inventoryRequest,
         eventType: action === 'submitted' ? 'submitted' : 'approved',
         users: getCollection('users') || [],
         note
-      });
+      }));
     }
     if (result.success) {
       return response.json({
@@ -2894,7 +2956,7 @@ app.post('/api/whatsapp/request-events', requireUser, asyncRoute(async (request,
       const recipientHash = crypto.createHash('sha256').update(phone).digest('hex');
       try {
         const sendMessage = whatsappProvider === 'twilio' ? sendTwilioWhatsAppMessage : sendWhatsAppMessage;
-        await sendMessage({ phone, message });
+        await measureExternalService(whatsappProvider, () => sendMessage({ phone, message }));
         await execute(db, `
           INSERT INTO whatsapp_notification_recipients (event_id, recipient_hash, status)
           VALUES (?, ?, 'sent')

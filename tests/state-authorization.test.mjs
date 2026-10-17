@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   authorizeChangedCollections,
+  getChangedCollections,
+  getChangedUserProfiles,
   resolveRequestUser,
   restoreRestrictedFinancialData
 } from '../stateAuthorization.mjs';
@@ -110,6 +112,36 @@ test('restricted role cannot inject financial fields that are absent in stored d
   restoreRestrictedFinancialData(state, current);
 
   assert.deepEqual(state.documents, current.documents);
+});
+
+test('changed collection detection ignores object key order', () => {
+  const current = {
+    rooms: [{ id: 'room-1', name: 'Ruang A', floor: 1 }],
+    requests: [{ id: 'request-1', status: 'Diajukan' }]
+  };
+  const next = {
+    rooms: [{ floor: 1, name: 'Ruang A', id: 'room-1' }],
+    requests: [{ id: 'request-1', status: 'Diverifikasi' }]
+  };
+
+  assert.deepEqual(getChangedCollections(current, next, ['rooms', 'requests']), ['requests']);
+});
+
+test('only new or changed user profiles need account synchronization', () => {
+  const previous = [
+    { id: 'user-1', name: 'Operator', role: 'Operator', phone: undefined },
+    { id: 'user-2', name: 'Pemohon', role: 'User' }
+  ];
+  const next = [
+    { id: 'user-1', name: 'Operator', role: 'Operator' },
+    { id: 'user-2', name: 'Pemohon', role: 'Administrator' },
+    { id: 'user-3', name: 'Gudang', role: 'Pengelola BMN' }
+  ];
+
+  assert.deepEqual(
+    getChangedUserProfiles(previous, next).map(user => user.id),
+    ['user-2', 'user-3']
+  );
 });
 
 test('request authentication uses the current user profile from the transaction state', () => {

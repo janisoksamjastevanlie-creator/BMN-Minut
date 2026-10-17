@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { logSlowDatabaseQuery } from './performanceMetrics.mjs';
 
 const COLLECTIONS = [
   'rooms', 'assets', 'inventoryItems', 'stockInList', 'stockOutList', 'requests',
@@ -128,13 +129,23 @@ const REQUIRED_FOREIGN_KEYS = [
 ];
 
 async function queryRows(executor, sql, params = []) {
-  const [rows] = await executor.execute(sql, params);
-  return rows;
+  const startedAt = Date.now();
+  try {
+    const [rows] = await executor.execute(sql, params);
+    return rows;
+  } finally {
+    logSlowDatabaseQuery(sql, Date.now() - startedAt);
+  }
 }
 
 async function execute(executor, sql, params = []) {
-  const [result] = await executor.execute(sql, params);
-  return result;
+  const startedAt = Date.now();
+  try {
+    const [result] = await executor.execute(sql, params);
+    return result;
+  } finally {
+    logSlowDatabaseQuery(sql, Date.now() - startedAt);
+  }
 }
 
 function parseJson(value, label, fallback = {}) {

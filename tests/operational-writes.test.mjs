@@ -16,7 +16,7 @@ function state(overrides = {}) {
   };
 }
 
-function createExecutor({ ledger = [] } = {}) {
+function createExecutor({ ledger = [], locations = [] } = {}) {
   const statements = [];
   const inventoryCategories = [{ id: 'category-atk', name: 'ATK' }];
   return {
@@ -27,7 +27,7 @@ function createExecutor({ ledger = [] } = {}) {
       if (sql.includes('FROM rooms')) return [[], []];
       if (sql.includes('FROM asset_categories')) return [[], []];
       if (sql.includes('FROM inventory_categories')) return [inventoryCategories, []];
-      if (sql.includes('FROM inventory_locations')) return [[], []];
+      if (sql.includes('FROM inventory_locations')) return [locations, []];
       if (sql.includes('FROM stock_card_ledger')) return [ledger, []];
       if (sql.includes('INSERT INTO `stock_card_ledger`')) {
         const row = {
@@ -48,6 +48,32 @@ function createExecutor({ ledger = [] } = {}) {
       }
       return [{ affectedRows: 1 }, []];
     }
+  };
+}
+
+function inventoryItem(overrides = {}) {
+  return {
+    id: 'item-1',
+    kodeBarang: 'ATK-001',
+    nama: 'Kertas',
+    merek: '',
+    kategori: 'ATK',
+    subkategori: '',
+    jenis: 'ATK',
+    satuan: 'Rim',
+    stokAwal: 0,
+    stokSaatIni: 0,
+    stokMinimum: 1,
+    stokMaksimum: 20,
+    hargaSatuan: 10,
+    lokasiGudang: 'Gudang A',
+    rak: 'RAK-01',
+    shelf: 'S1',
+    binCode: 'BIN-01',
+    barcode: '',
+    ratarataPenggunaanBulanan: 1,
+    fotoUrl: undefined,
+    ...overrides
   };
 }
 
@@ -285,4 +311,54 @@ test('deleting orphaned historical stock-in does not create a stock correction',
     sql.includes('DELETE FROM `stock_in`') && params[0] === 'sin-orphan'));
   assert.equal(executor.statements.some(({ sql }) =>
     sql.includes('INSERT INTO `stock_card_ledger`')), false);
+});
+
+test('inventory writer resolves locations from a normalized composite index', async () => {
+  const executor = createExecutor({
+    locations: [{
+      id: 'location-1',
+      gudang_name: ' gudang a ',
+      rak_code: 'rak-01',
+      shelf: 's1',
+      bin_code: 'bin-01'
+    }]
+  });
+  await writeOperationalState(executor, state(), state({
+    inventoryItems: [inventoryItem()]
+  }));
+
+  const insert = executor.statements.find(({ sql }) => sql.includes('INSERT INTO `inventory_items`'));
+  assert.ok(insert);
+  assert.equal(insert.params[13], 'location-1');
+});
+
+test('inventory location index preserves ambiguous-location rejection', async () => {
+  const location = {
+    id: 'location-1',
+    gudang_name: 'Gudang A',
+    rak_code: 'RAK-01',
+    shelf: 'S1',
+    bin_code: 'BIN-01'
+  };
+  const executor = createExecutor({
+    locations: [location, { ...location, id: 'location-2' }]
+  });
+
+  await assert.rejects(
+    writeOperationalState(executor, state(), state({
+      inventoryItems: [inventoryItem()]
+    })),
+    /Inventory location does not exist or is ambiguous/
+  );
+  assert.equal(executor.statements.some(({ sql }) => sql.includes('INSERT INTO `inventory_items`')), false);
+});
+
+test('unchanged inventory rows are still validated before the writer skips redundant mapping', async () => {
+  const invalidItem = inventoryItem({ nama: '' });
+  const current = state({ inventoryItems: [invalidItem] });
+
+  await assert.rejects(
+    writeOperationalState(createExecutor(), current, state({ inventoryItems: [{ ...invalidItem }] })),
+    /Inventory item name is required/
+  );
 });

@@ -27,6 +27,18 @@ export function resolveRequestUser(profile, userId, users, claims, accessRequire
   return { user, error: null };
 }
 
+export function getChangedCollections(current, next, collections) {
+  return collections.filter(key => !isDeepStrictEqual(current[key], next[key]));
+}
+
+export function getChangedUserProfiles(previousUsers, nextUsers) {
+  const previousById = new Map((previousUsers || []).map(user => [user.id, user]));
+  return (nextUsers || []).filter(user => {
+    const previous = previousById.get(user.id);
+    return !previous || JSON.stringify(previous) !== JSON.stringify(user);
+  });
+}
+
 // Restores hidden fields exactly as stored: absent fields stay absent (an `undefined`
 // property breaks isDeepStrictEqual) and key order follows the stored row so that
 // JSON.stringify-based workflow checks treat untouched rows as unchanged.
@@ -77,7 +89,7 @@ export function authorizeChangedCollections({
   const collections = Object.keys(permissionsByCollection);
   if (!Object.values(current).some(value => value !== null)) return user.role === 'Administrator';
 
-  const changed = collections.filter(key => !isDeepStrictEqual(current[key], state[key]));
+  const changed = getChangedCollections(current, state, collections);
   for (const key of changed) {
     if (key === 'notifications' || user.role === 'Administrator') continue;
     if (key === 'roles') return false;
