@@ -452,7 +452,7 @@ export const StockRequestsView: React.FC = () => {
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Pengelolaan alur permohonan ATK/ARK dinas BPS Kabupaten Minahasa Utara TA 2026
+            Pengelolaan alur permohonan ATK/ARK BPS Kabupaten Minahasa Utara TA 2026
           </p>
         </div>
 
