@@ -37,6 +37,9 @@ import {
   generateInitialNotifications
 } from '../data/initialData';
 import { getAssetPhotoUrl, getInventoryPhotoUrl } from '../utils/assetImages';
+import {
+  linkImportedAssetsToRooms
+} from '../utils/assetRoomImporter';
 import { DashboardFilters, DEFAULT_DASHBOARD_FILTERS } from '../utils/dashboardFilters';
 import { getHomeView, isPimpinanUser } from '../utils/rbac';
 import { getPathForView, getViewForPath } from '../utils/viewRoutes';
@@ -227,6 +230,7 @@ interface AppContextType {
   updateAsset: (id: string, updates: Partial<BmnAsset>) => void;
   deleteAsset: (id: string) => void;
   importAssets: (newAssets: Omit<BmnAsset, 'id'>[], mode?: 'append' | 'upsert') => { successCount: number; updatedCount: number };
+  importAssetsWithRooms: (newAssets: Omit<BmnAsset, 'id'>[], mode?: 'append' | 'upsert') => { successCount: number; updatedCount: number; createdRooms: number };
   
   addInventoryItem: (item: Omit<InventoryItem, 'id'>) => void;
   updateInventoryItem: (id: string, updates: Partial<InventoryItem>, options?: { recordStockAdjustment?: boolean }) => void;
@@ -1411,6 +1415,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { successCount: added, updatedCount: updated };
   };
 
+  const importAssetsWithRooms = (
+    newAssetsData: Omit<BmnAsset, 'id'>[],
+    mode: 'append' | 'upsert' = 'upsert'
+  ) => {
+    const { assets: linkedAssets, newRooms } = linkImportedAssetsToRooms(newAssetsData, rooms);
+    if (newRooms.length > 0) {
+      setRooms(previous => [...previous, ...newRooms]);
+      logAudit(
+        'Tambah Ruangan dari Impor Aset',
+        'ASET_BMN',
+        `${newRooms.length} ruangan otomatis ditambahkan dari lokasi file impor aset.`
+      );
+    }
+
+    return { ...importAssets(linkedAssets, mode), createdRooms: newRooms.length };
+  };
+
   // Inventory CRUD
   const addInventoryItem = (itemData: Omit<InventoryItem, 'id'>) => {
     const newId = `inv-${Date.now()}`;
@@ -2519,6 +2540,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateAsset,
         deleteAsset,
         importAssets,
+        importAssetsWithRooms,
         addInventoryItem,
         updateInventoryItem,
         deleteInventoryItem,

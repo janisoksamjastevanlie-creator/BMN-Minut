@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { parseUploadedFile, mapRowsToBmnAssets, downloadAssetTemplate } from '../../utils/fileImporter';
+import { getMissingImportedRoomLocations } from '../../utils/assetRoomImporter';
 import { BmnAsset } from '../../types';
 import confetti from 'canvas-confetti';
 import {
@@ -24,7 +25,7 @@ interface ImportAssetModalProps {
 }
 
 export const ImportAssetModal: React.FC<ImportAssetModalProps> = ({ isOpen, onClose }) => {
-  const { rooms, importAssets } = useApp();
+  const { rooms, importAssetsWithRooms } = useApp();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -33,8 +34,12 @@ export const ImportAssetModal: React.FC<ImportAssetModalProps> = ({ isOpen, onCl
   const [previewAssets, setPreviewAssets] = useState<Omit<BmnAsset, 'id'>[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [importMode, setImportMode] = useState<'upsert' | 'append'>('upsert');
-  const [importSuccess, setImportSuccess] = useState<{ added: number; updated: number } | null>(null);
+  const [importSuccess, setImportSuccess] = useState<{ added: number; updated: number; createdRooms: number } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const roomsToCreate = getMissingImportedRoomLocations(
+    previewAssets.map(asset => asset.ruanganNama),
+    rooms
+  ).length;
 
   if (!isOpen) return null;
 
@@ -75,10 +80,11 @@ export const ImportAssetModal: React.FC<ImportAssetModalProps> = ({ isOpen, onCl
   const handleProcessImport = () => {
     if (previewAssets.length === 0) return;
 
-    const result = importAssets(previewAssets, importMode);
+    const result = importAssetsWithRooms(previewAssets, importMode);
     setImportSuccess({
       added: result.successCount,
-      updated: result.updatedCount
+      updated: result.updatedCount,
+      createdRooms: result.createdRooms
     });
 
     try {
@@ -187,6 +193,10 @@ export const ImportAssetModal: React.FC<ImportAssetModalProps> = ({ isOpen, onCl
                   <span className="text-slate-400 block text-[10px]">ASET DIPERBARUI</span>
                   <span className="text-cyan-400 text-lg font-bold font-mono">{importSuccess.updated}</span>
                 </div>
+                <div className="px-4 py-2 bg-slate-950 border border-slate-800 rounded-xl">
+                  <span className="text-slate-400 block text-[10px]">RUANGAN DIBUAT</span>
+                  <span className="text-blue-400 text-lg font-bold font-mono">{importSuccess.createdRooms}</span>
+                </div>
               </div>
 
               <div className="pt-4 flex justify-center gap-3">
@@ -281,6 +291,14 @@ export const ImportAssetModal: React.FC<ImportAssetModalProps> = ({ isOpen, onCl
               )}
 
               {/* Error Message */}
+              {previewAssets.length > 0 && (
+                <p className="text-xs text-cyan-200">
+                  {roomsToCreate > 0
+                    ? `${roomsToCreate} ruangan akan dibuat otomatis dan langsung dihubungkan ke aset. Lokasi kosong akan memakai ruangan “Belum berlokasi”.`
+                    : 'Semua aset akan langsung dihubungkan ke ruangan yang sesuai.'}
+                </p>
+              )}
+
               {errorMsg && (
                 <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-start gap-2.5">
                   <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" />

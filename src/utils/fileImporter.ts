@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import { BmnAsset, InventoryItem, AssetCondition } from '../types';
+import { findImportedRoom, parseImportedRoomLocation } from './assetRoomImporter';
 
 /**
  * Standardize text string for fuzzy key matching
@@ -56,7 +57,7 @@ export interface ParsedAssetResult {
 
 export const mapRowsToBmnAssets = (
   rawRows: Record<string, any>[],
-  rooms: { id: string; name: string }[]
+  rooms: { id: string; name: string; code?: string; building?: string }[]
 ): ParsedAssetResult => {
   const validAssets: Omit<BmnAsset, 'id'>[] = [];
   const warnings: string[] = [];
@@ -118,13 +119,12 @@ export const mapRowsToBmnAssets = (
     }
 
     // Room mapping
-    const rawRuang = String(findVal(['ruangan', 'ruang', 'nama ruangan', 'lokasi', 'tempat']) || '').trim();
-    let matchedRoom = rooms.find(r => r.name.toLowerCase() === rawRuang.toLowerCase());
-    if (!matchedRoom && rawRuang) {
-      matchedRoom = rooms.find(r => r.name.toLowerCase().includes(rawRuang.toLowerCase()));
-    }
-    const ruanganId = matchedRoom?.id || (rooms[0]?.id || 'room-1');
-    const ruanganNama = matchedRoom?.name || (rawRuang || rooms[0]?.name || 'Ruang Bagian Umum');
+    const roomLocation = parseImportedRoomLocation(String(
+      findVal(['ruangan', 'ruang', 'nama ruangan', 'lokasi', 'tempat']) || ''
+    ));
+    const matchedRoom = findImportedRoom(roomLocation, rooms.map(room => ({ ...room, code: room.code || '' })));
+    const ruanganId = matchedRoom?.id || '';
+    const ruanganNama = matchedRoom?.name || roomLocation.label;
 
     const penanggungJawab = String(findVal(['penanggung jawab', 'penanggungjawab', 'pj', 'pic', 'pemakai']) || 'Kepala BPS Minahasa Utara').trim();
     const barcode = `BMN-7106-${String(nup).padStart(4, '0')}`;
@@ -144,7 +144,7 @@ export const mapRowsToBmnAssets = (
       akumulasiPenyusutan,
       nilaiBuku,
       kondisi,
-      gedung: 'Gedung Kantor BPS Minahasa Utara',
+      gedung: matchedRoom?.building || 'Gedung Kantor BPS Minahasa Utara',
       ruanganId,
       ruanganNama,
       penanggungJawab,

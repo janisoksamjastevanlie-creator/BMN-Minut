@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import { BmnAsset, AssetCondition } from '../types';
+import { findImportedRoom, parseImportedRoomLocation } from './assetRoomImporter';
 
 export const MASTER_ASSET_SHEET = 'Master Aset';
 
@@ -124,7 +125,7 @@ export const parseMasterAssetFile = async (file: File): Promise<MasterAssetSourc
 export const prepareMasterAssetImport = (
   rows: MasterAssetSourceRow[],
   categoryMappings: Record<string, string>,
-  rooms: { id: string; name: string; building?: string }[],
+  rooms: { id: string; code?: string; name: string; building?: string }[],
   existingAssets: BmnAsset[]
 ): MasterAssetImportPreview => {
   const assets: Omit<BmnAsset, 'id'>[] = [];
@@ -193,11 +194,8 @@ export const prepareMasterAssetImport = (
       return;
     }
 
-    const lokasi = textValue(sourceField(fields, 'Lokasi Ruang'));
-    const isUnlocated = /^(belum berlokasi|belum ditentukan|tidak diketahui)$/i.test(lokasi);
-    const matchedRoom = isUnlocated
-      ? undefined
-      : rooms.find(room => room.name.trim().toLocaleLowerCase('id-ID') === lokasi.toLocaleLowerCase('id-ID'));
+    const roomLocation = parseImportedRoomLocation(textValue(sourceField(fields, 'Lokasi Ruang')));
+    const matchedRoom = findImportedRoom(roomLocation, rooms.map(room => ({ ...room, code: room.code || '' })));
     const merk = textValue(sourceField(fields, 'Merk'));
     const tipe = textValue(sourceField(fields, 'Tipe'));
     const pengguna = textValue(sourceField(fields, 'Nama Pengguna')) || textValue(sourceField(fields, 'Pengguna'));
@@ -219,7 +217,7 @@ export const prepareMasterAssetImport = (
       kondisi,
       gedung: matchedRoom?.building || '',
       ruanganId: matchedRoom?.id || '',
-      ruanganNama: matchedRoom?.name || lokasi,
+      ruanganNama: matchedRoom?.name || roomLocation.label,
       penanggungJawab: pengguna,
       status: kondisi === 'Rusak Berat' ? 'Dalam Pemeliharaan' : 'Aktif',
       barcode: '',

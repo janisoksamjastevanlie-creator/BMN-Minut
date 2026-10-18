@@ -1,6 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { BMN_ASSET_CATEGORIES } from '../../data/bmnAssetCategories';
+import { getMissingImportedRoomLocations } from '../../utils/assetRoomImporter';
 import {
   defaultMasterAssetCategoryMappings,
   downloadMasterAssetExport,
@@ -26,7 +27,7 @@ interface MasterAssetImportModalProps {
 }
 
 export const MasterAssetImportModal: React.FC<MasterAssetImportModalProps> = ({ isOpen, onClose, canImport }) => {
-  const { assets, rooms, importAssets } = useApp();
+  const { assets, rooms, importAssetsWithRooms } = useApp();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [sourceRows, setSourceRows] = useState<MasterAssetSourceRow[] | null>(null);
   const [categoryMappings, setCategoryMappings] = useState<Record<string, string>>({});
@@ -34,6 +35,7 @@ export const MasterAssetImportModal: React.FC<MasterAssetImportModalProps> = ({ 
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successCount, setSuccessCount] = useState<number | null>(null);
+  const [createdRoomCount, setCreatedRoomCount] = useState(0);
   const availableCategories = useMemo(
     () => [...new Set([
       ...BMN_ASSET_CATEGORIES,
@@ -47,6 +49,12 @@ export const MasterAssetImportModal: React.FC<MasterAssetImportModalProps> = ({ 
       : null,
     [sourceRows, categoryMappings, rooms, assets]
   );
+  const roomsToCreate = useMemo(
+    () => preview
+      ? getMissingImportedRoomLocations(preview.assets.map(asset => asset.ruanganNama), rooms).length
+      : 0,
+    [preview, rooms]
+  );
 
   if (!isOpen) return null;
 
@@ -55,6 +63,7 @@ export const MasterAssetImportModal: React.FC<MasterAssetImportModalProps> = ({ 
     setSelectedFile(file.name);
     setSourceRows(null);
     setSuccessCount(null);
+    setCreatedRoomCount(0);
     setErrorMessage('');
     setIsLoading(true);
     try {
@@ -74,8 +83,9 @@ export const MasterAssetImportModal: React.FC<MasterAssetImportModalProps> = ({ 
   const handleImport = () => {
     if (!preview || preview.assets.length === 0) return;
     try {
-      importAssets(preview.assets, 'append');
+      const result = importAssetsWithRooms(preview.assets, 'append');
       setSuccessCount(preview.assets.length);
+      setCreatedRoomCount(result.createdRooms);
       setErrorMessage('');
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Data Master Aset gagal disimpan.');
@@ -87,6 +97,7 @@ export const MasterAssetImportModal: React.FC<MasterAssetImportModalProps> = ({ 
     setSelectedFile('');
     setCategoryMappings({});
     setSuccessCount(null);
+    setCreatedRoomCount(0);
     setErrorMessage('');
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
@@ -167,7 +178,10 @@ export const MasterAssetImportModal: React.FC<MasterAssetImportModalProps> = ({ 
             <div className="p-8 text-center rounded-xl bg-emerald-500/10 border border-emerald-500/20">
               <CheckCircle2 className="w-10 h-10 text-emerald-400 mx-auto mb-3" />
               <h3 className="text-lg font-bold text-white">Impor Master Aset selesai</h3>
-              <p className="text-sm text-slate-300 mt-1">{successCount} aset baru telah dikirim ke penyimpanan aplikasi.</p>
+              <p className="text-sm text-slate-300 mt-1">
+                {successCount} aset baru telah dikirim ke penyimpanan aplikasi.
+                {createdRoomCount > 0 && ` ${createdRoomCount} ruangan baru dibuat dan aset langsung dihubungkan.`}
+              </p>
               <button onClick={reset} className="mt-5 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold">
                 Impor file lain
               </button>
@@ -182,6 +196,11 @@ export const MasterAssetImportModal: React.FC<MasterAssetImportModalProps> = ({ 
                 <div className="p-3 rounded-lg bg-slate-950 border border-slate-800"><span className="text-slate-400 block">Konflik, tidak ditimpa</span><b className="text-amber-300 text-lg">{preview.conflicts.length}</b></div>
                 <div className="p-3 rounded-lg bg-slate-950 border border-slate-800"><span className="text-slate-400 block">Baris perlu diperiksa</span><b className="text-rose-300 text-lg">{preview.invalidRows.length}</b></div>
               </div>
+              <p className="text-xs text-cyan-200">
+                {roomsToCreate > 0
+                  ? `${roomsToCreate} ruangan akan dibuat otomatis dan langsung dihubungkan ke aset. Lokasi kosong akan memakai ruangan “Belum berlokasi”.`
+                  : 'Semua aset akan langsung dihubungkan ke ruangan yang sesuai.'}
+              </p>
 
               <section className="space-y-2">
                 <div>

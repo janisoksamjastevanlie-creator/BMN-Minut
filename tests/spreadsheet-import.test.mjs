@@ -9,6 +9,13 @@ import {
   prepareMasterAssetImport
 } from '../src/utils/masterAssetImporter.ts';
 import { BMN_ASSET_CATEGORIES } from '../src/data/bmnAssetCategories.ts';
+import {
+  findImportedRoom,
+  getMissingImportedRoomLocations,
+  linkImportedAssetsToRooms,
+  parseImportedRoomLocation,
+  UNLOCATED_ASSET_ROOM_NAME
+} from '../src/utils/assetRoomImporter.ts';
 
 const makeFile = (name, content) => {
   const bytes = typeof content === 'string' ? new TextEncoder().encode(content) : new Uint8Array(content);
@@ -77,6 +84,58 @@ test('master asset category defaults match existing names or retain the source c
     defaultMasterAssetCategoryMappings([...BMN_ASSET_CATEGORIES], []),
     Object.fromEntries(BMN_ASSET_CATEGORIES.map(category => [category, category]))
   );
+});
+
+test('asset imports create missing rooms and link every asset, including unlocated assets', () => {
+  const existingRooms = [{
+    id: 'room-1',
+    code: '010108',
+    name: 'RUANG TAMU',
+    building: 'Gedung Utama',
+    floor: 1,
+    picName: 'Petugas',
+    picNip: '',
+    color: '#000000',
+    position3D: [0, 0, 0],
+    size3D: [3, 2, 3],
+    description: ''
+  }];
+  assert.deepEqual(parseImportedRoomLocation(''), {
+    label: UNLOCATED_ASSET_ROOM_NAME,
+    name: UNLOCATED_ASSET_ROOM_NAME,
+    code: ''
+  });
+  assert.equal(findImportedRoom(
+    parseImportedRoomLocation('010108 - RUANG TAMU'),
+    existingRooms
+  )?.id, 'room-1');
+
+  const assets = [
+    { ruanganNama: '010108 - RUANG TAMU', gedung: '', penanggungJawab: '' },
+    { ruanganNama: '010110 - RUANG GUDANG', gedung: '', penanggungJawab: 'Petugas Gudang' },
+    { ruanganNama: '010110 - RUANG GUDANG', gedung: '', penanggungJawab: 'Petugas Gudang' },
+    { ruanganNama: '' , gedung: '', penanggungJawab: '' }
+  ];
+  const missingRooms = getMissingImportedRoomLocations(
+    assets.map(asset => asset.ruanganNama),
+    existingRooms
+  );
+  assert.deepEqual(missingRooms.map(room => room.name), ['RUANG GUDANG', UNLOCATED_ASSET_ROOM_NAME]);
+
+  const result = linkImportedAssetsToRooms(assets, existingRooms);
+  assert.equal(result.newRooms.length, 2);
+  assert.equal(result.assets.length, assets.length);
+  assert.ok(result.assets.every(asset => asset.ruanganId));
+  assert.equal(result.assets[0].ruanganId, 'room-1');
+  assert.equal(result.assets[0].gedung, 'Gedung Utama');
+  assert.equal(result.assets[1].ruanganId, result.assets[2].ruanganId);
+  assert.equal(result.assets[3].ruanganNama, UNLOCATED_ASSET_ROOM_NAME);
+  assert.equal(result.assets[3].ruanganId, result.newRooms[1].id);
+  assert.equal(result.newRooms[1].roomType, 'Lainnya');
+
+  const repeatedImport = linkImportedAssetsToRooms(result.assets, [...existingRooms, ...result.newRooms]);
+  assert.equal(repeatedImport.newRooms.length, 0);
+  assert.deepEqual(repeatedImport.assets.map(asset => asset.ruanganId), result.assets.map(asset => asset.ruanganId));
 });
 
 const withIncorrectDimensions = (workbook) => {
