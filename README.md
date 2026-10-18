@@ -40,6 +40,8 @@ Project ini adalah aplikasi React/Vite dengan backend Node.js/Express dan MySQL 
 
 Frontend memakai History API tanpa router tambahan. URL menu utama: `/dashboard`, `/aset-bmn`, `/manajemen-ruangan`, `/asset-mapping-3d`, `/pemindahan-aset`, `/pemeliharaan-aset`, `/penghapusan-bmn`, `/master-persediaan`, `/gudang-3d`, `/permohonan-barang-atk`, `/stock-opname`, `/dokumen-bast`, `/laporan-resmi-bps`, `/audit-trail`, `/manajemen-pengguna`, dan `/pengaturan-sistem`. Halaman autentikasi `/login`; halaman pimpinan `/dashboard-pimpinan`; kartu stok `/kartu-stok`. Express melayani SPA untuk halaman langsung/refresh, tetapi URL API yang tidak dikenal membalas JSON 404, bukan HTML.
 
+Saat alamat utama `/` dibuka, frontend langsung mengganti URL menjadi `/login` sebelum aplikasi dirender, tanpa menampilkan beranda atau menambah riwayat navigasi. Parameter URL dan fragmen tetap dipertahankan. Sesi aktif tetap mengikuti alur yang sudah ada: pengguna diarahkan ke dashboard sesuai hak aksesnya tanpa dipaksa logout.
+
 Sesi aplikasi memakai cookie HTTP-only dan masa berlaku tetap 12 jam; tidak ada refresh token atau perpanjangan diam-diam. Jika endpoint sinkronisasi membalas 401, aplikasi meminta pengguna masuk kembali dan mencoba menggabungkan perubahan lokal yang belum tersimpan dengan state server setelah login. Konflik ditahan untuk pemeriksaan, bukan ditimpa otomatis.
 
 Setelah logout berhasil dikonfirmasi server, aplikasi memuat ulang penuh halaman `/login`. Jika logout gagal, halaman tidak dimuat ulang dan pesan kegagalan tetap ditampilkan.
