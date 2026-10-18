@@ -16,7 +16,7 @@ function requestNumberValue(request) {
   return typeof request?.nomorPermintaan === 'string' ? request.nomorPermintaan.trim() : '';
 }
 
-export function getNextRequestNumber(requests, year) {
+export function getNextRequestNumber(requests, year, minimumSequence = 1) {
   const normalizedYear = String(year);
   if (!/^\d{4}$/.test(normalizedYear)) {
     throw new TypeError('Tahun permohonan harus terdiri dari empat digit.');
@@ -24,7 +24,7 @@ export function getNextRequestNumber(requests, year) {
 
   const prefix = `${REQUEST_NUMBER_PREFIX}/${normalizedYear}/`;
   const usedNumbers = new Set(requests.map(requestNumberValue).filter(Boolean));
-  let highestSequence = 0;
+  let highestSequence = minimumSequence - 1;
 
   for (const number of usedNumbers) {
     if (!number.startsWith(prefix)) continue;
@@ -43,7 +43,7 @@ export function getNextRequestNumber(requests, year) {
   return candidate;
 }
 
-export function assignNewRequestNumbers(previousRequests, nextRequests) {
+export function assignNewRequestNumbers(previousRequests, nextRequests, minimumSequences = {}) {
   if (!Array.isArray(nextRequests)) {
     return { requests: nextRequests, assignedNumbers: {} };
   }
@@ -58,9 +58,11 @@ export function assignNewRequestNumbers(previousRequests, nextRequests) {
 
     const year = requestYear(request);
     const submittedNumber = requestNumberValue(request);
-    const number = requestNumberForYear(submittedNumber, year) && !usedNumbers.has(submittedNumber)
+    const minimumSequence = minimumSequences[year] || 1;
+    const number = requestNumberForYear(submittedNumber, year) && !usedNumbers.has(submittedNumber) &&
+      Number(submittedNumber.split('/').at(-1)) >= minimumSequence
       ? submittedNumber
-      : getNextRequestNumber(allNumberedRequests, year);
+      : getNextRequestNumber(allNumberedRequests, year, minimumSequence);
 
     usedNumbers.add(number);
     allNumberedRequests.push({ nomorPermintaan: number });

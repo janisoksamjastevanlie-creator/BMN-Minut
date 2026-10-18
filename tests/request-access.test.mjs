@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateRequestAuthorization } from '../requestAccess.mjs';
+import { canDeleteInventoryRequests, validateRequestAuthorization } from '../requestAccess.mjs';
 
 const perms = {
   Pemohon: { requestSupplies: true },
@@ -13,6 +13,18 @@ const user = role => ({ id: `user-${role}`, role, name: role });
 const run = (role, before, after, previousAuditLogs = [], nextAuditLogs = []) =>
   validateRequestAuthorization(user(role), [before], [after], has, previousAuditLogs, nextAuditLogs);
 const req = status => ({ id: 'r1', status });
+
+test('permanent deletion is restricted to Administrator and inventory-authorized Operator/Pengelola BMN', () => {
+  assert.equal(canDeleteInventoryRequests(user('Administrator'), () => false), true);
+  assert.equal(canDeleteInventoryRequests(user('Operator'), has), true);
+  assert.equal(canDeleteInventoryRequests(user('Pengelola BMN'), () => true), true);
+  assert.equal(canDeleteInventoryRequests(user('Operator'), () => false), false);
+  assert.equal(canDeleteInventoryRequests(user('Pengelola BMN'), () => false), false);
+  for (const role of ['Pemohon', 'Kasubag', 'Pimpinan', 'Role Lain']) {
+    assert.equal(canDeleteInventoryRequests(user(role), () => true), false);
+  }
+  assert.equal(canDeleteInventoryRequests(null, () => true), false);
+});
 
 test('Pemohon tidak dapat menyetujui atau menolak', () => {
   assert.ok(run('Pemohon', req('Diverifikasi'), req('Disetujui')));

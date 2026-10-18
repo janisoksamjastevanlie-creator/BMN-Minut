@@ -87,6 +87,34 @@ test('operational writer rejects client changes to the read-only ledger', async 
   );
 });
 
+test('permanent request deletion preserves inventory balances, posted stock-out and ledger', async () => {
+  const previous = state({
+    inventoryItems: [inventoryItem({
+      stokAwal: 20, stokSaatIni: 16, lokasiGudang: '', rak: '', shelf: '', binCode: ''
+    })],
+    requests: [{ id: 'req-delivered', status: 'Diterima' }, { id: 'req-pending', status: 'Diajukan' }],
+    stockOutList: [{
+      id: 'out-1', requestId: 'req-delivered', itemId: 'item-1',
+      nomorTransaksi: 'BK-001', tanggal: '2026-10-18', jumlah: 4, satuan: 'Rim',
+      unitKerja: 'Unit Uji', ruangan: 'Ruang Uji', pemohon: 'Pemohon', petugas: 'Operator'
+    }],
+    stockCardLedger: [{ id: 'ledger-1', itemId: 'item-1', saldo: 16 }]
+  });
+  const next = { ...previous, requests: [] };
+  const executor = createExecutor();
+  await writeOperationalState(executor, previous, next);
+  assert.deepEqual(
+    executor.statements.filter(({ sql }) => sql.includes('DELETE FROM inventory_requests')).map(({ params }) => params[0]),
+    ['req-delivered', 'req-pending']
+  );
+  assert.equal(executor.statements.some(({ sql }) =>
+    /^\s*(INSERT|UPDATE|DELETE)\b/i.test(sql) && /\b(inventory_items|stock_out|stock_out_items|stock_card_ledger)\b/i.test(sql)
+  ), false);
+  assert.equal(next.inventoryItems[0].stokSaatIni, 16);
+  assert.deepEqual(next.stockOutList, previous.stockOutList);
+  assert.deepEqual(next.stockCardLedger, previous.stockCardLedger);
+});
+
 test('operational writer rejects stock balance changes without a transaction or audited adjustment', async () => {
   const previous = state({
     inventoryItems: [{ id: 'item-1', stokAwal: 2, stokSaatIni: 2 }]

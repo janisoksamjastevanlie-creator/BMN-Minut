@@ -8,6 +8,7 @@ import { ReportSignatureBlock } from '../components/common/ReportSignatureBlock'
 import { triggerPrint } from '../utils/printHelper';
 import { isPimpinanUser } from '../utils/rbac';
 import { getRequestItemQuantities } from '../../requestStockValidation.mjs';
+import { canDeleteInventoryRequests } from '../../requestAccess.mjs';
 import {
   ClipboardList,
   Plus,
@@ -27,7 +28,8 @@ import {
   CheckCheck,
   Send,
   Boxes,
-  Eye
+  Eye,
+  Trash2
 } from 'lucide-react';
 
 const getRequestItems = (request: InventoryRequest): InventoryRequestItem[] => request.items?.length
@@ -63,11 +65,12 @@ export const StockRequestsView: React.FC = () => {
   const {
     requests, inventoryItems, updateRequestStatus, cancelInventoryRequest,
     confirmInventoryRequestReceipt, reportInventoryReceiptDiscrepancy,
-    reopenInventoryRequestHandover, currentUser, hasPermission
+    reopenInventoryRequestHandover, deleteInventoryRequests, currentUser, hasPermission
   } = useApp();
   // Pimpinan hanya memantau; Pemohon tidak memiliki kewenangan keputusan.
   const canApproveRequests = hasPermission('approveRequests') && !isPimpinanUser(currentUser);
   const canReviewRequests = canApproveRequests || hasPermission('manageInventory');
+  const canDeleteRequests = canDeleteInventoryRequests(currentUser, (_user: unknown, permission: 'manageInventory') => hasPermission(permission));
   const canCancelOwnRequest = hasPermission('requestSupplies')
     && !hasPermission('manageInventory')
     && !canApproveRequests
@@ -78,6 +81,9 @@ export const StockRequestsView: React.FC = () => {
   const [isNewRequestOpen, setIsNewRequestOpen] = useState(false);
   const [selectedRequestIds, setSelectedRequestIds] = useState<Set<string>>(new Set());
   const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
+  const [isPermanentDeleteConfirmOpen, setIsPermanentDeleteConfirmOpen] = useState(false);
+  const [isPermanentDeleteBusy, setIsPermanentDeleteBusy] = useState(false);
+  const [permanentDeleteError, setPermanentDeleteError] = useState('');
   const [bulkCancelReason, setBulkCancelReason] = useState('');
   const [bulkCancelError, setBulkCancelError] = useState<string | null>(null);
   const [isBulkCancelBusy, setIsBulkCancelBusy] = useState(false);
@@ -106,6 +112,7 @@ export const StockRequestsView: React.FC = () => {
   const [isReceiptBusy, setIsReceiptBusy] = useState(false);
   const [isReportingDiscrepancy, setIsReportingDiscrepancy] = useState(false);
   const bulkCancelBusyRef = useRef(false);
+  const permanentDeleteBusyRef = useRef(false);
   const cancelBusyRef = useRef(false);
   const workflowBusyRef = useRef(false);
   const receiptBusyRef = useRef(false);
@@ -132,8 +139,8 @@ export const StockRequestsView: React.FC = () => {
   }, [requests, filterStatus, searchTerm]);
   const pager = usePagedList(filteredRequests);
 
-  const areAllFilteredRequestsSelected =
-    filteredRequests.length > 0 && filteredRequests.every(request => selectedRequestIds.has(request.id));
+  const areAllPageRequestsSelected =
+    pager.pageItems.length > 0 && pager.pageItems.every(request => selectedRequestIds.has(request.id));
   const isOwnRequest = (request: InventoryRequest) =>
     Boolean(currentUser?.id && request.pemohonUserId === currentUser.id);
 
@@ -148,11 +155,35 @@ export const StockRequestsView: React.FC = () => {
 
   const toggleAllRequestSelection = () => {
     setSelectedRequestIds(prev => {
-      if (areAllFilteredRequestsSelected) return new Set();
       const next = new Set(prev);
-      filteredRequests.forEach(request => next.add(request.id));
+      pager.pageItems.forEach(request => {
+        if (areAllPageRequestsSelected) next.delete(request.id);
+        else next.add(request.id);
+      });
       return next;
     });
+  };
+
+  const handlePermanentDeleteRequests = async () => {
+    if (permanentDeleteBusyRef.current || !canDeleteRequests || selectedRequestIds.size === 0) return;
+    permanentDeleteBusyRef.current = true;
+    setIsPermanentDeleteBusy(true);
+    setPermanentDeleteError('');
+    try {
+      const result = await deleteInventoryRequests([...selectedRequestIds]);
+      if (!result.success) {
+        setPermanentDeleteError(result.message);
+        return;
+      }
+      setSelectedRequestIds(new Set());
+      setIsPermanentDeleteConfirmOpen(false);
+      setBulkDeleteNotice({ type: 'success', message: result.message });
+    } catch (error) {
+      setPermanentDeleteError(error instanceof Error ? error.message : 'Gagal menghapus permohonan barang.');
+    } finally {
+      permanentDeleteBusyRef.current = false;
+      setIsPermanentDeleteBusy(false);
+    }
   };
 
   const handleBulkCancelRequests = async () => {
@@ -512,15 +543,17 @@ export const StockRequestsView: React.FC = () => {
               <label className="md:hidden flex items-center gap-2 text-xs text-slate-300">
                 <input
                   type="checkbox"
-                  checked={areAllFilteredRequestsSelected}
+                  checked={areAllPageRequestsSelected}
                   onChange={toggleAllRequestSelection}
+                  disabled={isPermanentDeleteBusy || isBulkCancelBusy}
                   className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-indigo-500 focus:ring-indigo-500"
                   aria-label="Pilih semua permohonan yang ditampilkan"
                 />
-                Pilih Semua
+                Pilih Semua di Halaman Ini
               </label>
               <span className="text-xs text-slate-400">{selectedRequestIds.size} data dipilih</span>
             </div>
+            <div className="flex flex-wrap justify-end gap-2">
             <button
               onClick={() => {
                 if (selectedRequestIds.size > 0) {
@@ -530,12 +563,28 @@ export const StockRequestsView: React.FC = () => {
                   setIsBulkDeleteConfirmOpen(true);
                 }
               }}
-              disabled={selectedRequestIds.size === 0}
+              disabled={selectedRequestIds.size === 0 || isPermanentDeleteBusy || isBulkCancelBusy}
               className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-rose-400 text-xs font-semibold flex items-center gap-1.5 border border-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <X className="w-4 h-4" />
               Batalkan Terpilih ({selectedRequestIds.size})
             </button>
+            {canDeleteRequests && (
+              <button
+                type="button"
+                onClick={() => {
+                  setPermanentDeleteError('');
+                  setBulkDeleteNotice(null);
+                  setIsPermanentDeleteConfirmOpen(true);
+                }}
+                disabled={selectedRequestIds.size === 0 || isPermanentDeleteBusy || isBulkCancelBusy}
+                className="px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Trash2 className="w-4 h-4" />
+                Hapus Terpilih ({selectedRequestIds.size})
+              </button>
+            )}
+            </div>
           </div>
         )}
         {bulkDeleteNotice && (
@@ -570,6 +619,7 @@ export const StockRequestsView: React.FC = () => {
                           type="checkbox"
                           checked={selectedRequestIds.has(req.id)}
                           onChange={() => toggleRequestSelection(req.id)}
+                          disabled={isPermanentDeleteBusy || isBulkCancelBusy}
                           className="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-950 text-indigo-500 focus:ring-indigo-500"
                           aria-label={`Pilih permohonan ${req.nomorPermintaan}`}
                         />
@@ -792,8 +842,9 @@ export const StockRequestsView: React.FC = () => {
                   <th className="py-3 px-3 text-center">
                     <input
                       type="checkbox"
-                      checked={areAllFilteredRequestsSelected}
+                      checked={areAllPageRequestsSelected}
                       onChange={toggleAllRequestSelection}
+                      disabled={isPermanentDeleteBusy || isBulkCancelBusy}
                       className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-indigo-500 focus:ring-indigo-500"
                       aria-label="Pilih semua permohonan yang ditampilkan"
                     />
@@ -833,6 +884,7 @@ export const StockRequestsView: React.FC = () => {
                             type="checkbox"
                             checked={selectedRequestIds.has(req.id)}
                             onChange={() => toggleRequestSelection(req.id)}
+                            disabled={isPermanentDeleteBusy || isBulkCancelBusy}
                             className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-indigo-500 focus:ring-indigo-500"
                             aria-label={`Pilih permohonan ${req.nomorPermintaan}`}
                           />
@@ -1152,6 +1204,29 @@ export const StockRequestsView: React.FC = () => {
                     : isReportingDiscrepancy ? 'Iya, Kirim Laporan' : 'Iya, Konfirmasi Diterima'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isPermanentDeleteConfirmOpen && canDeleteRequests && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md">
+          <div role="dialog" aria-modal="true" aria-labelledby="permanent-request-delete-title" className="w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-5 space-y-4">
+            <h3 id="permanent-request-delete-title" className="text-sm font-bold text-white">Konfirmasi Hapus Permohonan</h3>
+            <p className="text-xs text-slate-300">
+              Apakah Anda yakin ingin menghapus permanen {selectedRequestIds.size} permohonan barang terpilih? Tindakan ini tidak dapat dibatalkan.
+            </p>
+            <p className="text-xs text-amber-300">
+              Permohonan beserta rincian penerimaannya dihapus. Stok dan transaksi barang keluar yang sudah tercatat tidak diubah; audit penghapusan tetap disimpan.
+            </p>
+            {permanentDeleteError && <p role="alert" className="text-xs text-rose-300">{permanentDeleteError}</p>}
+            <div className="flex items-center justify-end gap-2">
+              <button type="button" onClick={() => setIsPermanentDeleteConfirmOpen(false)} disabled={isPermanentDeleteBusy} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl disabled:opacity-50">
+                Tidak, Batal
+              </button>
+              <button type="button" onClick={() => void handlePermanentDeleteRequests()} disabled={isPermanentDeleteBusy} className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded-xl disabled:opacity-50">
+                {isPermanentDeleteBusy ? 'Menghapus...' : 'Iya, Hapus'}
+              </button>
             </div>
           </div>
         </div>

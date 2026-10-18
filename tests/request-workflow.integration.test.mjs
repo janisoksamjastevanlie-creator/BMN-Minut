@@ -82,7 +82,7 @@ test('request workflow persists every stage and confirms stock exactly once', {
     return { cookie: response.headers.get('set-cookie').split(';')[0], user: (await response.json()).user };
   };
   const admin = await login('request-test-admin');
-  const users = ['Pemohon', 'Operator', 'Kasubag'].map(role => ({
+  const users = ['Pemohon', 'Operator', 'Kasubag', 'Pengelola BMN', 'Pimpinan'].map(role => ({
     id: crypto.randomUUID(), name: `Test ${role}`, nip: `request-test-${role}`,
     role, statusAktif: true, unitKerja: 'Unit Uji'
   }));
@@ -116,7 +116,9 @@ test('request workflow persists every stage and confirms stock exactly once', {
   state.roles = [
     { id: 'pemohon', name: 'Pemohon', permissions: { requestSupplies: true } },
     { id: 'operator', name: 'Operator', permissions: { requestSupplies: true, manageInventory: true } },
-    { id: 'kasubag', name: 'Kasubag', permissions: { approveRequests: true } }
+    { id: 'kasubag', name: 'Kasubag', permissions: { approveRequests: true } },
+    { id: 'pengelola', name: 'Pengelola BMN', permissions: { manageInventory: true } },
+    { id: 'pimpinan', name: 'Pimpinan', permissions: { requestSupplies: true, approveRequests: true, manageInventory: true } }
   ];
   state.inventoryItems = [{
     id: crypto.randomUUID(), kodeBarang: 'TEST-ATK', nama: 'Kertas Uji', jenis: 'ATK',
@@ -124,7 +126,7 @@ test('request workflow persists every stage and confirms stock exactly once', {
     totalNilai: 200000, status: 'Aman'
   }];
   await save(admin, state, (await read(admin)).revision);
-  const [applicant, operator, approver] = await Promise.all(users.map(user => login(user.nip)));
+  const [applicant, operator, approver, manager, leader] = await Promise.all(users.map(user => login(user.nip)));
   const item = state.inventoryItems[0];
   const inventoryRequest = {
     id: crypto.randomUUID(), nomorPermintaan: 'REQUEST-TEST', tanggal: '2026-10-17',
@@ -210,4 +212,76 @@ test('request workflow persists every stage and confirms stock exactly once', {
         'State and revision must come from the same committed snapshot');
     })
   ]);
+
+  const beforeDeletion = await read(admin);
+  const allStatuses = [
+    'Diajukan', 'Diverifikasi', 'Disetujui', 'Diproses',
+    'Menunggu Konfirmasi', 'Ditolak', 'Dibatalkan', 'Selesai'
+  ];
+  const fixtures = [
+    ...beforeDeletion.state.requests,
+    ...allStatuses.map((status, index) => ({
+      ...inventoryRequest, id: crypto.randomUUID(),
+      nomorPermintaan: `DELETE-TEST-${index}`, pemohonUserId: applicant.user.id, status
+    }))
+  ];
+  await connection.execute("UPDATE app_data SET value_json = ? WHERE `key` = 'requests'", [JSON.stringify(fixtures)]);
+  const deletionStart = await read(admin);
+  const remove = (actor, ids) => api(actor, '/api/requests/bulk-delete', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids })
+  });
+  for (const actor of [applicant, approver, leader]) {
+    assert.equal((await remove(actor, [inventoryRequest.id])).status, 403);
+  }
+  for (const ids of [undefined, [], [''], [42], ['x'.repeat(101)]]) {
+    assert.equal((await remove(admin, ids)).status, 400);
+  }
+  assert.deepEqual((await read(admin)).state.requests, fixtures);
+  assert.equal((await read(admin)).revision, deletionStart.revision);
+  const selected = [inventoryRequest.id, fixtures[1].id, inventoryRequest.id];
+  await connection.query(`CREATE TRIGGER reject_test_deletion BEFORE UPDATE ON app_data
+    FOR EACH ROW BEGIN
+      IF NEW.\`key\` = 'auditLogs' THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Forced deletion persistence failure';
+      END IF;
+    END`);
+  try {
+    assert.equal((await remove(operator, selected)).status, 500);
+    const rolledBack = await read(admin);
+    assert.deepEqual(rolledBack.state.requests, fixtures);
+    assert.equal(rolledBack.revision, deletionStart.revision);
+    assert.deepEqual(rolledBack.state.stockOutList, deletionStart.state.stockOutList);
+  } finally {
+    await connection.query('DROP TRIGGER reject_test_deletion');
+  }
+  const deleted = await remove(operator, selected);
+  assert.equal(deleted.status, 200, await deleted.clone().text());
+  const deletedResult = await deleted.json();
+  let afterDeletion = await read(admin);
+  assert.equal(afterDeletion.state.requests.length, fixtures.length - 2);
+  assert.equal(afterDeletion.revision, deletionStart.revision + 1);
+  assert.equal(afterDeletion.state.auditLogs.filter(log => log.aktivitas === 'Penghapusan Permohonan Barang').length, 2);
+  assert.deepEqual(afterDeletion.state.inventoryItems, deletionStart.state.inventoryItems);
+  assert.deepEqual(afterDeletion.state.stockOutList, deletionStart.state.stockOutList);
+  const retried = await remove(operator, selected);
+  assert.equal(retried.status, 200);
+  assert.equal((await retried.json()).revision, deletedResult.revision);
+  assert.equal((await read(admin)).state.auditLogs.filter(log => log.aktivitas === 'Penghapusan Permohonan Barang').length, 2);
+  assert.equal((await api(applicant, receiptUrl, { method: 'POST' })).status, 404);
+  const managerDeletion = await remove(manager, [afterDeletion.state.requests[0].id]);
+  assert.equal(managerDeletion.status, 200, await managerDeletion.clone().text());
+  afterDeletion = await read(admin);
+  const remaining = afterDeletion.state.requests.map(item => item.id);
+  const deleteAll = await remove(admin, remaining);
+  assert.equal(deleteAll.status, 200, await deleteAll.clone().text());
+  afterDeletion = await read(admin);
+  assert.deepEqual(afterDeletion.state.requests, []);
+  assert.deepEqual(afterDeletion.state.inventoryItems, deletionStart.state.inventoryItems);
+  assert.deepEqual(afterDeletion.state.stockOutList, deletionStart.state.stockOutList);
+  assert.equal(afterDeletion.state.auditLogs.filter(log => log.aktivitas === 'Penghapusan Permohonan Barang').length, fixtures.length);
+  const replacement = { ...inventoryRequest, id: crypto.randomUUID(), nomorPermintaan: final.state.requests[0].nomorPermintaan };
+  afterDeletion.state.requests = [replacement];
+  const recreated = await save(applicant, afterDeletion.state, afterDeletion.revision);
+  assert.notEqual(recreated.requests[0].nomorPermintaan, final.state.requests[0].nomorPermintaan,
+    'A deleted request number must not be recycled');
 });

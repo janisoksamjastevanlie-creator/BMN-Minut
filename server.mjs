@@ -14,7 +14,7 @@ import { createCloudflareAccessMiddleware, createCloudflareAccessVerifier } from
 import { assertOperationalSchema, readOperationalState } from './operationalStore.mjs';
 import { writeOperationalState } from './operationalWrites.mjs';
 import { sendWhatsAppMessage } from './whatsappService.mjs';
-import { validateRequestAuthorization } from './requestAccess.mjs';
+import { canDeleteInventoryRequests, validateRequestAuthorization } from './requestAccess.mjs';
 import {
   getRequestItemQuantities,
   getRequestReservedQuantity,
@@ -1414,6 +1414,94 @@ app.get('/api/state', performanceTiming('GET /api/state'), requireUserFromTransa
   response.json({ state, initialized: state.users !== null, revision: snapshot.revision, dataBackend });
 }));
 
+app.post('/api/requests/bulk-delete', requireUserFromTransactionState, asyncRoute(async (request, response) => {
+  const ids = request.body?.ids;
+  if (!Array.isArray(ids) || ids.length === 0 ||
+      ids.some(id => typeof id !== 'string' || !id.trim() || id.length > 100)) {
+    return response.status(400).json({ error: 'Pilih setidaknya satu permohonan dengan ID yang valid.' });
+  }
+  const selectedIds = new Set(ids);
+  let nextState;
+  const outcome = await withTransaction(async connection => {
+    const revisionRow = await queryOne(connection, "SELECT value FROM app_meta WHERE `key` = 'revision' FOR UPDATE");
+    const revision = Number(revisionRow?.value || 0);
+    const currentState = await readCollections(connection);
+    const authorizationError = bindRequestUserToState(request, currentState);
+    if (authorizationError) return { status: 403, error: authorizationError };
+    if (!canDeleteInventoryRequests(request.user, (user, permission) => userHasPermission(user, permission, currentState))) {
+      return { status: 403, error: 'Hanya Administrator dan Operator/Pengelola BMN yang berwenang dapat menghapus permohonan.' };
+    }
+    const deletedRequests = (currentState.requests || []).filter(item => selectedIds.has(item.id));
+    if (deletedRequests.length === 0) return { status: 200, revision };
+    const numberFloors = new Map();
+    for (const item of deletedRequests) {
+      const match = /^REQ-BPS7106\/(\d{4})\/(\d+)$/.exec(item.nomorPermintaan || '');
+      if (match && Number.isSafeInteger(Number(match[2]) + 1)) {
+        numberFloors.set(match[1], Math.max(numberFloors.get(match[1]) || 1, Number(match[2]) + 1));
+      }
+    }
+    for (const [year, floor] of numberFloors) {
+      await execute(connection, `
+        INSERT INTO app_meta (\`key\`, value) VALUES (?, ?)
+        ON DUPLICATE KEY UPDATE value = GREATEST(CAST(value AS UNSIGNED), CAST(VALUES(value) AS UNSIGNED))
+      `, [`request_number_floor:${year}`, String(floor)]);
+    }
+    nextState = JSON.parse(JSON.stringify(currentState));
+    nextState.requests = nextState.requests.filter(item => !selectedIds.has(item.id));
+    const now = new Date();
+    const tanggal = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(now);
+    const waktu = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Makassar', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+    }).format(now);
+    nextState.auditLogs = [
+      ...deletedRequests.map(item => ({
+        id: crypto.randomUUID(),
+        userId: request.user.id,
+        userName: request.user.name,
+        userRole: request.user.role,
+        aktivitas: 'Penghapusan Permohonan Barang',
+        modul: 'PERSEDIAAN',
+        tanggal,
+        waktu,
+        ipAddress: String(request.ip || '').slice(0, 50),
+        detail: `Permohonan ${item.nomorPermintaan} (${item.id}), status ${item.status}, dihapus permanen. Stok dan transaksi barang keluar yang sudah tercatat tidak diubah.`
+      })),
+      ...(nextState.auditLogs || [])
+    ];
+    nextState.notifications = [{
+      id: crypto.randomUUID(),
+      type: 'TRANSAKSI',
+      title: 'Permohonan Barang Dihapus',
+      message: `${request.user.name} menghapus ${deletedRequests.length} permohonan barang secara permanen.`,
+      timestamp: now.toISOString(),
+      read: false,
+      link: 'requests'
+    }, ...(nextState.notifications || [])];
+    if (dataBackend === 'operational') {
+      await writeOperationalState(connection, currentState, nextState, {
+        ...request.user,
+        ipAddress: request.ip
+      }, revision + 1);
+    } else {
+      for (const key of getChangedCollections(currentState, nextState, collections)) {
+        await execute(connection, `
+          INSERT INTO app_data (\`key\`, value_json)
+          VALUES (?, ?)
+          ON DUPLICATE KEY UPDATE value_json = VALUES(value_json)
+        `, [key, JSON.stringify(nextState[key])]);
+      }
+    }
+    await execute(connection, `
+      INSERT INTO app_meta (\`key\`, value) VALUES ('revision', ?)
+      ON DUPLICATE KEY UPDATE value = VALUES(value)
+    `, [String(revision + 1)]);
+    return { status: 200, revision: revision + 1 };
+  });
+  if (outcome.status !== 200) return response.status(outcome.status).json({ error: outcome.error });
+  if (nextState) Object.assign(collectionCache, nextState);
+  response.json({ success: true, revision: outcome.revision });
+}));
+
 app.post('/api/requests/:id/confirm-receipt', requireUserFromTransactionState, asyncRoute(async (request, response) => {
   let currentState;
   let nextState;
@@ -2359,7 +2447,16 @@ app.put('/api/state', performanceTiming('PUT /api/state'), requireUserFromTransa
       if (authorizationError) {
         return { status: 403, body: { error: authorizationError, revision } };
       }
-      const requestNumberAssignments = assignNewRequestNumbers(currentState.requests, state.requests);
+      const numberFloors = await queryRows(connection, "SELECT `key`, value FROM app_meta WHERE `key` LIKE 'request_number_floor:%'");
+      const minimumSequences = {};
+      for (const row of numberFloors) {
+        const sequence = Number(row.value);
+        if (!Number.isSafeInteger(sequence) || sequence < 1) {
+          throw new Error('Batas nomor permohonan tersimpan tidak valid.');
+        }
+        minimumSequences[row.key.slice('request_number_floor:'.length)] = sequence;
+      }
+      const requestNumberAssignments = assignNewRequestNumbers(currentState.requests, state.requests, minimumSequences);
       state.requests = requestNumberAssignments.requests;
       if (!userHasPermission(request.user, 'manageInventory', currentState)) {
         restoreRestrictedFinancialData(state, currentState);

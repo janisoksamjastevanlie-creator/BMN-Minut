@@ -9,6 +9,12 @@ const CANCELLABLE_REQUEST_STATUSES = new Set([
   'Diajukan', 'Diverifikasi', 'Disetujui', 'Diproses'
 ]);
 
+export function canDeleteInventoryRequests(user, hasPermission) {
+  const role = String(user?.role ?? '').trim().toLowerCase();
+  return role === 'administrator' ||
+    (['operator', 'pengelola bmn'].includes(role) && hasPermission(user, 'manageInventory'));
+}
+
 export function validateRequestAuthorization(
   user,
   previousRequests,

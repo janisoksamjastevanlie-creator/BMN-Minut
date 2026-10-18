@@ -264,6 +264,7 @@ interface AppContextType {
   reportInventoryReceiptDiscrepancy: (id: string, reason: string) => Promise<{ success: boolean; message: string }>;
   reopenInventoryRequestHandover: (id: string) => Promise<{ success: boolean; message: string }>;
   cancelInventoryRequest: (id: string, reason: string) => Promise<{ success: boolean; message: string }>;
+  deleteInventoryRequests: (ids: string[]) => Promise<{ success: boolean; message: string }>;
   
   addAssetMovement: (mov: Omit<AssetMovement, 'id' | 'nomorTransaksi' | 'status' | 'createdAt' | 'updatedAt'>) => void;
   updateMovementStatus: (id: string, status: AssetMovement['status'], catatan?: string) => void;
@@ -2176,6 +2177,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const cancelInventoryRequest = (id: string, reason: string) =>
     updateRequestStatus(id, 'Dibatalkan', reason);
 
+  const deleteInventoryRequests = (ids: string[]) => submitRequestAction(
+    '/api/requests/bulk-delete',
+    { ids },
+    'Permohonan terpilih berhasil dihapus permanen.',
+    state => Array.isArray(state.requests) && ids.length > 0 &&
+      ids.every(id => !(state.requests as InventoryRequest[]).some(request => request.id === id))
+  );
+
   // Asset Movement Workflow (SETELAH SELESAI LOKASI ASET OTOMATIS BERUBAH)
   const addAssetMovement = (movData: Omit<AssetMovement, 'id' | 'nomorTransaksi' | 'status' | 'createdAt' | 'updatedAt'>) => {
     const now = new Date().toISOString().split('T')[0];
@@ -2527,6 +2536,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         reportInventoryReceiptDiscrepancy,
         reopenInventoryRequestHandover,
         cancelInventoryRequest,
+        deleteInventoryRequests,
         addAssetMovement,
         updateMovementStatus,
         deleteAssetMovement,

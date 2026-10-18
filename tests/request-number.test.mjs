@@ -51,3 +51,19 @@ test('starts a new sequence for the request date year', () => {
 
   assert.deepEqual(result.assignedNumbers, { new: 'REQ-BPS7106/2027/0001' });
 });
+
+test('does not reuse permanently deleted numbers even when the request list is empty', () => {
+  const result = assignNewRequestNumbers([], [
+    { id: 'new-1', nomorPermintaan: requestNumber(1), tanggal: '2026-10-18' },
+    { id: 'new-2', nomorPermintaan: requestNumber(1), tanggal: '2026-10-18' }
+  ], { 2026: 9 });
+  assert.deepEqual(result.assignedNumbers, { 'new-1': requestNumber(9), 'new-2': requestNumber(10) });
+  assert.equal(getNextRequestNumber([], 2026, 9), requestNumber(9));
+});
+
+test('deleted request number floors are scoped to the request year', () => {
+  const result = assignNewRequestNumbers([], [
+    { id: 'new', nomorPermintaan: 'REQ-BPS7106/2027/0001', tanggal: '2027-01-01' }
+  ], { 2026: 50 });
+  assert.equal(result.assignedNumbers.new, 'REQ-BPS7106/2027/0001');
+});
