@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { BmnAsset, AssetCondition } from '../../types';
+import { BMN_ASSET_CATEGORIES } from '../../data/bmnAssetCategories';
 import { getAssetPhotoUrl, ASSET_PHOTO_PRESETS } from '../../utils/assetImages';
 import { X, Box, PlusCircle, Check, Camera, Image as ImageIcon, Upload } from 'lucide-react';
 
@@ -13,7 +14,7 @@ export const AssetFormModal: React.FC<{
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [namaBarang, setNamaBarang] = useState(initialAsset?.namaBarang || '');
-  const [kategori, setKategori] = useState(initialAsset?.kategori || 'Peralatan TI');
+  const [kategori, setKategori] = useState(initialAsset?.kategori || 'MESIN PERALATAN KHUSUS TIK');
   const [subkategori, setSubkategori] = useState(initialAsset?.subkategori || 'Komputer Jinjing');
   const [merkType, setMerkType] = useState(initialAsset?.merkType || '');
   const [nomorSeri, setNomorSeri] = useState(initialAsset?.nomorSeri || '');
@@ -25,6 +26,9 @@ export const AssetFormModal: React.FC<{
   const [ruanganId, setRuanganId] = useState(initialAsset?.ruanganId || rooms[0]?.id || '');
   const [penanggungJawab, setPenanggungJawab] = useState(initialAsset?.penanggungJawab || rooms[0]?.picName || '');
   const [fotoUrl, setFotoUrl] = useState(initialAsset?.fotoUrl || '');
+  const categoryOptions = initialAsset?.kategori && !BMN_ASSET_CATEGORIES.some(category => category === initialAsset.kategori)
+    ? [initialAsset.kategori, ...BMN_ASSET_CATEGORIES]
+    : BMN_ASSET_CATEGORIES;
 
   if (!isOpen) return null;
 
@@ -142,11 +146,7 @@ export const AssetFormModal: React.FC<{
                 onChange={e => setKategori(e.target.value)}
                 className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-blue-500"
               >
-                <option value="Peralatan TI">Peralatan TI</option>
-                <option value="Peralatan Kantor">Peralatan Kantor</option>
-                <option value="Mebel / Furnitur">Mebel / Furnitur</option>
-                <option value="Kendaraan Bermotor">Kendaraan Bermotor</option>
-                <option value="Peralatan Khusus">Peralatan Khusus</option>
+                {categoryOptions.map(option => <option key={option} value={option}>{option}</option>)}
               </select>
             </div>
 

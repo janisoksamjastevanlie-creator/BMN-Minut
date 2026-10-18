@@ -29,7 +29,7 @@ export const parseUploadedFile = async (file: File): Promise<Record<string, any>
 
   // Excel (.xlsx, .xls) and CSV / TSV via XLSX library
   const buffer = await file.arrayBuffer();
-  const workbook = XLSX.read(buffer, { type: 'array' });
+  const workbook = XLSX.read(buffer, { type: 'array', nodim: true });
   const firstSheetName = workbook.SheetNames[0];
   if (!firstSheetName) {
     throw new Error('File spreadsheet tidak memiliki sheet.');

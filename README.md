@@ -10,6 +10,10 @@ Untuk development lokal, `DB_PASSWORD` boleh kosong hanya jika akun MariaDB loka
 
 Jalankan `npm install`, `npm run dev`, lalu buka `http://localhost:3000`. Pilih administrator, lalu gunakan **Manajemen Pengguna** untuk menetapkan kata sandi minimal 12 karakter bagi tiap pegawai. Data aplikasi, sesi, dan catatan WhatsApp disimpan di MySQL, bukan di file lokal.
 
+## Impor Excel aset
+
+Kategori aset mengikuti sembilan jenis BMN dari file sumber: TANAH, ALAT BESAR, ALAT ANGKUTAN BERMOTOR, MESIN PERALATAN NON TIK, MESIN PERALATAN KHUSUS TIK, BANGUNAN DAN GEDUNG, RUMAH NEGARA, ASET TETAP LAINNYA, dan ASET TAK BERWUJUD. Kategori ini tersedia pada formulir dan pemetaan impor meskipun belum ada aset tersimpan. Pembaca Excel menghitung area lembar dari sel aktual, sehingga file dengan metadata dimensi yang keliru (misalnya `A1:F1` meskipun data lebih luas) tetap dapat dibaca lengkap. File daftar aset dengan 78 kolom dan sheet `Master Aset` sebaiknya diunggah melalui **Impor / Ekspor Master Aset** agar seluruh kolom sumber dipertahankan. Kategori yang sama dengan kategori aplikasi dipetakan otomatis; kategori sumber lain dipertahankan secara default dan dapat dipetakan manual. Pasangan Kode Barang dan NUP yang sudah ada tidak ditimpa.
+
 ## Arsip dokumen privat di backend
 
 Upload dokumen disimpan oleh backend pada disk privat, di luar folder `public` dan `dist`, dengan salinan cadangan biner pada tabel MySQL `document_files`. Metadata dan cadangan disimpan dalam transaksi yang sama; upload tidak dianggap berhasil jika cadangan gagal disimpan. Backend tidak mengirim cadangan sebagai base64 pada sinkronisasi state. Akses lihat, unduh, pulihkan, dan hapus memakai endpoint aplikasi dengan pemeriksaan sesi dan izin. Berkas tidak disajikan sebagai file statis dan tidak memiliki tautan publik.

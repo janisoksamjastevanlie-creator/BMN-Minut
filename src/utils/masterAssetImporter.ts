@@ -77,19 +77,28 @@ const sourceField = (
   key: string
 ) => fields[key];
 
+export const defaultMasterAssetCategoryMappings = (
+  sourceCategories: string[],
+  availableCategories: string[]
+): Record<string, string> => {
+  const existingByNormalizedName = new Map(
+    availableCategories.map(category => [category.trim().toLocaleLowerCase('id-ID'), category.trim()])
+  );
+
+  return Object.fromEntries([...new Set(sourceCategories.map(category => category.trim()).filter(Boolean))]
+    .map(category => [
+      category,
+      existingByNormalizedName.get(category.toLocaleLowerCase('id-ID')) || category
+    ]));
+};
+
 export const parseMasterAssetFile = async (file: File): Promise<MasterAssetSourceRow[]> => {
-  const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: false });
+  const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: false, nodim: true });
   const worksheet = workbook.Sheets[MASTER_ASSET_SHEET];
   if (!worksheet) throw new Error(`File harus memiliki sheet bernama "${MASTER_ASSET_SHEET}".`);
 
   const cellRefs = Object.keys(worksheet).filter(key => /^[A-Z]+[0-9]+$/.test(key));
   if (cellRefs.length === 0) throw new Error('Sheet Master Aset tidak berisi data.');
-  const lastCell = cellRefs.reduce((last, ref) => {
-    const current = XLSX.utils.decode_cell(ref);
-    return current.r > last.r || (current.r === last.r && current.c > last.c) ? current : last;
-  }, { r: 0, c: 0 });
-  worksheet['!ref'] = `A1:${XLSX.utils.encode_cell(lastCell)}`;
-
   const rows = XLSX.utils.sheet_to_json<unknown[]>(worksheet, {
     header: 1,
     defval: null,

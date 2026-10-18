@@ -1,6 +1,8 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { BMN_ASSET_CATEGORIES } from '../../data/bmnAssetCategories';
 import {
+  defaultMasterAssetCategoryMappings,
   downloadMasterAssetExport,
   MASTER_ASSET_HEADERS,
   parseMasterAssetFile,
@@ -33,7 +35,10 @@ export const MasterAssetImportModal: React.FC<MasterAssetImportModalProps> = ({ 
   const [errorMessage, setErrorMessage] = useState('');
   const [successCount, setSuccessCount] = useState<number | null>(null);
   const availableCategories = useMemo(
-    () => [...new Set(assets.map(asset => asset.kategori.trim()).filter(Boolean))].sort(),
+    () => [...new Set([
+      ...BMN_ASSET_CATEGORIES,
+      ...assets.map(asset => asset.kategori.trim()).filter(Boolean)
+    ])].sort((left, right) => left.localeCompare(right, 'id-ID')),
     [assets]
   );
   const preview = useMemo(
@@ -55,9 +60,9 @@ export const MasterAssetImportModal: React.FC<MasterAssetImportModalProps> = ({ 
     try {
       const parsedRows = await parseMasterAssetFile(file);
       setSourceRows(parsedRows);
-      setCategoryMappings(Object.fromEntries(
-        [...new Set(parsedRows.map(row => String(row.fields['Jenis BMN'] || '').trim()).filter(Boolean))]
-          .map(category => [category, availableCategories.includes(category) ? category : ''])
+      setCategoryMappings(defaultMasterAssetCategoryMappings(
+        parsedRows.map(row => String(row.fields['Jenis BMN'] || '')),
+        availableCategories
       ));
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'File Master Aset gagal dibaca.');
@@ -181,7 +186,7 @@ export const MasterAssetImportModal: React.FC<MasterAssetImportModalProps> = ({ 
               <section className="space-y-2">
                 <div>
                   <h3 className="text-sm font-bold text-white">Pemetaan kategori</h3>
-                  <p className="text-[11px] text-slate-400">Setiap jenis BMN harus dipetakan ke kategori yang sudah tersedia. Kategori atau ruang baru tidak dibuat otomatis.</p>
+                  <p className="text-[11px] text-slate-400">Kategori yang cocok dipilih otomatis. Jika belum ada, nama Jenis BMN dari file dipertahankan; Anda juga dapat memilih kategori lain.</p>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                   {preview.sourceCategories.map(category => (
@@ -193,14 +198,14 @@ export const MasterAssetImportModal: React.FC<MasterAssetImportModalProps> = ({ 
                         className="w-full bg-slate-900 border border-slate-700 rounded-md px-2 py-1.5 text-xs text-white"
                       >
                         <option value="">Pilih kategori yang tersedia</option>
+                        {!availableCategories.includes(categoryMappings[category]) && categoryMappings[category] === category && (
+                          <option value={category}>Pertahankan kategori sumber: {category}</option>
+                        )}
                         {availableCategories.map(option => <option key={option} value={option}>{option}</option>)}
                       </select>
                     </label>
                   ))}
                 </div>
-                {availableCategories.length === 0 && (
-                  <p className="text-xs text-amber-300">Belum ada kategori aset yang tersedia untuk pemetaan.</p>
-                )}
               </section>
 
               <div className="border border-slate-800 rounded-xl overflow-x-auto max-h-72 bg-slate-950">
