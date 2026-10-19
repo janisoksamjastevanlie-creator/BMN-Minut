@@ -1404,7 +1404,7 @@ app.put('/api/auth/users/:id/password', requireUser, asyncRoute(async (request, 
 
 app.get('/api/state', performanceTiming('GET /api/state'), requireUserFromTransactionState, asyncRoute(async (request, response) => {
   const snapshot = await withTransaction(async connection => {
-    const revisionRow = await queryOne(connection, "SELECT value FROM app_meta WHERE `key` = 'revision' LOCK IN SHARE MODE");
+    const revisionRow = await queryOne(connection, "SELECT value FROM app_meta WHERE `key` = 'revision'");
     const state = await readCollections(connection);
     const error = bindRequestUserToState(request, state);
     return { state, error, revision: Number(revisionRow?.value || 0) };
