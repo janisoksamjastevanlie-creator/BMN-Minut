@@ -12,6 +12,7 @@ import { ReportSignatureBlock } from '../components/common/ReportSignatureBlock'
 import { getAssetPhotoUrl } from '../utils/assetImages';
 import { triggerPrint } from '../utils/printHelper';
 import { PageSizeSelect, DEFAULT_PAGE_SIZE, resolvePageSize } from '../components/common/ListPager';
+import { ListViewToolbar, type ListViewMode } from '../components/common/ListViewToolbar';
 import {
   Search,
   Filter,
@@ -38,6 +39,7 @@ export const AssetsView: React.FC = () => {
   const { assets, deleteAsset, setSelectedAsset, rooms, setActiveView, hasPermission } = useApp();
 
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set());
+  const [viewMode, setViewMode] = useState<ListViewMode>('cards');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterKategori, setFilterKategori] = useState<string>('all');
   const [filterKondisi, setFilterKondisi] = useState<string>('all');
@@ -325,21 +327,21 @@ export const AssetsView: React.FC = () => {
         </div>
       </div>
 
-      {/* Main Assets Content: Mobile Card View (md:hidden) & Desktop Table View (hidden md:block) */}
+      {/* Main Assets Content: Card View or Table View (dipilih pengguna) */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl assets-print-container">
-        {hasPermission('manageAssets') && (
-          <div className="p-3 border-b border-slate-800 flex items-center justify-between gap-3">
-            <label className="md:hidden flex items-center gap-2 text-xs text-slate-300">
-              <input
-                type="checkbox"
-                checked={areVisibleAssetsSelected}
-                onChange={toggleVisibleAssetSelection}
-                className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-blue-500 focus:ring-blue-500"
-                aria-label="Pilih semua aset yang ditampilkan"
-              />
-              Pilih Semua
-            </label>
-            <span className="text-xs text-slate-400">{selectedAssetIds.size} aset dipilih</span>
+        <ListViewToolbar
+          view={viewMode}
+          onViewChange={setViewMode}
+          accent="blue"
+          embedded
+          selectAll={hasPermission('manageAssets') ? {
+            checked: areVisibleAssetsSelected,
+            onChange: toggleVisibleAssetSelection,
+            ariaLabel: 'Pilih semua aset yang ditampilkan'
+          } : undefined}
+          selectionText={hasPermission('manageAssets') ? `${selectedAssetIds.size} aset dipilih` : undefined}
+        >
+          {hasPermission('manageAssets') && (
             <button
               onClick={handleBulkDeleteAssets}
               disabled={selectedAssetIds.size === 0}
@@ -348,10 +350,10 @@ export const AssetsView: React.FC = () => {
               <Trash2 className="w-4 h-4" />
               Hapus Terpilih
             </button>
-          </div>
-        )}
-        {/* MOBILE CARD VIEW */}
-        <div className="md:hidden divide-y divide-slate-800/80 no-print">
+          )}
+        </ListViewToolbar>
+        {/* CARD VIEW */}
+        <div className={`${viewMode === 'cards' ? '' : 'hidden'} divide-y divide-slate-800/80 no-print`}>
           {paginatedAssets.length === 0 ? (
             <div className="py-12 px-4 text-center text-slate-400 text-xs">
               Tidak ditemukan aset BMN yang sesuai dengan kriteria filter.
@@ -479,10 +481,10 @@ export const AssetsView: React.FC = () => {
           )}
         </div>
 
-        {/* DESKTOP TABLE VIEW */}
+        {/* TABLE VIEW (juga sumber cetak; disembunyikan via kelas agar tetap tercetak) */}
         <div className="assets-print-table">
           <PrintableDocument>
-          <div className="hidden md:block overflow-x-auto assets-table-scroll">
+          <div className={`${viewMode === 'table' ? 'block' : 'hidden'} overflow-x-auto assets-table-scroll`}>
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">

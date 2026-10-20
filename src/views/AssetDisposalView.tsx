@@ -3,6 +3,7 @@ import { useApp } from '../context/AppContext';
 import { AssetDisposal, DisposalStatus } from '../types';
 import { DisposalPrintModal } from '../components/bmn/DisposalPrintModal';
 import { ListPager, usePagedList } from '../components/common/ListPager';
+import { ListViewToolbar, type ListViewMode } from '../components/common/ListViewToolbar';
 import {
   Trash2,
   Plus,
@@ -24,8 +25,55 @@ export const AssetDisposalView: React.FC = () => {
   const [alasan, setAlasan] = useState('Kerusakan berat tidak ekonomis untuk diperbaiki dan teknologi usang');
   const [dokumen, setDokumen] = useState('Surat Usulan Penghapusan BMN Kemenkeu');
   const [tanggalPengajuan, setTanggalPengajuan] = useState(() => new Date().toISOString().split('T')[0]);
+  const [viewMode, setViewMode] = useState<ListViewMode>('cards');
 
   const pager = usePagedList(disposals);
+
+  const renderDisposalActions = (dsp: AssetDisposal) => (
+    <>
+      {dsp.status === 'Draft' && (
+        <button
+          onClick={() => updateDisposalStatus(dsp.id, 'Pengajuan')}
+          className="px-2 py-1 bg-blue-600/20 text-blue-300 hover:bg-blue-600 hover:text-white rounded text-[10px] font-bold"
+        >
+          Ajukan
+        </button>
+      )}
+      {dsp.status === 'Pengajuan' && (
+        <button
+          onClick={() => updateDisposalStatus(dsp.id, 'Verifikasi')}
+          className="px-2 py-1 bg-cyan-600/20 text-cyan-300 hover:bg-cyan-600 hover:text-white rounded text-[10px] font-bold"
+        >
+          Verifikasi Tim
+        </button>
+      )}
+      {dsp.status === 'Verifikasi' && (
+        <button
+          onClick={() => updateDisposalStatus(dsp.id, 'Persetujuan')}
+          className="px-2 py-1 bg-amber-600/20 text-amber-300 hover:bg-amber-600 hover:text-white rounded text-[10px] font-bold"
+        >
+          Persetujuan Pimpinan
+        </button>
+      )}
+      {dsp.status === 'Persetujuan' && (
+        <button
+          onClick={() => updateDisposalStatus(dsp.id, 'Selesai')}
+          className="px-2 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded text-[10px] font-bold"
+        >
+          Terbitkan SK Penghapusan
+        </button>
+      )}
+
+      <button
+        onClick={() => setSelectedDisposalForPrint(dsp)}
+        className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:text-white text-[10px] font-medium transition-colors flex items-center gap-1 shadow-sm"
+        title="Cetak Surat Usulan & Berita Acara Penghapusan"
+      >
+        <Printer className="w-3 h-3 text-rose-400" />
+        <span>Cetak Berkas</span>
+      </button>
+    </>
+  );
 
   const handleCreateDisposal = (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,9 +122,72 @@ export const AssetDisposalView: React.FC = () => {
         </button>
       </div>
 
-      {/* Disposals Table */}
+      {/* Disposals: Kartu / Tabel */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
-        <div className="overflow-x-auto">
+        <ListViewToolbar view={viewMode} onViewChange={setViewMode} accent="rose" embedded />
+
+        {/* CARD VIEW */}
+        <div className={viewMode === 'cards' ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 p-3' : 'hidden'}>
+          {pager.pageItems.length === 0 ? (
+            <div className="col-span-full py-12 px-4 text-center text-slate-400 text-xs">
+              Belum ada berkas usulan penghapusan.
+            </div>
+          ) : (
+            pager.pageItems.map(dsp => (
+              <div key={dsp.id} className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 space-y-3 hover:border-slate-700 transition-colors">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-white truncate">{dsp.assetName}</div>
+                    <div className="text-[10px] text-slate-400 font-mono">
+                      NUP {dsp.nup} • {dsp.kodeBarang}
+                    </div>
+                  </div>
+                  <span className="shrink-0 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-300 border border-amber-500/20">
+                    {dsp.status}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+                  <div>
+                    <div className="text-[10px] uppercase text-slate-500">No Pengajuan</div>
+                    <div className="text-xs text-slate-200 font-mono font-bold">{dsp.nomorPengajuan}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase text-slate-500">Tanggal</div>
+                    <div className="text-xs text-slate-200 font-mono">{dsp.tanggalPengajuan}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase text-slate-500">Kondisi Terakhir</div>
+                    <span className="inline-block mt-0.5 px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 font-bold border border-rose-500/20 text-[10px]">
+                      {dsp.kondisiTerakhir}
+                    </span>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase text-slate-500">Nilai Buku (Rp)</div>
+                    <div className="text-xs font-mono font-bold text-emerald-400">Rp {dsp.nilaiBuku.toLocaleString('id-ID')}</div>
+                  </div>
+                  <div className="col-span-2">
+                    <div className="text-[10px] uppercase text-slate-500">Alasan Usulan</div>
+                    <div className="text-xs text-slate-200 line-clamp-2">{dsp.alasan}</div>
+                    {dsp.dokumenPendukung && (
+                      <div className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1">
+                        <FileText className="w-3 h-3 text-slate-400" />
+                        <span>{dsp.dokumenPendukung}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-800">
+                  {renderDisposalActions(dsp)}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* TABLE VIEW */}
+        <div className={`${viewMode === 'table' ? 'block' : 'hidden'} overflow-x-auto`}>
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
@@ -129,47 +240,7 @@ export const AssetDisposalView: React.FC = () => {
                   </td>
                   <td className="py-3 px-3 text-center whitespace-nowrap">
                     <div className="flex items-center justify-center gap-1.5 flex-wrap">
-                      {dsp.status === 'Draft' && (
-                        <button
-                          onClick={() => updateDisposalStatus(dsp.id, 'Pengajuan')}
-                          className="px-2 py-1 bg-blue-600/20 text-blue-300 hover:bg-blue-600 hover:text-white rounded text-[10px] font-bold"
-                        >
-                          Ajukan
-                        </button>
-                      )}
-                      {dsp.status === 'Pengajuan' && (
-                        <button
-                          onClick={() => updateDisposalStatus(dsp.id, 'Verifikasi')}
-                          className="px-2 py-1 bg-cyan-600/20 text-cyan-300 hover:bg-cyan-600 hover:text-white rounded text-[10px] font-bold"
-                        >
-                          Verifikasi Tim
-                        </button>
-                      )}
-                      {dsp.status === 'Verifikasi' && (
-                        <button
-                          onClick={() => updateDisposalStatus(dsp.id, 'Persetujuan')}
-                          className="px-2 py-1 bg-amber-600/20 text-amber-300 hover:bg-amber-600 hover:text-white rounded text-[10px] font-bold"
-                        >
-                          Persetujuan Pimpinan
-                        </button>
-                      )}
-                      {dsp.status === 'Persetujuan' && (
-                        <button
-                          onClick={() => updateDisposalStatus(dsp.id, 'Selesai')}
-                          className="px-2 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded text-[10px] font-bold"
-                        >
-                          Terbitkan SK Penghapusan
-                        </button>
-                      )}
-
-                      <button
-                        onClick={() => setSelectedDisposalForPrint(dsp)}
-                        className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:text-white text-[10px] font-medium transition-colors flex items-center gap-1 shadow-sm"
-                        title="Cetak Surat Usulan & Berita Acara Penghapusan"
-                      >
-                        <Printer className="w-3 h-3 text-rose-400" />
-                        <span>Cetak Berkas</span>
-                      </button>
+                      {renderDisposalActions(dsp)}
                     </div>
                   </td>
                 </tr>

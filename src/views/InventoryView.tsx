@@ -8,6 +8,7 @@ import { ImportInventoryModal } from '../components/inventory/ImportInventoryMod
 import { InventoryFormModal } from '../components/inventory/InventoryFormModal';
 import { getInventoryPhotoUrl } from '../utils/assetImages';
 import { PageSizeSelect, DEFAULT_PAGE_SIZE, resolvePageSize } from '../components/common/ListPager';
+import { ListViewToolbar, type ListViewMode } from '../components/common/ListViewToolbar';
 import {
   Boxes,
   Search,
@@ -36,12 +37,12 @@ import {
 
 const INVENTORY_DISPLAY_MODE_KEY = 'siman_inventory_display_mode';
 
-function getInitialInventoryDisplayMode(): 'responsive' | 'cards' | 'table' {
+function getInitialInventoryDisplayMode(): ListViewMode {
   try {
     const saved = localStorage.getItem(INVENTORY_DISPLAY_MODE_KEY);
-    return saved === 'cards' || saved === 'table' ? saved : 'responsive';
+    return saved === 'table' ? 'table' : 'cards';
   } catch {
-    return 'responsive';
+    return 'cards';
   }
 }
 
@@ -57,7 +58,7 @@ export const InventoryView: React.FC = () => {
   const [bulkDeleteNotice, setBulkDeleteNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [activeTab, setActiveTab] = useState<'ALL' | 'ATK' | 'ARK' | 'LOW' | 'EMPTY'>('ALL');
   const [activeInventorySection, setActiveInventorySection] = useState<'STOCK' | 'STOCK_IN'>('STOCK');
-  const [inventoryDisplayMode, setInventoryDisplayMode] = useState<'responsive' | 'cards' | 'table'>(getInitialInventoryDisplayMode);
+  const [inventoryDisplayMode, setInventoryDisplayMode] = useState<ListViewMode>(getInitialInventoryDisplayMode);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterKategori, setFilterKategori] = useState('all');
   const [filterLokasi, setFilterLokasi] = useState('all');
@@ -911,38 +912,37 @@ export const InventoryView: React.FC = () => {
         </div>
       </div>
 
-      {/* Main Inventory Content: Mobile Card View (md:hidden) & Desktop Table View (hidden md:block) */}
+      {/* Main Inventory Content: Card View or Table View (dipilih pengguna) */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
-        {/* DITAMBAHKAN: kontrol bulk delete; tidak mengubah aksi barang lainnya. */}
-        {hasPermission('manageInventory') && (
-          <div className="p-3 border-b border-slate-800 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <label className="md:hidden flex items-center gap-2 text-xs text-slate-300">
-                <input
-                  type="checkbox"
-                  checked={areAllVisibleItemsSelected}
-                  onChange={toggleVisibleItemSelection}
-                  className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-amber-500 focus:ring-amber-500"
-                  aria-label="Pilih semua persediaan pada halaman ini"
-                />
-                Pilih Semua
-              </label>
-              <span className="text-xs text-slate-400">{selectedIds.size} data dipilih</span>
-            </div>
-            <button
-              onClick={() => {
-                if (selectedIds.size > 0) {
-                  setBulkDeleteNotice(null);
-                  setIsBulkDeleteConfirmOpen(true);
-                }
-              }}
-              disabled={selectedIds.size === 0}
-              className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-rose-400 text-xs font-semibold flex items-center gap-1.5 border border-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              <Trash2 className="w-4 h-4" />
-              Hapus Terpilih ({selectedIds.size})
-            </button>
-          </div>
+        {activeInventorySection === 'STOCK' && (
+          <ListViewToolbar
+            view={inventoryDisplayMode}
+            onViewChange={setInventoryDisplayMode}
+            accent="amber"
+            embedded
+            selectAll={hasPermission('manageInventory') ? {
+              checked: areAllVisibleItemsSelected,
+              onChange: toggleVisibleItemSelection,
+              ariaLabel: 'Pilih semua persediaan pada halaman ini'
+            } : undefined}
+            selectionText={hasPermission('manageInventory') ? `${selectedIds.size} data dipilih` : undefined}
+          >
+            {hasPermission('manageInventory') && (
+              <button
+                onClick={() => {
+                  if (selectedIds.size > 0) {
+                    setBulkDeleteNotice(null);
+                    setIsBulkDeleteConfirmOpen(true);
+                  }
+                }}
+                disabled={selectedIds.size === 0}
+                className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-rose-400 text-xs font-semibold flex items-center gap-1.5 border border-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Trash2 className="w-4 h-4" />
+                Hapus Terpilih ({selectedIds.size})
+              </button>
+            )}
+          </ListViewToolbar>
         )}
         {bulkDeleteNotice && (
           <div
@@ -956,32 +956,8 @@ export const InventoryView: React.FC = () => {
             {bulkDeleteNotice.message}
           </div>
         )}
-        {activeInventorySection === 'STOCK' && (
-          <div role="group" aria-label="Tampilan daftar persediaan" className="flex justify-end gap-2 px-3 pt-3">
-            {(['responsive', 'cards', 'table'] as const).map(mode => (
-              <button
-                key={mode}
-                type="button"
-                aria-pressed={inventoryDisplayMode === mode}
-                onClick={() => setInventoryDisplayMode(mode)}
-                className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold ${
-                  inventoryDisplayMode === mode ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                }`}
-              >
-                {mode === 'responsive' ? 'Otomatis' : mode === 'cards' ? 'Kartu' : 'Tabel'}
-              </button>
-            ))}
-          </div>
-        )}
-
         {/* CARD VIEW */}
-        <div className={`${
-          inventoryDisplayMode === 'table'
-            ? 'hidden'
-            : inventoryDisplayMode === 'cards'
-              ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 p-3'
-              : 'md:hidden divide-y divide-slate-800/80'
-        }`}>
+        <div className={inventoryDisplayMode === 'table' ? 'hidden' : 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 p-3'}>
           {paginatedItems.length === 0 ? (
             <div className="py-12 px-4 text-center text-slate-400 text-xs">
               {activeTab === 'EMPTY'
@@ -990,9 +966,7 @@ export const InventoryView: React.FC = () => {
             </div>
           ) : (
             paginatedItems.map(item => (
-              <div key={item.id} className={`p-4 space-y-3 hover:bg-slate-800/30 transition-colors ${
-                inventoryDisplayMode === 'cards' ? 'rounded-xl border border-slate-800 bg-slate-900' : ''
-              }`}>
+              <div key={item.id} className="p-4 space-y-3 hover:bg-slate-800/30 transition-colors rounded-xl border border-slate-800 bg-slate-900">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-2">
                     {hasPermission('manageInventory') && (
@@ -1147,7 +1121,7 @@ export const InventoryView: React.FC = () => {
         </div>
 
         {/* DESKTOP TABLE VIEW */}
-        <div className={`${inventoryDisplayMode === 'cards' ? 'hidden' : inventoryDisplayMode === 'table' ? 'block' : 'hidden md:block'} overflow-x-auto`}>
+        <div className={`${inventoryDisplayMode === 'table' ? 'block' : 'hidden'} overflow-x-auto`}>
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">

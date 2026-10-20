@@ -2,11 +2,19 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { History, Search, ShieldCheck, Terminal, Filter, Calendar } from 'lucide-react';
 import { ListPager, usePagedList } from '../components/common/ListPager';
+import { ListViewToolbar, type ListViewMode } from '../components/common/ListViewToolbar';
+
+const modulBadgeClass = (modul: string) =>
+  modul === 'ASET_BMN' ? 'bg-blue-500/10 text-blue-400' :
+  modul === 'PERSEDIAAN' ? 'bg-amber-500/10 text-amber-400' :
+  modul === 'AUTH' ? 'bg-emerald-500/10 text-emerald-400' :
+  'bg-purple-500/10 text-purple-400';
 
 export const AuditTrailView: React.FC = () => {
   const { auditLogs } = useApp();
   const [filterModul, setFilterModul] = useState<string>('all');
   const [search, setSearch] = useState('');
+  const [viewMode, setViewMode] = useState<ListViewMode>('cards');
 
   const filteredLogs = auditLogs.filter(l => {
     const matchModul = filterModul === 'all' || l.modul === filterModul;
@@ -73,9 +81,55 @@ export const AuditTrailView: React.FC = () => {
         </div>
       </div>
 
-      {/* Audit Log Table */}
+      {/* Audit Log: Kartu / Tabel */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
-        <div className="overflow-x-auto">
+        <ListViewToolbar view={viewMode} onViewChange={setViewMode} accent="blue" embedded />
+
+        {/* CARD VIEW */}
+        <div className={viewMode === 'cards' ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 p-3' : 'hidden'}>
+          {pager.pageItems.length === 0 ? (
+            <div className="col-span-full py-12 px-4 text-center text-slate-400 text-xs">
+              Tidak ada entri log yang sesuai dengan filter.
+            </div>
+          ) : (
+            pager.pageItems.map(log => (
+              <div key={log.id} className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 space-y-3 hover:border-slate-700 transition-colors">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="font-semibold text-white min-w-0">{log.aktivitas}</div>
+                  <span className={`shrink-0 px-2 py-0.5 rounded text-[10px] font-bold ${modulBadgeClass(log.modul)}`}>
+                    {log.modul}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+                  <div>
+                    <div className="text-[10px] uppercase text-slate-500">Waktu & Tanggal</div>
+                    <div className="text-xs text-slate-200 font-semibold">{log.waktu}</div>
+                    <div className="text-[10px] text-slate-400 font-mono">{log.tanggal}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase text-slate-500">Pengguna</div>
+                    <div className="text-xs text-slate-200 font-medium">{log.userName}</div>
+                    <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-blue-300 font-semibold">
+                      {log.userRole}
+                    </span>
+                  </div>
+                  <div className="col-span-2">
+                    <div className="text-[10px] uppercase text-slate-500">Rincian Perubahan Data</div>
+                    <div className="text-[11px] text-slate-200 leading-relaxed">{log.detail}</div>
+                  </div>
+                  <div className="col-span-2">
+                    <div className="text-[10px] uppercase text-slate-500">Alamat IP</div>
+                    <div className="text-xs font-mono text-slate-400">{log.ipAddress}</div>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* TABLE VIEW */}
+        <div className={`${viewMode === 'table' ? 'block' : 'hidden'} overflow-x-auto`}>
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
@@ -103,12 +157,7 @@ export const AuditTrailView: React.FC = () => {
                   </td>
 
                   <td className="py-3 px-3">
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                      log.modul === 'ASET_BMN' ? 'bg-blue-500/10 text-blue-400' :
-                      log.modul === 'PERSEDIAAN' ? 'bg-amber-500/10 text-amber-400' :
-                      log.modul === 'AUTH' ? 'bg-emerald-500/10 text-emerald-400' :
-                      'bg-purple-500/10 text-purple-400'
-                    }`}>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${modulBadgeClass(log.modul)}`}>
                       {log.modul}
                     </span>
                   </td>

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { StockOpname, StockOpnameItem } from '../types';
 import { BasoPrintModal } from '../components/inventory/BasoPrintModal';
+import { ListViewToolbar, type ListViewMode } from '../components/common/ListViewToolbar';
 import {
   History,
   Plus,
@@ -22,6 +23,16 @@ export const StockOpnameView: React.FC = () => {
   const [selectedOpname, setSelectedOpname] = useState<StockOpname>(opnames[0] || null);
   const [isNewOpnameModalOpen, setIsNewOpnameModalOpen] = useState(false);
   const [isPrintBasoOpen, setIsPrintBasoOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<ListViewMode>('cards');
+
+  const renderSelisih = (selisih: number) =>
+    selisih === 0 ? (
+      <span className="text-emerald-400">0</span>
+    ) : selisih > 0 ? (
+      <span className="text-cyan-400">+{selisih}</span>
+    ) : (
+      <span className="text-rose-400">{selisih}</span>
+    );
 
   // Form states for creating a new opname session
   const [periode, setPeriode] = useState('Triwulan III 2026');
@@ -165,8 +176,54 @@ export const StockOpnameView: React.FC = () => {
             )}
           </div>
 
-          {/* Opname Items Comparison Table */}
-          <div className="overflow-x-auto">
+          {/* Opname Items: Kartu / Tabel */}
+          <div className="rounded-xl border border-slate-800 overflow-hidden">
+            <ListViewToolbar view={viewMode} onViewChange={setViewMode} accent="amber" embedded />
+
+            {/* CARD VIEW */}
+            <div className={viewMode === 'cards' ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 p-3' : 'hidden'}>
+              {selectedOpname.items.length === 0 ? (
+                <div className="col-span-full py-12 px-4 text-center text-slate-400 text-xs">
+                  Tidak ada barang persediaan pada sesi opname ini.
+                </div>
+              ) : (
+                selectedOpname.items.map(item => (
+                  <div key={item.id} className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 space-y-3 hover:border-slate-700 transition-colors">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="font-medium text-white truncate">{item.namaBarang}</div>
+                        <div className="font-mono text-[11px] text-slate-400">{item.kodeBarang}</div>
+                      </div>
+                      <span className="shrink-0 px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px]">
+                        {item.kondisi}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+                      <div>
+                        <div className="text-[10px] uppercase text-slate-500">Stok Sistem</div>
+                        <div className="text-xs font-mono text-slate-300">{item.stokSistem} {item.satuan}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] uppercase text-slate-500">Stok Fisik</div>
+                        <div className="text-xs font-mono font-bold text-white">{item.stokFisik} {item.satuan}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] uppercase text-slate-500">Selisih</div>
+                        <div className="text-xs font-mono font-bold">{renderSelisih(item.selisih)}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] uppercase text-slate-500">Keterangan Verifikasi</div>
+                        <div className="text-[11px] text-slate-200">{item.keterangan}</div>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* TABLE VIEW */}
+            <div className={`${viewMode === 'table' ? 'block' : 'hidden'} overflow-x-auto`}>
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
@@ -192,13 +249,7 @@ export const StockOpnameView: React.FC = () => {
                     </td>
                     {/* Selisih = Stok Fisik - Stok Sistem */}
                     <td className="py-2.5 px-3 text-right font-mono font-bold">
-                      {item.selisih === 0 ? (
-                        <span className="text-emerald-400">0</span>
-                      ) : item.selisih > 0 ? (
-                        <span className="text-cyan-400">+{item.selisih}</span>
-                      ) : (
-                        <span className="text-rose-400">{item.selisih}</span>
-                      )}
+                      {renderSelisih(item.selisih)}
                     </td>
                     <td className="py-2.5 px-3 text-center">
                       <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px]">
@@ -210,6 +261,7 @@ export const StockOpnameView: React.FC = () => {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         </div>
       )}

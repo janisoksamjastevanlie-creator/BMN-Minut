@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { AssetMaintenance, MaintenanceStatus } from '../types';
 import { ListPager, usePagedList } from '../components/common/ListPager';
+import { ListViewToolbar, type ListViewMode } from '../components/common/ListViewToolbar';
 import {
   Wrench,
   Plus,
@@ -25,6 +26,7 @@ export const AssetMaintenanceView: React.FC = () => {
   const [selectedMaintenanceIds, setSelectedMaintenanceIds] = useState<Set<string>>(new Set());
   const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
   const [bulkDeleteNotice, setBulkDeleteNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [viewMode, setViewMode] = useState<ListViewMode>('cards');
 
   // Form states
   const [selectedAssetId, setSelectedAssetId] = useState(assets[0]?.id || '');
@@ -37,6 +39,39 @@ export const AssetMaintenanceView: React.FC = () => {
 
   const filtered = maintenances.filter(m => filterStatus === 'all' || m.status === filterStatus);
   const pager = usePagedList(filtered);
+
+  const maintenanceStatusClass = (status: MaintenanceStatus) =>
+    status === 'Selesai' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+    status === 'Dalam Proses' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' :
+    status === 'Terjadwal' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
+    'bg-slate-800 text-slate-400';
+
+  const renderMaintenanceActions = (m: AssetMaintenance) => (
+    <>
+      {m.status === 'Terjadwal' && (
+        <button
+          onClick={() => updateMaintenanceStatus(m.id, 'Dalam Proses')}
+          className="px-2.5 py-1 rounded bg-blue-600/20 text-blue-300 hover:bg-blue-600 hover:text-white text-[10px] font-bold"
+        >
+          Mulai Servis
+        </button>
+      )}
+      {m.status === 'Dalam Proses' && (
+        <button
+          onClick={() => updateMaintenanceStatus(m.id, 'Selesai')}
+          className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold shadow-sm"
+        >
+          Tandai Selesai
+        </button>
+      )}
+      {m.status === 'Selesai' && (
+        <span className="text-emerald-400 text-[10px] font-semibold flex items-center justify-center gap-1">
+          <CheckCircle2 className="w-3.5 h-3.5" />
+          <span>Tuntas</span>
+        </span>
+      )}
+    </>
+  );
 
   const areAllFilteredMaintenanceSelected =
     filtered.length > 0 && filtered.every(item => selectedMaintenanceIds.has(item.id));
@@ -176,11 +211,21 @@ export const AssetMaintenanceView: React.FC = () => {
         ))}
       </div>
 
-      {/* Maintenance Table */}
+      {/* Maintenance: Kartu / Tabel */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
-        {hasPermission('manageMaintenance') && (
-          <div className="p-3 border-b border-slate-800 flex items-center justify-between gap-3">
-            <span className="text-xs text-slate-400">{selectedMaintenanceIds.size} data dipilih</span>
+        <ListViewToolbar
+          view={viewMode}
+          onViewChange={setViewMode}
+          accent="amber"
+          embedded
+          selectAll={hasPermission('manageMaintenance') ? {
+            checked: areAllFilteredMaintenanceSelected,
+            onChange: toggleAllMaintenanceSelection,
+            ariaLabel: 'Pilih semua tiket pemeliharaan yang ditampilkan'
+          } : undefined}
+          selectionText={hasPermission('manageMaintenance') ? `${selectedMaintenanceIds.size} data dipilih` : undefined}
+        >
+          {hasPermission('manageMaintenance') && (
             <button
               onClick={() => {
                 if (selectedMaintenanceIds.size > 0) {
@@ -194,8 +239,8 @@ export const AssetMaintenanceView: React.FC = () => {
               <Trash2 className="w-4 h-4" />
               Hapus Terpilih ({selectedMaintenanceIds.size})
             </button>
-          </div>
-        )}
+          )}
+        </ListViewToolbar>
         {bulkDeleteNotice && (
           <div
             role="status"
@@ -208,7 +253,74 @@ export const AssetMaintenanceView: React.FC = () => {
             {bulkDeleteNotice.message}
           </div>
         )}
-        <div className="overflow-x-auto">
+
+        {/* CARD VIEW */}
+        <div className={viewMode === 'cards' ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 p-3' : 'hidden'}>
+          {pager.pageItems.length === 0 ? (
+            <div className="col-span-full py-12 px-4 text-center text-slate-400 text-xs">
+              Tidak ada tiket pemeliharaan yang sesuai dengan filter.
+            </div>
+          ) : (
+            pager.pageItems.map(m => (
+              <div key={m.id} className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 space-y-3 hover:border-slate-700 transition-colors">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start gap-2 min-w-0">
+                    {hasPermission('manageMaintenance') && (
+                      <input
+                        type="checkbox"
+                        checked={selectedMaintenanceIds.has(m.id)}
+                        onChange={() => toggleMaintenanceSelection(m.id)}
+                        className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-600 bg-slate-950 text-amber-500 focus:ring-amber-500"
+                        aria-label={`Pilih tiket pemeliharaan ${m.nomorTiket}`}
+                      />
+                    )}
+                    <div className="min-w-0">
+                      <div className="font-semibold text-white truncate">{m.assetName}</div>
+                      <div className="text-[10px] text-slate-400 font-mono">
+                        NUP {m.nup} • {m.ruanganNama}
+                      </div>
+                    </div>
+                  </div>
+                  <span className={`shrink-0 inline-block px-2.5 py-0.5 rounded text-[10px] font-bold ${maintenanceStatusClass(m.status)}`}>
+                    {m.status}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+                  <div>
+                    <div className="text-[10px] uppercase text-slate-500">No Tiket</div>
+                    <div className="text-xs text-slate-200 font-mono font-bold">{m.nomorTiket}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase text-slate-500">Tanggal</div>
+                    <div className="text-xs text-slate-200 font-mono">{m.tanggalMulai}</div>
+                  </div>
+                  <div className="col-span-2">
+                    <div className="text-[10px] uppercase text-slate-500">Jenis Pekerjaan</div>
+                    <div className="text-xs text-slate-200">{m.jenisPemeliharaan}</div>
+                    <div className="text-[10px] text-slate-400">{m.keterangan}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase text-slate-500">Vendor / Teknisi</div>
+                    <div className="text-xs text-slate-200 font-medium">{m.vendor}</div>
+                    <div className="text-[10px] text-slate-400">{m.teknisi}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase text-slate-500">Biaya (Rp)</div>
+                    <div className="text-xs font-mono font-bold text-amber-400">Rp {m.biaya.toLocaleString('id-ID')}</div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-800">
+                  {renderMaintenanceActions(m)}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* TABLE VIEW */}
+        <div className={`${viewMode === 'table' ? 'block' : 'hidden'} overflow-x-auto`}>
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
@@ -271,38 +383,12 @@ export const AssetMaintenanceView: React.FC = () => {
                     Rp {m.biaya.toLocaleString('id-ID')}
                   </td>
                   <td className="py-3 px-3 text-center">
-                    <span className={`inline-block px-2.5 py-0.5 rounded text-[10px] font-bold ${
-                      m.status === 'Selesai' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
-                      m.status === 'Dalam Proses' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' :
-                      m.status === 'Terjadwal' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
-                      'bg-slate-800 text-slate-400'
-                    }`}>
+                    <span className={`inline-block px-2.5 py-0.5 rounded text-[10px] font-bold ${maintenanceStatusClass(m.status)}`}>
                       {m.status}
                     </span>
                   </td>
                   <td className="py-3 px-3 text-center">
-                    {m.status === 'Terjadwal' && (
-                      <button
-                        onClick={() => updateMaintenanceStatus(m.id, 'Dalam Proses')}
-                        className="px-2.5 py-1 rounded bg-blue-600/20 text-blue-300 hover:bg-blue-600 hover:text-white text-[10px] font-bold"
-                      >
-                        Mulai Servis
-                      </button>
-                    )}
-                    {m.status === 'Dalam Proses' && (
-                      <button
-                        onClick={() => updateMaintenanceStatus(m.id, 'Selesai')}
-                        className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold shadow-sm"
-                      >
-                        Tandai Selesai
-                      </button>
-                    )}
-                    {m.status === 'Selesai' && (
-                      <span className="text-emerald-400 text-[10px] font-semibold flex items-center justify-center gap-1">
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>Tuntas</span>
-                      </span>
-                    )}
+                    {renderMaintenanceActions(m)}
                   </td>
                 </tr>
               ))}

@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { AuditLog, InventoryRequest, InventoryRequestItem, RequestStatus } from '../types';
 import { ListPager, usePagedList } from '../components/common/ListPager';
+import { ListViewToolbar, type ListViewMode } from '../components/common/ListViewToolbar';
 import { StockRequestModal } from '../components/inventory/StockRequestModal';
 import { PrintableDocument } from '../components/common/PrintableDocument';
 import { ReportSignatureBlock } from '../components/common/ReportSignatureBlock';
@@ -183,6 +184,7 @@ export const StockRequestsView: React.FC = () => {
     && !isPimpinanUser(currentUser);
 
   const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [viewMode, setViewMode] = useState<ListViewMode>('cards');
   const [searchTerm, setSearchTerm] = useState('');
   const [isNewRequestOpen, setIsNewRequestOpen] = useState(false);
   const [selectedRequestIds, setSelectedRequestIds] = useState<Set<string>>(new Set());
@@ -641,25 +643,23 @@ export const StockRequestsView: React.FC = () => {
         </div>
       </div>
 
-      {/* Requests Content: Mobile Card View (md:hidden) & Desktop Table View (hidden md:block) */}
+      {/* Requests Content: Card View or Table View (dipilih pengguna) */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
-        {hasPermission('manageInventory') && (
-          <div className="p-3 border-b border-slate-800 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <label className="md:hidden flex items-center gap-2 text-xs text-slate-300">
-                <input
-                  type="checkbox"
-                  checked={areAllPageRequestsSelected}
-                  onChange={toggleAllRequestSelection}
-                  disabled={isPermanentDeleteBusy || isBulkCancelBusy}
-                  className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-indigo-500 focus:ring-indigo-500"
-                  aria-label="Pilih semua permohonan yang ditampilkan"
-                />
-                Pilih Semua di Halaman Ini
-              </label>
-              <span className="text-xs text-slate-400">{selectedRequestIds.size} data dipilih</span>
-            </div>
-            <div className="flex flex-wrap justify-end gap-2">
+        <ListViewToolbar
+          view={viewMode}
+          onViewChange={setViewMode}
+          accent="purple"
+          embedded
+          selectAll={hasPermission('manageInventory') ? {
+            checked: areAllPageRequestsSelected,
+            onChange: toggleAllRequestSelection,
+            disabled: isPermanentDeleteBusy || isBulkCancelBusy,
+            ariaLabel: 'Pilih semua permohonan yang ditampilkan'
+          } : undefined}
+          selectionText={hasPermission('manageInventory') ? `${selectedRequestIds.size} data dipilih` : undefined}
+        >
+          {hasPermission('manageInventory') && (
+            <>
             <button
               onClick={() => {
                 if (selectedRequestIds.size > 0) {
@@ -690,9 +690,9 @@ export const StockRequestsView: React.FC = () => {
                 Hapus Terpilih ({selectedRequestIds.size})
               </button>
             )}
-            </div>
-          </div>
-        )}
+            </>
+          )}
+        </ListViewToolbar>
         {bulkDeleteNotice && (
           <div
             role="status"
@@ -705,8 +705,8 @@ export const StockRequestsView: React.FC = () => {
             {bulkDeleteNotice.message}
           </div>
         )}
-        {/* MOBILE CARD VIEW */}
-        <div className="md:hidden divide-y divide-slate-800/80">
+        {/* CARD VIEW */}
+        <div className={`${viewMode === 'cards' ? '' : 'hidden'} divide-y divide-slate-800/80`}>
           {filteredRequests.length === 0 ? (
             <div className="py-12 px-4 text-center text-slate-400 text-xs">
               <ClipboardList className="w-8 h-8 mx-auto text-slate-600 mb-2" />
@@ -939,8 +939,8 @@ export const StockRequestsView: React.FC = () => {
           )}
         </div>
 
-        {/* DESKTOP TABLE VIEW */}
-        <div className="hidden md:block overflow-x-auto">
+        {/* TABLE VIEW */}
+        <div className={`${viewMode === 'table' ? 'block' : 'hidden'} overflow-x-auto`}>
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
