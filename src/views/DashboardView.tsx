@@ -138,6 +138,12 @@ export const DashboardView: React.FC<{
   // Inventory Calculations
   const totalInvTypes = inventoryItems.length;
   const totalStockQty = inventoryItems.reduce((sum, i) => sum + i.stokSaatIni, 0);
+  const stockByType = (jenis: 'ATK' | 'ARK') => {
+    const items = inventoryItems.filter(i => i.jenis === jenis);
+    return { types: items.length, qty: items.reduce((sum, i) => sum + i.stokSaatIni, 0) };
+  };
+  const atkStock = stockByType('ATK');
+  const arkStock = stockByType('ARK');
   const totalInvValue = inventoryItems.reduce((sum, i) => sum + i.totalNilai, 0);
   const lowStockCount = inventoryItems.filter(i => i.status === 'Menipis').length;
   const outOfStockCount = inventoryItems.filter(i => i.status === 'Habis').length;
@@ -377,8 +383,20 @@ export const DashboardView: React.FC<{
                 {totalInvTypes} <span className="text-xs font-normal text-slate-400">Jenis</span>
               </div>
               <span className="text-[10px] text-slate-400 font-mono mt-1 block">
-                Total Kuantitas: {totalStockQty.toLocaleString('id-ID')} unit
+                Total Stok Fisik: {totalStockQty.toLocaleString('id-ID')} unit
               </span>
+              <div className="mt-2 pt-2 border-t border-slate-800 grid grid-cols-2 gap-2 text-[10px] font-mono">
+                <div>
+                  <span className="text-blue-300 font-bold">ATK</span>
+                  <span className="text-slate-400"> • {atkStock.types} jenis</span>
+                  <div className="text-white font-bold">{atkStock.qty.toLocaleString('id-ID')} unit</div>
+                </div>
+                <div>
+                  <span className="text-violet-300 font-bold">ARK</span>
+                  <span className="text-slate-400"> • {arkStock.types} jenis</span>
+                  <div className="text-white font-bold">{arkStock.qty.toLocaleString('id-ID')} unit</div>
+                </div>
+              </div>
             </div>
 
             <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800">

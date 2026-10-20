@@ -48,17 +48,21 @@ export const GlobalSearchModal: React.FC = () => {
         .slice(0, 5)
     : [];
 
-  const filteredInventory = cleanQuery
-    ? inventoryItems
-        .filter(
-          i =>
-            i.nama.toLowerCase().includes(cleanQuery) ||
-            i.kodeBarang.toLowerCase().includes(cleanQuery) ||
-            i.binCode.toLowerCase().includes(cleanQuery) ||
-            i.rak.toLowerCase().includes(cleanQuery)
-        )
-        .slice(0, 5)
+  const inventoryMatches = cleanQuery
+    ? inventoryItems.filter(
+        i =>
+          i.nama.toLowerCase().includes(cleanQuery) ||
+          i.kodeBarang.toLowerCase().includes(cleanQuery) ||
+          i.binCode.toLowerCase().includes(cleanQuery) ||
+          i.rak.toLowerCase().includes(cleanQuery) ||
+          // Pencarian "ATK" / "ARK" atau nama kategori menampilkan seluruh persediaan jenis tersebut.
+          i.jenis.toLowerCase() === cleanQuery ||
+          (i.kategori || '').toLowerCase().includes(cleanQuery) ||
+          (i.subkategori || '').toLowerCase().includes(cleanQuery)
+      )
     : [];
+  const filteredInventory = inventoryMatches.slice(0, 5);
+  const inventoryMatchStock = inventoryMatches.reduce((sum, item) => sum + item.stokSaatIni, 0);
 
   const filteredRooms = cleanQuery
     ? rooms
@@ -183,9 +187,18 @@ export const GlobalSearchModal: React.FC = () => {
               {/* Inventory Results */}
               {filteredInventory.length > 0 && (
                 <div>
-                  <div className="text-[10px] font-bold text-amber-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <Package className="w-3.5 h-3.5" />
-                    <span>Persediaan ATK & ARK ({filteredInventory.length})</span>
+                  <div className="text-[10px] font-bold text-amber-400 uppercase tracking-wider mb-2 flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-1.5">
+                      <Package className="w-3.5 h-3.5" />
+                      <span>
+                        Persediaan ATK & ARK ({inventoryMatches.length > filteredInventory.length
+                          ? `${filteredInventory.length} dari ${inventoryMatches.length}`
+                          : filteredInventory.length})
+                      </span>
+                    </span>
+                    <span className="normal-case tracking-normal font-mono text-cyan-300">
+                      Total stok: {inventoryMatchStock.toLocaleString('id-ID')} unit
+                    </span>
                   </div>
                   <div className="space-y-1">
                     {filteredInventory.map(item => (
@@ -196,15 +209,31 @@ export const GlobalSearchModal: React.FC = () => {
                           setActiveView('inventory');
                           setIsGlobalSearchOpen(false);
                         }}
-                        className="p-2.5 rounded-xl bg-slate-950/60 hover:bg-slate-800/80 border border-slate-800 cursor-pointer flex items-center justify-between text-xs transition-colors"
+                        className="p-2.5 rounded-xl bg-slate-950/60 hover:bg-slate-800/80 border border-slate-800 cursor-pointer flex items-center justify-between gap-3 text-xs transition-colors"
                       >
-                        <div>
-                          <div className="font-semibold text-white">{item.nama}</div>
-                          <div className="text-[11px] text-cyan-400 font-mono">
-                            {item.binCode} • {item.rak} • Stok: {item.stokSaatIni} {item.satuan}
+                        <div className="min-w-0">
+                          <div className="font-semibold text-white flex items-center gap-2">
+                            <span className="truncate">{item.nama}</span>
+                            <span className={`shrink-0 text-[9px] px-1.5 py-0.5 rounded font-bold ${
+                              item.jenis === 'ATK' ? 'bg-blue-500/10 text-blue-300' : 'bg-violet-500/10 text-violet-300'
+                            }`}>
+                              {item.jenis}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-slate-400 font-mono">
+                            {item.kodeBarang} • {item.binCode} • {item.rak}
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 shrink-0">
+                          <div className="text-right">
+                            <div className="text-[9px] text-slate-400 uppercase">Stok</div>
+                            <div className={`font-mono font-bold ${
+                              item.status === 'Aman' ? 'text-emerald-300' :
+                              item.status === 'Menipis' ? 'text-amber-300' : 'text-rose-300'
+                            }`}>
+                              {item.stokSaatIni.toLocaleString('id-ID')} {item.satuan}
+                            </div>
+                          </div>
                           <span className={`text-[10px] px-2 py-0.5 rounded font-semibold ${
                             item.status === 'Aman' ? 'bg-emerald-500/10 text-emerald-400' :
                             item.status === 'Menipis' ? 'bg-amber-500/10 text-amber-400' :
@@ -216,6 +245,18 @@ export const GlobalSearchModal: React.FC = () => {
                         </div>
                       </div>
                     ))}
+                    {inventoryMatches.length > filteredInventory.length && (
+                      <button
+                        onClick={() => {
+                          setActiveView('inventory');
+                          setIsGlobalSearchOpen(false);
+                        }}
+                        className="w-full text-[11px] text-amber-400 hover:text-amber-300 font-semibold py-1.5 flex items-center justify-center gap-1"
+                      >
+                        <span>Lihat semua {inventoryMatches.length} barang di Master Persediaan</span>
+                        <ArrowRight className="w-3 h-3" />
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
