@@ -1,0 +1,701 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Buku Panduan Penggunaan Sistem BMN-Minut / BMN-BPSMinut</title>
+  <style>
+    :root {
+      --navy: #123967;
+      --blue: #246eae;
+      --sky: #eaf3fc;
+      --ink: #1f2937;
+      --muted: #536477;
+      --line: #d6e0ea;
+      --paper: #fff;
+      --warning: #fff7e8;
+      --warning-line: #d59a2b;
+      --success: #edf8f1;
+      --success-line: #48a27b;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      padding: 28px;
+      background: #e8eef5;
+      color: var(--ink);
+      font-family: Arial, "Liberation Sans", sans-serif;
+      font-size: 10.2pt;
+      line-height: 1.48;
+    }
+    main {
+      max-width: 210mm;
+      margin: 0 auto;
+      background: var(--paper);
+      box-shadow: 0 8px 28px #142a4230;
+    }
+    .page { padding: 17mm 17mm 16mm; }
+    .cover {
+      min-height: 264mm;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      color: white;
+      background: linear-gradient(155deg, #123967 0%, #164f83 62%, #237bb9 100%);
+      padding: 22mm 20mm 18mm;
+      position: relative;
+      overflow: hidden;
+    }
+    .cover:after {
+      content: "";
+      position: absolute;
+      width: 125mm;
+      height: 125mm;
+      right: -48mm;
+      bottom: -48mm;
+      border: 1px solid #ffffff25;
+      border-radius: 50%;
+      box-shadow: 0 0 0 18mm #ffffff08, 0 0 0 36mm #ffffff06;
+    }
+    .cover-brand { display: flex; align-items: center; gap: 17px; z-index: 1; }
+    .cover-brand img { width: 48px; height: 48px; object-fit: contain; background: white; border-radius: 9px; padding: 3px; }
+    .cover-brand strong { font-size: 12pt; letter-spacing: .07em; }
+    .cover-brand span { display: block; margin-top: 4px; color: #d3e7fa; font-size: 9pt; }
+    .cover-main { z-index: 1; max-width: 154mm; padding: 18mm 0; }
+    .cover-kicker { text-transform: uppercase; letter-spacing: .18em; color: #a6d7ff; font-size: 10pt; font-weight: 700; }
+    .cover h1 { color: white; border: 0; font-size: 34pt; line-height: 1.12; margin: 7mm 0 6mm; }
+    .cover-subtitle { font-size: 16pt; line-height: 1.32; color: #e2effc; }
+    .cover-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 11mm; }
+    .cover-meta span { border: 1px solid #ffffff55; background: #ffffff12; padding: 7px 11px; border-radius: 7px; font-size: 9pt; }
+    .cover-footer { z-index: 1; border-top: 1px solid #ffffff48; padding-top: 6mm; color: #d3e7fa; font-size: 9pt; }
+    h1, h2, h3, h4 { color: var(--navy); line-height: 1.2; page-break-after: avoid; }
+    h1 { font-size: 23pt; border-bottom: 3px solid var(--blue); padding-bottom: 4mm; margin: 0 0 5mm; }
+    h2 { font-size: 15pt; margin: 7mm 0 3mm; }
+    h3 { font-size: 11.5pt; margin: 5mm 0 2mm; }
+    h4 { font-size: 10pt; margin: 3mm 0 1.5mm; }
+    p { margin: 0 0 3mm; }
+    ul, ol { margin: 2mm 0 4mm; padding-left: 7mm; }
+    li { margin: 0 0 1.5mm; }
+    a { color: #145b95; text-decoration: underline; text-underline-offset: 2px; }
+    .eyebrow { color: var(--blue); font-weight: 700; font-size: 8.5pt; text-transform: uppercase; letter-spacing: .1em; }
+    .chapter { break-before: page; }
+    #bab-12, #bab-18, #bab-19 { break-before: auto; }
+    .lead { color: #34465a; font-size: 11pt; }
+    .small { color: var(--muted); font-size: 8.5pt; }
+    .tiny { color: var(--muted); font-size: 7.6pt; }
+    .muted { color: var(--muted); }
+    .callout, .warning, .success {
+      margin: 4mm 0;
+      padding: 3.5mm 4mm;
+      border-left: 4px solid var(--blue);
+      border-radius: 4px;
+      background: var(--sky);
+      break-inside: avoid;
+    }
+    .warning { background: var(--warning); border-left-color: var(--warning-line); }
+    .success { background: var(--success); border-left-color: var(--success-line); }
+    .label { display: inline-block; font-size: 7.5pt; font-weight: 700; letter-spacing: .05em; padding: 2px 6px; border-radius: 4px; background: #e8eef5; color: #34465a; text-transform: uppercase; }
+    figure { margin: 5mm 0; break-inside: avoid; }
+    figure img { display: block; max-width: 100%; max-height: 112mm; object-fit: contain; margin: 0 auto; border: 1px solid var(--line); border-radius: 5px; }
+    figure.diagram img { max-height: 125mm; border: 0; }
+    figcaption { margin-top: 2mm; text-align: center; color: var(--muted); font-size: 8pt; }
+    table { width: 100%; border-collapse: collapse; margin: 3mm 0 5mm; font-size: 8.4pt; break-inside: auto; }
+    thead { display: table-header-group; }
+    tr { break-inside: avoid; }
+    th, td { border: 1px solid var(--line); padding: 2.2mm 2.5mm; vertical-align: top; text-align: left; }
+    th { color: #fff; background: var(--navy); font-weight: 700; }
+    tbody tr:nth-child(even) { background: #f6f9fc; }
+    .matrix { font-size: 7.3pt; }
+    .matrix th, .matrix td { padding: 1.8mm 1.5mm; }
+    .checklist { list-style: none; padding-left: 0; }
+    .checklist li { padding-left: 7mm; position: relative; }
+    .checklist li:before { content: "□"; position: absolute; left: 0; top: 0; color: var(--blue); font-weight: 700; }
+    .toc { columns: 2; column-gap: 10mm; list-style: none; padding: 0; }
+    .toc li { break-inside: avoid; margin-bottom: 2.3mm; }
+    .toc a { display: flex; gap: 7px; color: var(--navy); text-decoration: none; border-bottom: 1px dotted #9aabba; padding-bottom: 1mm; }
+    .toc .toc-num { min-width: 9mm; color: var(--blue); font-weight: 700; }
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 4mm; }
+    .card { border: 1px solid var(--line); background: #f8fbfe; border-radius: 7px; padding: 3mm; break-inside: avoid; }
+    .page-note { margin-top: 5mm; padding-top: 2mm; border-top: 1px solid var(--line); color: var(--muted); font-size: 8pt; }
+    .mono { font-family: Consolas, "Courier New", monospace; }
+    .nowrap { white-space: nowrap; }
+    .center { text-align: center; }
+    .no-break { break-inside: avoid; }
+    .sources li { font-size: 8.4pt; }
+    @page {
+      size: A4 portrait;
+      margin: 17mm 15mm 18mm;
+      @top-left {
+        content: "BPS KABUPATEN MINAHASA UTARA · BMN-MINUT";
+        color: #536477;
+        font: 8pt Arial, sans-serif;
+      }
+      @bottom-right {
+        content: "Panduan v1.0 · Halaman " counter(page) " / " counter(pages);
+        color: #536477;
+        font: 8pt Arial, sans-serif;
+      }
+    }
+    @media screen {
+      .chapter, .cover { margin: 24px auto; max-width: 210mm; }
+      .chapter { padding: 17mm; background: white; box-shadow: 0 8px 28px #142a4230; }
+      .cover { min-height: 297mm; }
+    }
+    @media print {
+      html, body { padding: 0; margin: 0; background: white; font-size: 9.5pt; }
+      main { max-width: none; box-shadow: none; }
+      .cover { min-height: 260mm; break-after: page; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+      .chapter { padding: 0; box-shadow: none; }
+      .callout, .warning, .success, th, .cover, .label { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+      .no-print { display: none !important; }
+      a { color: inherit; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <section class="cover">
+    <div class="cover-brand">
+      <img src="../public/bps-minut-logo.png" alt="Logo BPS Kabupaten Minahasa Utara">
+      <div><strong>BADAN PUSAT STATISTIK</strong><span>KABUPATEN MINAHASA UTARA · SATKER 7106</span></div>
+    </div>
+    <div class="cover-main">
+      <div class="cover-kicker">Buku Manual Pengguna</div>
+      <h1>Panduan Penggunaan Sistem BMN-Minut</h1>
+      <div class="cover-subtitle">Sistem Informasi Manajemen Aset BMN dan Persediaan<br>BMN BPS MINUT</div>
+      <div class="cover-meta">
+        <span>Versi panduan 1.0</span>
+        <span>18 Oktober 2026</span>
+        <span>Penggunaan internal</span>
+      </div>
+    </div>
+    <div class="cover-footer">
+      <strong>Website:</strong> https://bmnbpsminut.online<br>
+      Panduan disusun dari kode sumber dan pemeriksaan halaman login publik. Layar internal memerlukan akun resmi dan belum dapat diuji dalam sesi penyusunan.
+    </div>
+  </section>
+
+  <section class="chapter" id="pengantar">
+    <div class="eyebrow">Informasi dokumen</div>
+    <h1>Kata Pengantar dan Batas Verifikasi</h1>
+    <p class="lead">Buku ini menjadi panduan operasional bagi pengguna BMN-Minut/BMN BPS MINUT. Isi menjelaskan tindakan yang ditemukan pada kode sumber aplikasi dan membedakannya dari layanan eksternal yang masih memerlukan pemeriksaan administrator.</p>
+    <div class="warning">
+      <strong>Penting — jangan samakan fitur di kode dengan layanan yang sudah aktif.</strong>
+      Pada 18 Oktober 2026 halaman publik yang dapat dibuka dan ditangkap layarnya adalah halaman login. Akun berwenang tidak disediakan untuk pemeriksaan ini; dashboard, data, tombol setelah login, pengiriman WhatsApp, dan konfigurasi produksi tidak diuji langsung. Dokumentasi kesiapan operasional proyek juga menandai kesiapan produksi sebagai belum terverifikasi. Ikuti SOP instansi dan minta administrator memastikan menu serta status pada deployment yang digunakan.
+    </div>
+    <h2>Ruang lingkup dan tingkat bukti</h2>
+    <table>
+      <thead><tr><th>Penanda</th><th>Arti di dalam buku</th></tr></thead>
+      <tbody>
+        <tr><td><span class="label">Kode</span></td><td>Perilaku/label ditemukan pada kode sumber aplikasi yang ditinjau.</td></tr>
+        <tr><td><span class="label">Publik</span></td><td>Halaman login pada alamat publik berhasil dimuat dan diambil tangkapan layarnya.</td></tr>
+        <tr><td><span class="label">Belum diverifikasi</span></td><td>Keberhasilan di lingkungan operasional, akun, provider, dokumen produksi atau proses administrasi belum dikonfirmasi.</td></tr>
+      </tbody>
+    </table>
+    <p>Buku ini bukan pengganti peraturan BMN, SOP pengadaan, pedoman arsip, otorisasi pejabat, maupun dokumen resmi SAKTI/SIMAN. Informasi harga, kuantitas, status, dan catatan pada contoh di bawah adalah ilustrasi hipotetis, bukan data produksi.</p>
+    <h2>Daftar isi</h2>
+    <ol class="toc">
+      <li><a href="#bab-1"><span class="toc-num">I</span><span>Pendahuluan</span></a></li>
+      <li><a href="#bab-2"><span class="toc-num">II</span><span>Gambaran umum dan alur sistem</span></a></li>
+      <li><a href="#bab-3"><span class="toc-num">III</span><span>Dashboard dan seluruh menu</span></a></li>
+      <li><a href="#bab-4"><span class="toc-num">IV</span><span>Hak akses dan tanggung jawab</span></a></li>
+      <li><a href="#bab-5"><span class="toc-num">V</span><span>Login dan penggunaan dasar</span></a></li>
+      <li><a href="#bab-6"><span class="toc-num">VI</span><span>Dashboard dan persediaan</span></a></li>
+      <li><a href="#bab-7"><span class="toc-num">VII</span><span>Master data BMN</span></a></li>
+      <li><a href="#bab-8"><span class="toc-num">VIII</span><span>Transaksi barang masuk</span></a></li>
+      <li><a href="#bab-9"><span class="toc-num">IX</span><span>Permohonan barang ATK/ARK</span></a></li>
+      <li><a href="#bab-10"><span class="toc-num">X</span><span>Verifikasi dan persetujuan</span></a></li>
+      <li><a href="#bab-11"><span class="toc-num">XI</span><span>Konfirmasi penerimaan barang</span></a></li>
+      <li><a href="#bab-12"><span class="toc-num">XII</span><span>Dokumen dan berita acara</span></a></li>
+      <li><a href="#bab-13"><span class="toc-num">XIII</span><span>Pencarian, arsip, dan laporan</span></a></li>
+      <li><a href="#bab-14"><span class="toc-num">XIV</span><span>WhatsApp dan Fonnte</span></a></li>
+      <li><a href="#bab-15"><span class="toc-num">XV</span><span>AI Chatbot</span></a></li>
+      <li><a href="#bab-16"><span class="toc-num">XVI</span><span>Manfaat dan batas klaim</span></a></li>
+      <li><a href="#bab-17"><span class="toc-num">XVII</span><span>Keamanan dan tata kelola</span></a></li>
+      <li><a href="#bab-18"><span class="toc-num">XVIII</span><span>Pemecahan masalah</span></a></li>
+      <li><a href="#bab-19"><span class="toc-num">XIX</span><span>Glosarium dan FAQ</span></a></li>
+      <li><a href="#bab-20"><span class="toc-num">XX</span><span>Penutup dan kontak bantuan</span></a></li>
+    </ol>
+  </section>
+
+  <section class="chapter" id="bab-1">
+    <div class="eyebrow">Bab I</div>
+    <h1>Pendahuluan</h1>
+    <p class="lead"><strong>BMN-Minut / BMN BPS MINUT</strong> adalah aplikasi internal BPS Kabupaten Minahasa Utara untuk menyajikan modul aset BMN, ruangan, persediaan ATK/ARK, permohonan, transaksi gudang, arsip dokumen, dan laporan dalam satu antarmuka.</p>
+    <h2>Latar belakang, tujuan, dan sasaran</h2>
+    <p>Aplikasi ditujukan untuk membantu pekerjaan pencatatan dan penelusuran administrasi yang tersebar di beberapa proses. Modul berbeda tetap memiliki fungsi berbeda: master aset mencatat BMN; master persediaan mencatat barang habis pakai; transaksi masuk/keluar mengubah jejak saldo; permohonan mengatur permintaan pegawai; dokumen mengarsipkan bukti; laporan menyajikan rekap sesuai filter dan hak akses.</p>
+    <p>Sasaran pengguna adalah Pimpinan, Pengelola BMN, Operator/petugas persediaan, administrator, auditor yang diberi akun, dan pegawai pemohon. Nama jabatan saja tidak memberikan izin; administrator menetapkan role dan permission pada akun.</p>
+    <h2>Ruang lingkup dan persyaratan</h2>
+    <ul>
+      <li>Alamat publik yang diperiksa: <a href="https://bmnbpsminut.online">https://bmnbpsminut.online</a>. Pengguna harus memiliki akun yang disediakan instansi.</li>
+      <li>Gunakan browser modern yang diperbarui (misalnya Chrome, Edge, Firefox, atau Safari) dan koneksi internet stabil. Aplikasi dibangun sebagai situs responsif.</li>
+      <li>Fitur kamera/QR memerlukan izin kamera browser dan konteks HTTPS yang didukung. Tolak izin jika tidak sedang memakai fitur tersebut.</li>
+      <li>Dokumen dapat memuat PDF/gambar; batas aktual mengikuti validasi backend dan konfigurasi hosting.</li>
+    </ul>
+    <h2>Petunjuk membaca</h2>
+    <p>Ikuti urutan bab untuk memahami alur. Langkah bertanda kode menjelaskan perilaku yang diprogram; setiap keputusan administrasi tetap mengikuti SOP dan instruksi pejabat berwenang. Jika label menu berbeda di deployment, gunakan administrator sebagai rujukan.</p>
+  </section>
+
+  <section class="chapter" id="bab-2">
+    <div class="eyebrow">Bab II</div>
+    <h1>Gambaran Umum dan Alur Sistem</h1>
+    <p>Aplikasi dimulai dari autentikasi, kemudian menampilkan beranda berdasarkan role: pengguna selain Pimpinan diarahkan ke Dashboard Utama, sedangkan role Pimpinan diarahkan ke Dashboard Pimpinan. Sidebar menyaring menu memakai permission; beberapa batas akses ruangan dan persetujuan juga diterapkan secara khusus di kode.</p>
+    <figure class="diagram">
+      <img src="Diagram%20Alur%20Sistem%20BMN-Minut.svg" alt="Diagram alur lengkap aplikasi BMN-Minut">
+      <figcaption>Gambar 1. Alur login, permohonan, barang masuk, arsip dan laporan. Versi yang dapat dicetak tersedia pada file terpisah.</figcaption>
+    </figure>
+    <h2>Ringkasan dua alur persediaan yang berbeda</h2>
+    <div class="split">
+      <div class="card">
+        <h3>Barang masuk</h3>
+        <p>Input transaksi → status Menunggu Pemeriksaan → pemeriksaan fisik/dokumen → verifikasi diterima atau ditolak. Saldo bertambah hanya sesudah transaksi diverifikasi diterima. Transaksi baru belum otomatis menaikkan stok.</p>
+      </div>
+      <div class="card">
+        <h3>Permohonan pegawai</h3>
+        <p>Pengajuan → pemeriksaan → persetujuan → diproses/serah terima → Pemohon memeriksa barang dan mengonfirmasi. Pengurangan saldo dicatat saat konfirmasi penerimaan berhasil, bersamaan dengan jejak barang keluar.</p>
+      </div>
+    </div>
+    <div class="warning"><strong>Integrasi eksternal bukan alur yang dijamin aktif.</strong> Kode memiliki konektor/provider tertentu, tetapi status konfigurasi, nomor/perangkat, database produksi, tanda tangan elektronik, dan pengiriman notifikasi aktual belum diverifikasi dalam pemeriksaan ini.</div>
+  </section>
+
+  <section class="chapter" id="bab-3">
+    <div class="eyebrow">Bab III</div>
+    <h1>Dashboard dan Seluruh Menu</h1>
+    <p>Sidebar aplikasi membagi fungsi ke Dashboard, Aset BMN, Persediaan, Dokumentasi/Laporan, dan Sistem/Keamanan. Menu yang terlihat mengikuti role. Daftar berikut adalah nama modul yang ditemukan pada kode, bukan jaminan seluruhnya tampil di setiap akun.</p>
+    <table>
+      <thead><tr><th>Menu</th><th>Tujuan dan informasi</th><th>Akses umum di kode</th><th>Perhatian</th></tr></thead>
+      <tbody>
+        <tr><td>Dashboard Utama</td><td>Ringkasan aset, persediaan, transaksi, indikator stok dan tindakan cepat.</td><td><span class="mono">viewDashboard</span>, selain role Pimpinan.</td><td>Angka mengikuti state/filter; bukan pengganti rekonsiliasi fisik.</td></tr>
+        <tr><td>Dashboard Pimpinan</td><td>Ringkasan eksekutif dan pemantauan permohonan/indikator.</td><td>Beranda role Pimpinan.</td><td>Pimpinan diarahkan ke tampilan ini, bukan Dashboard Utama.</td></tr>
+        <tr><td>Semua Aset BMN</td><td>Daftar aset, kode barang, NUP, nama, kategori, kondisi, lokasi, pencarian, formulir, import/export dan cetak.</td><td><span class="mono">viewAssets</span> atau <span class="mono">manageAssets</span>; tindakan ubah perlu izin kelola aset.</td><td>Pastikan Kode Barang dan NUP benar sebelum import/edit.</td></tr>
+        <tr><td>Manajemen Ruangan</td><td>Master ruangan, gedung, PIC, lokasi aset serta DBR.</td><td>Halaman memiliki aturan tampil khusus Administrator, Pengelola BMN, dan Pimpinan; perubahan tersimpan tetap memerlukan permission backend yang sesuai.</td><td>Ruangan otomatis yang dibuat saat import perlu ditinjau PIC/gedung jika nilai awal belum lengkap.</td></tr>
+        <tr><td>3D Asset Mapping</td><td>Visualisasi ruangan dan penempatan aset kantor.</td><td>View/manage aset.</td><td>Rendering dapat diubah ke mode normal, performance, atau low.</td></tr>
+        <tr><td>Pemindahan Aset</td><td>Permintaan/pergerakan aset antarruangan dan cetak BAST mutasi.</td><td><span class="mono">manageMovements</span>.</td><td>Perubahan lokasi mengikuti status/proses, jangan memindahkan tanpa berita acara/SOP.</td></tr>
+        <tr><td>Pemeliharaan</td><td>Jadwal dan tiket servis; riwayat pemeliharaan.</td><td><span class="mono">manageMaintenance</span>.</td><td>Catat pekerjaan dan biaya berdasarkan bukti sah.</td></tr>
+        <tr><td>Penghapusan BMN</td><td>Daftar usulan/proses penghapusan.</td><td><span class="mono">manageDisposal</span>.</td><td>Usulan aplikasi bukan pengesahan/penghapusan resmi eksternal.</td></tr>
+        <tr><td>Master Persediaan</td><td>Katalog ATK/ARK, lokasi/rak/bin, stok, minimum, transaksi barang masuk/keluar dan import.</td><td><span class="mono">viewInventory</span> untuk baca; <span class="mono">manageInventory</span> untuk transaksi/harga.</td><td>Saldo menjadi rujukan aplikasi; verifikasi terhadap fisik berkala.</td></tr>
+        <tr><td>Gudang 3D</td><td>Visualisasi rak persediaan.</td><td>Akses persediaan.</td><td>Lokasi 3D membantu orientasi, bukan dokumen serah terima.</td></tr>
+        <tr><td>Permohonan Barang (ATK)</td><td>Pengajuan, filter status, pemeriksaan, persetujuan, proses dan konfirmasi penerimaan.</td><td><span class="mono">requestSupplies</span> atau <span class="mono">approveRequests</span>.</td><td>Role Pimpinan dapat memantau tetapi dikecualikan dari aksi keputusan di alur ini.</td></tr>
+        <tr><td>Stock Opname</td><td>Input hasil hitung fisik, selisih, dan proses penyesuaian/berita acara.</td><td><span class="mono">stockOpname</span>.</td><td>Penyesuaian saldo harus berdasarkan hitung fisik dan otorisasi.</td></tr>
+        <tr><td>Dokumen &amp; BAST</td><td>Arsip nota, berita acara, dokumen perolehan/pemindahan/pemeliharaan/penghapusan/opname/lainnya.</td><td><span class="mono">viewReports</span>; detail nilai nota dibatasi <span class="mono">manageInventory</span>.</td><td>Label Final bukan otomatis tanda tangan elektronik.</td></tr>
+        <tr><td>Laporan Resmi BPS</td><td>Daftar BMN, kondisi, penyusutan, saldo persediaan, stok menipis/kritis; cetak dan ekspor CSV.</td><td><span class="mono">viewReports</span>.</td><td>Laporan mengikuti filter terkait; periksa cakupan sebelum ekspor.</td></tr>
+        <tr><td>Audit Trail Log</td><td>Riwayat aktivitas dan modul.</td><td><span class="mono">systemSettings</span>.</td><td>Role Auditor Internal bawaan tidak otomatis memiliki permission ini.</td></tr>
+        <tr><td>Manajemen Pengguna</td><td>Akun pegawai, role/permission, status keaktifan, pengaturan pengguna.</td><td><span class="mono">manageUsers</span> atau <span class="mono">manageRoles</span>.</td><td>Administrator memberikan akun; jangan berbagi sandi.</td></tr>
+        <tr><td>Pengaturan Sistem</td><td>Informasi satker, performa 3D, backup/import JSON, opsi reset data.</td><td><span class="mono">systemSettings</span>.</td><td>Backup pada layar tidak terbukti mencakup seluruh state/backend. Jangan gunakan reset di lingkungan kerja tanpa instruksi tertulis.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout"><strong>Menu peminjaman ruang rapat:</strong> permission <span class="mono">roomBooking</span> dan teks deskripsinya ditemukan, tetapi tidak ada menu pemesanan ruang khusus pada navigasi yang diperiksa. Ketersediaannya harus diverifikasi; panduan ini tidak menganggap fitur booking aktif.</div>
+  </section>
+
+  <section class="chapter" id="bab-4">
+    <div class="eyebrow">Bab IV</div>
+    <h1>Hak Akses dan Tanggung Jawab Pengguna</h1>
+    <p>Aplikasi menggunakan role-based access control (RBAC). Administrator dapat mengelola role dan permission. Matriks ini merangkum role awal yang ditemukan dalam kode sumber; administrator dapat mengubah/menambah role, sehingga konfigurasi akun aktual harus diperiksa di Manajemen Pengguna.</p>
+    <table class="matrix">
+      <thead><tr><th>Role awal</th><th>Dashboard/data</th><th>Tindakan utama</th><th>Batas penting</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Administrator</strong></td><td>Semua modul dan Dashboard Utama.</td><td>Aset, ruangan, stok, permohonan, opname, laporan, akun/role, pengaturan.</td><td>Akses penuh tetap harus dipakai sesuai penugasan; jangan memakai fitur reset sembarangan.</td></tr>
+        <tr><td><strong>Pengelola BMN</strong></td><td>Dashboard, aset, inventaris yang diizinkan, laporan.</td><td>Kelola aset, ruangan, pemindahan, pemeliharaan, penghapusan; membuat permohonan.</td><td>Tidak memiliki <span class="mono">manageInventory</span>, <span class="mono">approveRequests</span>, <span class="mono">stockOpname</span>, manajemen pengguna, atau pengaturan pada role awal.</td></tr>
+        <tr><td><strong>Operator</strong></td><td>Dashboard, lihat aset/persediaan, permohonan, laporan.</td><td>Kelola persediaan dan transaksi masuk/keluar; stock opname; dapat mengajukan permohonan.</td><td>Tidak dapat mengelola master aset/ruangan atau memutus persetujuan tahap pejabat pada role awal.</td></tr>
+        <tr><td><strong>Pimpinan</strong></td><td>Dashboard Pimpinan, lihat aset/persediaan, laporan dan ruangan sesuai aturan view.</td><td>Memantau ringkasan; izin terkait mutasi/penghapusan mengikuti konfigurasi.</td><td>Kode alur permohonan mengecualikan role bernama Pimpinan dari aksi approve/reject; pemohon sendiri saja yang mengonfirmasi penerimaan.</td></tr>
+        <tr><td><strong>Auditor Internal</strong></td><td>Dashboard, lihat aset/persediaan, laporan.</td><td>Review informasi tanpa edit pada role awal.</td><td>Role awal tidak memiliki <span class="mono">systemSettings</span>; menu Audit Trail mensyaratkan izin tersebut.</td></tr>
+        <tr><td><strong>Pegawai Pemohon / Staff Satker</strong></td><td>Hak lihat sesuai permission role yang dipasang.</td><td>Ajukan dan pantau permohonan milik sendiri bila <span class="mono">requestSupplies</span> aktif.</td><td>Bukan role default terpisah pada daftar awal; administrator harus memeriksa akun/role aktual.</td></tr>
+        <tr><td><strong>Kepala Sub Bagian Umum / pejabat khusus</strong></td><td>Mengikuti permission pada akun/role, bukan nama jabatan semata.</td><td>Tindakan hanya sesuai izin yang ditetapkan dan alur server.</td><td>Tidak ditemukan role awal dengan nama tersebut. Permintaan untuk persetujuan harus memakai role yang memang diotorisasi dan diuji.</td></tr>
+      </tbody>
+    </table>
+    <h2>Makna permission penting</h2>
+    <ul>
+      <li><span class="mono">viewAssets</span>/<span class="mono">viewInventory</span>: melihat data; tidak otomatis memberi izin mengubah.</li>
+      <li><span class="mono">manageAssets</span>: pengelolaan BMN; <span class="mono">manageInventory</span>: pengelolaan stok/persediaan.</li>
+      <li><span class="mono">requestSupplies</span>: mengajukan permohonan; <span class="mono">approveRequests</span>: tindakan persetujuan mengikuti role dan urutan server.</li>
+      <li>Nilai/harga nota dan kolom harga persediaan hanya ditampilkan bagi akun berizin <span class="mono">manageInventory</span>.</li>
+    </ul>
+    <div class="warning">Jangan menganggap “Kepala Sub Bagian”, “Operator”, “Auditor”, atau “Staff” memiliki akses tertentu hanya berdasarkan sebutan. Mintalah administrator memeriksa role, permission, serta status akun. Akses untuk membuka suatu halaman juga tidak selalu sama dengan izin server untuk menyimpan perubahan.</div>
+  </section>
+
+  <section class="chapter" id="bab-5">
+    <div class="eyebrow">Bab V</div>
+    <h1>Login dan Penggunaan Dasar</h1>
+    <h2>Masuk ke aplikasi</h2>
+    <ol>
+      <li>Buka <a href="https://bmnbpsminut.online">https://bmnbpsminut.online</a> pada browser dan pastikan alamat memakai HTTPS.</li>
+      <li>Masukkan NIP/username BPS yang diberikan administrator.</li>
+      <li>Masukkan kata sandi. Tombol ikon mata berlabel <strong>Tampilkan kata sandi</strong>/<strong>Sembunyikan kata sandi</strong> hanya mengubah visibilitas pada perangkat.</li>
+      <li>Pilih <strong>Masuk ke Sistem</strong>. Jika gagal, baca pesan di formulir; jangan mengulang berkali-kali bila akun terkunci atau sesi server bermasalah. Teks “Bantuan SSO BPS” tampil di layar, tetapi alur tujuan SSO tidak dapat diverifikasi dari pemeriksaan publik.</li>
+      <li>Setelah masuk, aplikasi memilih dashboard sesuai role. Menu yang tidak diizinkan dapat tidak terlihat atau menampilkan akses ditolak.</li>
+    </ol>
+    <figure>
+      <img src="Tangkapan_Layar_Login.png" alt="Tangkapan layar aktual halaman login publik BMN BPS MINUT pada desktop">
+      <figcaption>Gambar 2. Halaman login publik yang dibuka pada 18 Oktober 2026. Tidak menampilkan akun atau transaksi.</figcaption>
+    </figure>
+    <h2>Desktop dan handphone</h2>
+    <p>Pada desktop, sidebar tampil di sisi kiri. Pada layar kecil, navigasi utama berpindah ke tombol menu dan navigasi bawah; pencarian global berpindah menjadi tombol ikon. Ketuk satu menu lalu tutup drawer bila masih terbuka. Tabel dapat memerlukan gulir horizontal.</p>
+    <figure><img src="Tangkapan_Layar_Login.png" alt="Tampilan login desktop"><figcaption>Gambar 3. Login desktop (tangkapan halaman publik).</figcaption></figure>
+    <div class="callout"><strong>Ponsel:</strong> kode menampilkan tombol hamburger, navigasi bawah Beranda/Aset/Persediaan/Permohonan/Menu, serta tombol pencarian ringkas. Sidebar dibuka sebagai drawer dan tertutup setelah menu dipilih. Screenshot layar internal seluler tidak tersedia karena memerlukan akun resmi.</div>
+    <div class="warning"><strong>Keterbatasan screenshot:</strong> halaman sesudah login tidak ditangkap karena sesi ini tidak memiliki akun resmi. Jangan memasukkan kredensial ke dalam buku atau mengirimkannya untuk keperluan dokumentasi.</div>
+    <h2>Penggunaan sehari-hari dan keluar</h2>
+    <ul>
+      <li>Gunakan kolom pencarian/filter, lalu periksa status serta halaman tabel; badge dapat menunjukkan jumlah item tertunda/stok kritis.</li>
+      <li>Di navbar, pencarian global mencari aset, persediaan, ruangan, atau NUP; pada desktop pintasan yang ditampilkan adalah Ctrl/⌘+K.</li>
+      <li>Ikon QR membuka pemindai; berikan izin kamera hanya ketika Anda memakainya.</li>
+      <li>Ikon notifikasi menampilkan informasi aplikasi; pemberitahuan di UI bukan bukti pesan WhatsApp sampai.</li>
+      <li>Gunakan menu profil untuk keluar. Sesi login dinyatakan berlaku maksimum 12 jam.</li>
+    </ul>
+  </section>
+
+  <section class="chapter" id="bab-6">
+    <div class="eyebrow">Bab VI</div>
+    <h1>Dashboard dan Data Persediaan</h1>
+    <h2>Membaca dashboard</h2>
+    <p>Dashboard Utama menampilkan ringkasan aset, persediaan, aktivitas, dan peringatan yang sesuai role. Dashboard Pimpinan adalah beranda khusus role bernama Pimpinan dan berfokus pada pemantauan eksekutif. Kartu angka adalah ringkasan aplikasi, bukan pengesahan saldo atau nilai laporan resmi.</p>
+    <h2>Mencari dan memfilter persediaan</h2>
+    <ol>
+      <li>Buka <strong>Master Persediaan</strong> dari sidebar/bottom navigation.</li>
+      <li>Gunakan tab kategori jenis seperti ATK/ARK, filter kategori/lokasi gudang/satuan, dan kolom pencarian.</li>
+      <li>Kata kunci dapat dicari pada nama, kode barang, merek, jenis, kategori, satuan, lokasi, bin code, rak, atau subkategori. Urutan daftar dapat diubah menurut nama, kode, stok, atau lokasi.</li>
+      <li>Gunakan kelompok indikator <strong>Stok Menipis</strong> dan <strong>Stok Habis</strong>; periksa angka saldo dan satuannya.</li>
+      <li>Kolom harga satuan/nilai total hanya ditampilkan untuk akun dengan <span class="mono">manageInventory</span>. Ekspor mengikuti batas izin harga yang sama.</li>
+    </ol>
+    <table>
+      <thead><tr><th>Indikator</th><th>Makna yang dipakai aplikasi</th><th>Tindak lanjut</th></tr></thead>
+      <tbody>
+        <tr><td>Aman</td><td>Saldo di atas batas minimum.</td><td>Tetap cocokkan saat transaksi/opname.</td></tr>
+        <tr><td>Menipis</td><td>Saldo positif tetapi sama dengan/di bawah stok minimum.</td><td>Koordinasikan pengadaan sesuai prosedur.</td></tr>
+        <tr><td>Habis</td><td>Saldo sama dengan nol.</td><td>Barang tidak dapat diminta melalui alur permohonan sampai saldo tersedia.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout"><strong>Contoh simulasi:</strong> stok awal 12 rim dan minimum 5 rim. Setelah transaksi sah, saldo 4 rim bisa ditandai menipis; saldo 0 ditandai habis. Contoh ini bukan saldo aktual kantor.</div>
+    <p>Permohonan yang belum diserahkan dapat memakai stok sebagai reservasi; jumlah tersedia untuk permintaan baru bisa lebih kecil daripada saldo fisik tercatat. Jangan menjanjikan jumlah sebelum memeriksa saldo tersedia dan reservasi.</p>
+  </section>
+
+  <section class="chapter" id="bab-7">
+    <div class="eyebrow">Bab VII</div>
+    <h1>Tutorial Master Data BMN</h1>
+    <h2>Melihat, mencari, dan mengubah aset</h2>
+    <ol>
+      <li>Buka <strong>Semua Aset BMN</strong>. Gunakan kata kunci dan filter kategori/kondisi/ruangan jika tampil.</li>
+      <li>Buka detail aset untuk mengecek kode, NUP, nama, kondisi, nilai, foto, barcode/QR, ruang, dan PIC sesuai izin akun.</li>
+      <li>Untuk mengubah data, pilih aset lalu <strong>Edit</strong>; periksa kategori BMN, identitas aset, lokasi, nilai, tanggal, kondisi dan penanggung jawab sebelum menyimpan.</li>
+      <li>Untuk menambah aset, gunakan form tambah dan isi nilai yang tersedia. Simpan hanya setelah data dibandingkan dengan dokumen sumber.</li>
+      <li>Penghapusan aset adalah tindakan berbeda dari penghapusan usulan BMN resmi. Periksa keterkaitan mutasi/perawatan dan minta otorisasi sebelum menghapus record.</li>
+    </ol>
+    <h2>Import aset dan ruangan</h2>
+    <p>Menu import generik menerima Excel/XLS, CSV, TSV, dan JSON; menu <strong>Impor / Ekspor Master Aset</strong> menerima workbook Excel dengan sheet <span class="mono">Master Aset</span> dan susunan header lengkap. Template dan pesan validasi ditampilkan pada modal.</p>
+    <ul>
+      <li>Pilih file, baca preview, periksa baris tidak valid/konflik, dan pastikan kategori sumber dipetakan.</li>
+      <li>Impor Master Aset menolak baris yang pasangan Kode Barang+NUP-nya sudah ada atau berulang; konflik tidak ditimpa otomatis.</li>
+      <li>Impor aset mencocokkan ruangan melalui kode lokasi atau nama. Jika belum ada, sistem membuat master ruangan dasar dan menghubungkan aset ke ID ruangan. Lokasi kosong masuk ruangan <strong>Belum berlokasi</strong>.</li>
+      <li>Periksa gedung/PIC dan lengkapi data ruangan bila ada informasi yang lebih akurat. Ini bukan alasan menahan keterkaitan aset dengan ruang yang dibuat.</li>
+      <li>Jika sinkronisasi gagal, jangan mengulang import sebelum memeriksa apakah baris/ruangan sudah tersimpan.</li>
+    </ul>
+    <h2>Manajemen Ruangan dan DBR</h2>
+    <p>Pengelola yang diizinkan membuka Manajemen Ruangan untuk mencari, menambah, mengubah, atau menghapus master. Kode/nama/gedung/lantai/PIC harus valid; ruangan yang memiliki aset dapat memiliki dampak saat dikelola. Periksa DBR dan lokasi setelah pemindahan atau import. Pengguna tanpa izin tidak dapat mengelola master ini.</p>
+    <div class="warning">Daftar sembilan kategori BMN di aplikasi memuat TANAH, ALAT BESAR, ALAT ANGKUTAN BERMOTOR, MESIN PERALATAN NON TIK, MESIN PERALATAN KHUSUS TIK, BANGUNAN DAN GEDUNG, RUMAH NEGARA, ASET TETAP LAINNYA, dan ASET TAK BERWUJUD. Kategori adalah klasifikasi sumber; bukan verifikasi nilai/kelayakan BMN.</div>
+  </section>
+
+  <section class="chapter" id="bab-8">
+    <div class="eyebrow">Bab VIII</div>
+    <h1>Tutorial Transaksi Barang Masuk</h1>
+    <p>Transaksi Barang Masuk dicatat oleh pengelola persediaan yang memiliki izin. Pencatatan awal membuat transaksi menunggu pemeriksaan dan belum menambah saldo.</p>
+    <ol>
+      <li>Buka <strong>Master Persediaan</strong>, bagian/transaksi <strong>Barang Masuk</strong>; pilih tindakan input barang masuk.</li>
+      <li>Pilih barang dari master persediaan. Isi tanggal, nomor dokumen, sumber/vendor, jumlah, harga satuan jika diperbolehkan, serta keterangan.</li>
+      <li>Periksa nama/kategori/satuan/rak yang mengikuti master item. Periksa dokumen fisik, tanggal, jumlah dan total sebelum disimpan.</li>
+      <li>Simpan. Transaksi memperoleh nomor referensi dan status <strong>Menunggu Pemeriksaan</strong>. Saldo belum berubah.</li>
+      <li>Petugas melakukan pemeriksaan: siapa/kapan, kondisi Baik/Rusak Ringan/Rusak Berat, kecocokan jumlah, dokumen, dan barang.</li>
+      <li>Setelah pemeriksaan, transaksi berstatus <strong>Sudah Diperiksa</strong>. Role berizin selanjutnya memverifikasi diterima atau ditolak.</li>
+      <li>Stok bertambah hanya saat diterima dan lulus syarat (jumlah/dokumen/barang sesuai, kondisi bukan rusak berat). Penolakan tidak menambah saldo.</li>
+      <li>Periksa kembali saldo dan riwayat transaksi. Jika salah, transaksi tertentu hanya dapat diedit saat Menunggu Pemeriksaan atau Ditolak. Transaksi yang sudah diperiksa/terverifikasi tidak dapat diedit biasa; ikuti alur koreksi yang disetujui.</li>
+    </ol>
+    <table>
+      <thead><tr><th>Status</th><th>Arti</th><th>Dampak saldo</th></tr></thead>
+      <tbody>
+        <tr><td>Menunggu Pemeriksaan</td><td>Catatan transaksi sudah dibuat.</td><td>Belum berubah.</td></tr>
+        <tr><td>Sudah Diperiksa</td><td>Pemeriksaan dicatat, menunggu verifikasi akhir.</td><td>Belum berubah.</td></tr>
+        <tr><td>Diverifikasi</td><td>Penerimaan disetujui.</td><td>Stok bertambah.</td></tr>
+        <tr><td>Ditolak</td><td>Hasil penerimaan tidak disetujui.</td><td>Tidak bertambah.</td></tr>
+      </tbody>
+    </table>
+    <div class="warning">Jangan menaikkan saldo manual hanya karena barang baru datang. Ikuti pemeriksaan, bukti dan verifikasi transaksi; gunakan Stock Opname/koreksi hanya dengan kewenangan dan dasar fisik yang jelas.</div>
+  </section>
+
+  <section class="chapter" id="bab-9">
+    <div class="eyebrow">Bab IX</div>
+    <h1>Tutorial Permohonan Barang ATK/ARK</h1>
+    <h2>Mengajukan sebagai Pemohon</h2>
+    <ol>
+      <li>Buka <strong>Permohonan Barang (ATK)</strong> dan pilih <strong>Permohonan Baru</strong>.</li>
+      <li>Pilih barang dari daftar/autocomplete master persediaan. Barang yang tidak mempunyai saldo tersedia tidak dapat dipilih/diajukan.</li>
+      <li>Tambahkan hingga maksimal 100 jenis barang; satu barang tidak boleh dibuat menjadi dua baris terpisah dalam permohonan yang sama.</li>
+      <li>Masukkan jumlah bilangan bulat positif, spesifikasi/catatan per barang jika perlu, unit kerja, ruangan, keperluan, prioritas dan catatan umum.</li>
+      <li>Periksa jumlah tersedia. Sistem menolak jumlah lebih besar daripada stok tersedia, stok tidak valid, jumlah nol/pecahan, atau barang yang stok tersedia 0.</li>
+      <li>Pilih kirim dan konfirmasikan dialog pengajuan. Tunggu respons berhasil dan catat nomor permohonan/status.</li>
+      <li>Pada daftar, cari dengan nomor permintaan, nama barang, kode/spesifikasi, nama pemohon, unit kerja atau keperluan; gunakan filter status untuk pemantauan.</li>
+    </ol>
+    <div class="callout"><strong>Simulasi:</strong> tersedia 8 unit; permintaan 3 unit dapat diajukan jika tidak ada reservasi yang mengurangi saldo tersedia. Permintaan 9 unit atau item dengan saldo tersedia 0 ditolak. Angka hanya ilustrasi.</div>
+    <h2>Status utama</h2>
+    <p><strong>Diajukan</strong> → <strong>Diverifikasi</strong> → <strong>Disetujui</strong> → <strong>Diproses</strong> → <strong>Menunggu Konfirmasi</strong> → <strong>Diterima</strong>. Status akhir lain termasuk <strong>Ditolak</strong> dan <strong>Dibatalkan</strong>. Pada pemenuhan sebagian, status dapat tetap Diproses selama sisa barang belum diterima.</p>
+    <p>Pemohon biasa dapat membatalkan pengajuannya sendiri saat status Diajukan, dengan alasan sesuai validasi. Role petugas/pejabat berizin dapat memiliki tindakan pembatalan lanjutan sesuai aturan. Riwayat tidak dihapus untuk menutupi transaksi.</p>
+  </section>
+
+  <section class="chapter" id="bab-10">
+    <div class="eyebrow">Bab X</div>
+    <h1>Tutorial Verifikasi dan Persetujuan</h1>
+    <p>Server mengizinkan urutan perubahan status yang terdefinisi. Tahap persetujuan tidak boleh dilompati.</p>
+    <table>
+      <thead><tr><th>Tahap/status asal</th><th>Tindakan</th><th>Role/izin sesuai kode</th><th>Validasi utama</th></tr></thead>
+      <tbody>
+        <tr><td>Diajukan</td><td>Diverifikasi</td><td>Pengelola permohonan: <span class="mono">manageInventory</span> atau role dengan izin persetujuan yang tidak dikecualikan.</td><td>Review jumlah, pemohon, stok, kebutuhan; perubahan status hanya satu tahap.</td></tr>
+        <tr><td>Diajukan</td><td>Ditolak</td><td>Role review yang berizin.</td><td>Alasan penolakan wajib 5–500 karakter.</td></tr>
+        <tr><td>Diverifikasi</td><td>Disetujui atau Ditolak</td><td><span class="mono">approveRequests</span> dan bukan role Pimpinan yang dikecualikan.</td><td>Jumlah setuju bilangan bulat >0 dan tidak melebihi jumlah yang diminta. Penolakan memerlukan alasan 5–500 karakter.</td></tr>
+        <tr><td>Disetujui</td><td>Diproses</td><td><span class="mono">manageInventory</span>.</td><td>Pastikan stok/reservasi dan rencana penyerahan.</td></tr>
+        <tr><td>Diproses</td><td>Menunggu Konfirmasi</td><td><span class="mono">manageInventory</span>.</td><td>Catat jumlah yang benar-benar diserahkan; ini bukan konfirmasi pemohon.</td></tr>
+      </tbody>
+    </table>
+    <h2>Langkah kerja petugas</h2>
+    <ol>
+      <li>Gunakan filter <strong>Diajukan</strong> atau <strong>Diverifikasi</strong>, buka rincian, dan cocokkan identitas pemohon/unit kerja, alasan, item, jumlah, satuan, stok tersedia.</li>
+      <li>Lakukan review/verification; bila reject, tulis alasan yang jelas dan memenuhi batas karakter. Jangan mengedit permintaan Pemohon di luar alur.</li>
+      <li>Role pejabat yang berwenang memeriksa jumlah disetujui per item dan meneruskan keputusan. Persetujuan tidak boleh diberikan sendiri oleh Pemohon.</li>
+      <li>Operator/pengelola stok hanya setelah disetujui menyiapkan/menyerahkan barang; masukkan jumlah serah yang faktual.</li>
+      <li>Periksa status tersimpan dan notifikasi aplikasi. Jangan menganggap notifikasi WhatsApp terkirim jika status provider belum dibuktikan.</li>
+    </ol>
+    <div class="warning"><strong>Pimpinan:</strong> meskipun role awal memiliki permission <span class="mono">approveRequests</span>, kode UI dan validasi server mengecualikan akun dengan role tepat “Pimpinan” dari keputusan permohonan; tampilan tersebut hanya untuk pemantauan pada alur ini. Penetapan pejabat lain harus dilakukan administrator setelah memeriksa SOP dan menguji role, bukan dengan berbagi akun.</div>
+    <p>Pada error simpan/sinkronisasi, baca banner status server. Jika sistem menyatakan status belum dapat dipastikan, muat ulang data server dan periksa permohonan sebelum mencoba tindakan ulang.</p>
+  </section>
+
+  <section class="chapter" id="bab-11">
+    <div class="eyebrow">Bab XI</div>
+    <h1>Konfirmasi Penerimaan Barang</h1>
+    <p>Fitur konfirmasi penerimaan tersedia dalam kode API. Pemohon hanya boleh mengonfirmasi permohonan milik akun sendiri, dan hanya setelah petugas menyerahkan barang.</p>
+    <ol>
+      <li>Buka daftar permohonan dan temukan item milik sendiri dengan status <strong>Menunggu Konfirmasi</strong>.</li>
+      <li>Periksa barang satu per satu: nama, satuan, jumlah yang disetujui dan jumlah yang benar-benar diterima. Jangan konfirmasi barang yang belum diterima.</li>
+      <li>Jika cocok, pilih tindakan konfirmasi penerimaan dan tunggu hasil berhasil. Server mencatat penerimaan dan mutasi barang keluar secara transaksional.</li>
+      <li>Periksa status: jika seluruh jumlah disetujui telah diterima, status menjadi <strong>Diterima</strong>; untuk pemenuhan sebagian, proses dapat tetap <strong>Diproses</strong> dengan sisa yang belum diterima.</li>
+      <li>Jika ada selisih, laporkan melalui tindakan selisih penerimaan dengan uraian 5–500 karakter; jangan menekan konfirmasi sebagai pengganti laporan selisih.</li>
+    </ol>
+    <p>Konfirmasi berhasil mengurangi saldo berdasarkan kuantitas yang diserahkan, memperbarui status Aman/Menipis/Habis, dan membuat record barang keluar. Sistem juga memeriksa saldo setelah memperhitungkan reservasi permohonan lain. Jika stok berubah atau tidak cukup, tindakan dapat ditolak; muat ulang dan hubungi petugas.</p>
+    <p>Petugas dengan <span class="mono">manageInventory</span> dapat memproses penyerahan ulang setelah laporan selisih pada alur yang disediakan. Gunakan hanya setelah menghitung ulang barang dan mencatat alasan.</p>
+    <div class="warning">Konfirmasi adalah pernyataan administrasi bahwa barang fisik benar-benar diterima. Pastikan jumlah dan kondisi yang diterima sesuai sebelum menekan tombol.</div>
+  </section>
+
+  <section class="chapter" id="bab-12">
+    <div class="eyebrow">Bab XII</div>
+    <h1>Manajemen Dokumen dan Berita Acara</h1>
+    <h2>Upload dokumen umum</h2>
+    <ol>
+      <li>Buka <strong>Dokumen &amp; BAST</strong> lalu pilih unggah dokumen.</li>
+      <li>Pilih berkas dan isi judul, jenis dokumen, nomor, tanggal, status, deskripsi serta tag yang tersedia.</li>
+      <li>Periksa nama berkas/ukuran dan metadata; pilih Draft atau Final sesuai proses internal dan simpan.</li>
+      <li>Tunggu konfirmasi berhasil. Setelah muncul di arsip, gunakan pratinjau untuk memeriksa apakah lampiran dapat dibuka.</li>
+    </ol>
+    <p>Kategori arsip mencakup Nota, Berita Acara, Dokumen Perolehan, Dokumen Pemindahan, Dokumen Pemeliharaan, Dokumen Penghapusan, Dokumen Stock Opname, dan Dokumen Lainnya. Upload biasa mencakup berkas PDF/gambar dan berkas yang diizinkan server; ukuran maksimum aplikasi default tercatat 25 MB tetapi batas proxy/hosting bisa lebih kecil.</p>
+    <h2>Upload nota belanja ATK/ARK</h2>
+    <ol>
+      <li>Pilih <strong>Upload Nota Belanja</strong>. Lampirkan bukti fisik berupa PDF atau foto/gambar. Pada perangkat yang mendukung, modal menyediakan kamera untuk memotret nota; berikan izin kamera dan pastikan tulisan/angka terbaca.</li>
+      <li>Masukkan nama toko/vendor, kategori nota, tanggal, nomor nota (dapat dibuat otomatis), keterangan dan status Draft/Final.</li>
+      <li>Tambah minimal satu baris rincian: barang, kategori, satuan (atau tambah satuan), jumlah bilangan bulat positif, harga satuan tidak negatif. Tinjau subtotal dan total nota otomatis.</li>
+      <li>Simpan dan tunggu respons server. Bila upload gagal, baca pesan; jangan membuat unggahan duplikat sebelum memeriksa arsip.</li>
+      <li>Nota Draft dapat diedit oleh pengelola stok berizin; Final hanya dapat diedit oleh izin pengaturan sistem sesuai kode.</li>
+    </ol>
+    <h2>Privasi, tanda tangan, dan pemulihan</h2>
+    <ul>
+      <li>Harga, total dan lampiran nota dibatasi role pengelola persediaan; pengguna tanpa izin mungkin hanya melihat metadata.</li>
+      <li>Kode mengimplementasikan penyimpanan privat backend dan salinan cadangan basis data untuk dokumen. Konfigurasi storage/retensi lingkungan hosting dan pemulihan harus diverifikasi administrator.</li>
+      <li>Jika lampiran hilang tetapi metadata ada, UI mendukung unggah ulang berkas asli yang sama dengan verifikasi identitas/ukuran/hash; jangan mencoba mengganti berkas dengan versi berbeda.</li>
+      <li>Tidak ditemukan alur tanda tangan elektronik yang membuktikan keabsahan dokumen. Status “Final”, “Sah” atau metadata lain bukan bukti tanda tangan pejabat tersertifikasi.</li>
+    </ul>
+  </section>
+
+  <section class="chapter" id="bab-13">
+    <div class="eyebrow">Bab XIII</div>
+    <h1>Pencarian, Arsip, dan Laporan</h1>
+    <h2>Pencarian efektif</h2>
+    <ul>
+      <li>Gunakan kode barang/NUP untuk aset, kode/nama/bin/rak untuk persediaan, atau nomor permohonan untuk transaksi.</li>
+      <li>Di Dokumen &amp; BAST gunakan filter jenis, pencarian judul/nomor/pengunggah/vendor/tanggal/deskripsi/nama berkas.</li>
+      <li>Pengelola persediaan dapat menggunakan batas total nota minimum/maksimum dan hasil pencarian lintas rincian item (nama/kode/satuan/kategori).</li>
+      <li>Gunakan kata kunci spesifik. Jika tidak ditemukan, hapus filter, periksa ejaan/nomor, role, status, dan tanggal.</li>
+    </ul>
+    <h2>Laporan yang terlihat pada kode</h2>
+    <table>
+      <thead><tr><th>Jenis laporan</th><th>Isi utama</th><th>Keluaran</th></tr></thead>
+      <tbody>
+        <tr><td>Daftar BMN</td><td>NUP, nama/kode barang, merk, ruangan, kondisi, nilai buku.</td><td>Cetak halaman (landscape), ekspor CSV.</td></tr>
+        <tr><td>Kondisi Aset</td><td>Lokasi, kondisi, PIC, status aset.</td><td>Cetak dan CSV.</td></tr>
+        <tr><td>Nilai &amp; Penyusutan</td><td>Tahun, nilai perolehan, akumulasi penyusutan, nilai buku.</td><td>Cetak dan CSV.</td></tr>
+        <tr><td>Saldo Persediaan</td><td>Kode/nama, jenis, rak/bin, stok, satuan; harga untuk role berizin.</td><td>Cetak dan CSV.</td></tr>
+        <tr><td>Stok Menipis &amp; Kritis</td><td>Barang tidak berstatus Aman, minimum dan status.</td><td>Cetak dan CSV.</td></tr>
+      </tbody>
+    </table>
+    <p>Filter dashboard yang relevan mempengaruhi kumpulan data laporan; rentang periode memfilter tanggal perolehan/aktivitas, sedangkan saldo tetap merupakan posisi stok saat ini. Laporan adalah rekap aplikasi, bukan file pelaporan resmi pemerintah yang sudah disahkan.</p>
+    <p>Dokumen dapat dibuka/diprint atau diunduh bila tombol/permission tersedia. Sebelum membagikan hasil, pastikan tidak menyertakan nilai finansial kepada penerima yang tidak berwenang dan periksa agar arsip tidak diunggah dua kali.</p>
+  </section>
+
+  <section class="chapter" id="bab-14">
+    <div class="eyebrow">Bab XIV</div>
+    <h1>Notifikasi WhatsApp dan Fonnte</h1>
+    <h2>Status yang dapat dinyatakan</h2>
+    <table>
+      <thead><tr><th>Status</th><th>Dasar</th><th>Artinya bagi pengguna</th></tr></thead>
+      <tbody>
+        <tr><td>Kemampuan ada di source</td><td>Backend menyediakan provider Meta/Twilio/Fonnte dan endpoint event permohonan/webhook.</td><td>Notifikasi dapat diprogram, bukan bukti provider tersambung.</td></tr>
+        <tr><td>Alamat situs/login tersedia</td><td>Halaman login publik berhasil dibuka saat pemeriksaan.</td><td>Tidak menguji pengiriman pesan.</td></tr>
+        <tr><td>Aktif/berhasil di production</td><td><strong>Belum diverifikasi.</strong></td><td>Jangan mengandalkan WhatsApp sebagai satu-satunya bukti status; periksa di aplikasi.</td></tr>
+      </tbody>
+    </table>
+    <p>Secara kode, event dapat dibuat saat permohonan diajukan atau berubah status. Pengiriman berjalan melalui backend, dibatasi provider dan konfigurasi penerima; respons “queued” berarti event antre, bukan pesan telah sampai. Kegagalan dicatat dan tidak otomatis dicoba ulang agar tidak mengirim pesan ganda.</p>
+    <h2>Jika pesan tidak diterima</h2>
+    <ol>
+      <li>Periksa status permohonan di aplikasi terlebih dahulu.</li>
+      <li>Pastikan nomor WhatsApp profil benar melalui administrator, bukan dengan membagikan nomor orang lain ke chat publik.</li>
+      <li>Laporkan nomor permohonan, waktu dan screenshot pesan error kepada administrator; jangan minta/menyimpan token API.</li>
+      <li>Administrator memverifikasi provider, webhook, izin, log delivery dan nomor uji melalui prosedur rahasia instansi.</li>
+    </ol>
+    <div class="warning">Dokumentasi proyek menyatakan konfigurasi/provider dan penerimaan pesan aktual belum dapat dijamin. Jangan menyatakan Fonnte, Meta, atau Twilio aktif hanya berdasarkan tombol, variabel konfigurasi, status health, atau status “queued”.</div>
+  </section>
+
+  <section class="chapter" id="bab-15">
+    <div class="eyebrow">Bab XV</div>
+    <h1>Tutorial Fitur AI Chatbot</h1>
+    <p>Navbar setelah login menyediakan tombol <strong>Tanya AI</strong>. Modal mengirim pertanyaan melalui endpoint backend <span class="mono">/api/ai/chat</span> yang memerlukan sesi login; server membatasi frekuensi pertanyaan. Provider dan keberhasilan runtime tidak dapat diuji dari halaman login.</p>
+    <h2>Cara memakai</h2>
+    <ol>
+      <li>Masuk ke sistem, buka <strong>Tanya AI</strong>, dan tunggu panel asisten tampil.</li>
+      <li>Tulis pertanyaan umum yang tidak memuat kata sandi, NIP pegawai lain, data nota rahasia, atau informasi sensitif.</li>
+      <li>Tinjau jawaban sebagai petunjuk navigasi. Pastikan sendiri angka/status di menu resmi sebelum membuat keputusan.</li>
+      <li>Jika error, gunakan tombol coba ulang bila tersedia; jangan mengirim ulang tindakan transaksi yang belum dipastikan statusnya.</li>
+    </ol>
+    <h2>Contoh pertanyaan aman</h2>
+    <ul>
+      <li>“Bagaimana cara mengajukan permohonan ATK?”</li>
+      <li>“Di menu mana saya melihat status permohonan?”</li>
+      <li>“Apa langkah yang harus dilakukan jika stok menunjukkan habis?”</li>
+      <li>“Bagaimana cara mencari arsip nota?”</li>
+    </ul>
+    <div class="warning">Jangan berasumsi chatbot memiliki akses bebas ke seluruh database atau dapat melakukan persetujuan/transaksi. Dokumentasi integrasi menjelaskan konteks AI dibatasi backend; jawaban bisa tidak tersedia jika provider tidak dikonfigurasi, kuota habis, atau koneksi gagal. Verifikasi informasi penting pada sistem dan SOP.</div>
+  </section>
+
+  <section class="chapter" id="bab-16">
+    <div class="eyebrow">Bab XVI</div>
+    <h1>Keunggulan dan Manfaat Sistem</h1>
+    <h2>Manfaat yang didukung oleh modul sumber</h2>
+    <ul>
+      <li>Daftar aset, persediaan, lokasi, dokumen dan permohonan tersedia di menu yang terstruktur.</li>
+      <li>Pencarian, filter, badge, kartu/tabel, dan pagination membantu menemukan catatan.</li>
+      <li>Validasi jumlah dan saldo mencegah pengajuan melebihi stok yang dapat diminta.</li>
+      <li>Barang masuk menunggu pemeriksaan sebelum mengubah saldo; penerimaan permohonan mencatat keluar stok.</li>
+      <li>Role membatasi edit, persetujuan, informasi finansial, dan pengelolaan akun.</li>
+      <li>Audit log dan nomor transaksi membantu menelusuri tindakan yang tercatat.</li>
+      <li>Antarmuka responsif, navigasi seluler, QR scanner, visualisasi 3D, dan cetak/CSV tersedia pada source.</li>
+    </ul>
+    <h2>Manfaat yang diharapkan — bukan angka yang diukur</h2>
+    <p>Integrasi antarmodul dapat membantu mengurangi pencatatan ulang dan mempercepat pencarian bila data diisi konsisten, pengguna dilatih, dan sistem produksi dipantau. Belum ada pengukuran independen di buku ini tentang penghematan waktu, penurunan kesalahan, tingkat adopsi, uptime, atau dampak audit. Jangan menjadikan harapan sebagai klaim kinerja.</p>
+  </section>
+
+  <section class="chapter" id="bab-17">
+    <div class="eyebrow">Bab XVII</div>
+    <h1>Keamanan dan Tata Kelola Penggunaan</h1>
+    <ul class="checklist">
+      <li>Gunakan akun pribadi; jangan berbagi password atau meminjam role orang lain.</li>
+      <li>Gunakan password unik dan jaga layar/perangkat, khususnya perangkat bersama.</li>
+      <li>Periksa jumlah, kode barang/NUP, lokasi, nominal, vendor, file dan status sebelum menyimpan.</li>
+      <li>Jangan mengonfirmasi barang sebelum benar-benar diterima dan dihitung.</li>
+      <li>Jangan menyetujui permohonan sendiri atau bertindak di luar role/SOP.</li>
+      <li>Jangan mengunggah dokumen yang tidak sah, kabur, tidak lengkap, atau milik transaksi lain.</li>
+      <li>Batasi berbagi file hasil ekspor/nota berisi nilai. Gunakan saluran resmi instansi.</li>
+      <li>Jangan menghapus transaksi/dokumen atau menjalankan restore/reset tanpa persetujuan tertulis dan salinan cadangan yang teruji.</li>
+      <li>Keluar setelah pekerjaan selesai; jangan memakai tombol “Tampilkan kata sandi” ketika layar dilihat orang lain.</li>
+      <li>Laporkan salah akses, data hilang, duplikasi, atau aktivitas mencurigakan kepada administrator segera.</li>
+    </ul>
+    <div class="warning">Menu Pengaturan menampilkan backup JSON terbatas dan opsi reset. Itu bukan bukti cadangan lengkap/teruji untuk server bersama; jangan menekan reset atau restore pada data kerja tanpa instruksi administrator dan prosedur backup resmi.</div>
+  </section>
+
+  <section class="chapter" id="bab-18">
+    <div class="eyebrow">Bab XVIII</div>
+    <h1>Pemecahan Masalah</h1>
+    <table>
+      <thead><tr><th>Masalah</th><th>Kemungkinan sebab</th><th>Langkah aman</th><th>Hubungi</th></tr></thead>
+      <tbody>
+        <tr><td>Tidak bisa login / sandi salah</td><td>NIP/username keliru, sandi tidak cocok, sesi/server.</td><td>Periksa ejaan dan Caps Lock; jangan kirim password ke orang lain. Minta reset/cek status akun.</td><td>Administrator akun</td></tr>
+        <tr><td>Menu tidak muncul</td><td>Role/permission tidak mencakup menu.</td><td>Bandingkan role pada profil dengan tugas; jangan pinjam akun dengan akses lebih tinggi.</td><td>Administrator RBAC</td></tr>
+        <tr><td>Data tidak tampil/tidak terbaru</td><td>Filter aktif, sinkronisasi gagal, akun tidak memiliki akses.</td><td>Hapus filter yang tidak diperlukan. Jika ada banner sinkronisasi, pilih “Muat ulang data server” dan verifikasi sebelum transaksi ulang.</td><td>Admin sistem</td></tr>
+        <tr><td>Nama barang tidak ditemukan</td><td>Belum ada di master, pencarian tidak cocok, kategori/filter membatasi.</td><td>Hapus filter dan cari dengan kode/nama; minta petugas memeriksa master, jangan membuat duplikat.</td><td>Pengelola stok</td></tr>
+        <tr><td>Stok tidak cukup / 0</td><td>Saldo habis, stok minimum, reservasi permohonan lain.</td><td>Jangan mengubah jumlah untuk melewati validasi. Hubungi petugas untuk stok/opname dan jadwal pasokan.</td><td>Operator persediaan</td></tr>
+        <tr><td>Permohonan gagal dikirim</td><td>Barang tidak dipilih dari master, jumlah tidak valid/lebih stok, duplikat item, unit/keperluan kosong, koneksi.</td><td>Periksa semua baris; jumlah bulat >0, maksimal 100 jenis, item unik; lihat pesan validasi. Jika status tidak pasti, cek daftar sebelum kirim ulang.</td><td>Operator/admin</td></tr>
+        <tr><td>Status belum berubah</td><td>Belum diproses role terkait atau save/sync masih berjalan.</td><td>Refresh data server; catat nomor permohonan dan status terakhir. Jangan memotong tahap persetujuan.</td><td>Petugas tahap berikutnya</td></tr>
+        <tr><td>Barang masuk belum menaikkan stok</td><td>Masih Menunggu Pemeriksaan/Sudah Diperiksa atau ditolak.</td><td>Periksa transaksi; pastikan sudah diverifikasi diterima dan seluruh syarat terpenuhi.</td><td>Operator persediaan</td></tr>
+        <tr><td>Dokumen gagal diunggah</td><td>Format/ukuran ditolak, file tidak terbaca, jaringan/proxy.</td><td>Pastikan file PDF/foto yang didukung dan ukuran sesuai; coba jaringan stabil. Jangan mengganti bukti dengan file lain pada restore.</td><td>Admin sistem</td></tr>
+        <tr><td>Foto nota buram/kamera tak aktif</td><td>Fokus/pencahayaan, izin browser atau kamera digunakan aplikasi lain.</td><td>Letakkan nota datar, cukup cahaya, fokuskan kamera; periksa izin HTTPS/perangkat. Jika perlu unggah foto/PDF yang terbaca.</td><td>Petugas dokumen</td></tr>
+        <tr><td>Nota tidak ditemukan</td><td>Filter jenis/tanggal/nomor, role tidak melihat nota finansial.</td><td>Hapus filter, gunakan nomor nota/vendor/tanggal atau nama item. Pengelola persediaan memeriksa akses nilai.</td><td>Pengelola dokumen</td></tr>
+        <tr><td>WhatsApp tidak diterima</td><td>Provider, webhook, nomor atau konfigurasi belum terverifikasi; event mungkin queued/gagal.</td><td>Periksa status aplikasi, lalu laporkan waktu/ID. Jangan meminta token atau resend tanpa cek idempotensi.</td><td>Administrator integrasi</td></tr>
+        <tr><td>Chatbot tidak menjawab</td><td>Provider AI/kuota/koneksi/rate limit.</td><td>Tunggu lalu coba satu kali; periksa informasi sama pada menu resmi.</td><td>Administrator sistem</td></tr>
+        <tr><td>Tampilan tidak pas di ponsel</td><td>Zoom, orientasi, browser lama, tabel lebar.</td><td>Perbarui browser, muat ulang, coba potret/lanskap; gunakan gulir tabel/menu mobile.</td><td>Admin aplikasi</td></tr>
+        <tr><td>Banner “Sinkronisasi server gagal”</td><td>Server/koneksi/konflik data.</td><td>Tekan muat ulang server sekali setelah meninjau pesan; jangan hapus cache/data atau ulangi transaksi sebelum status diperiksa.</td><td>Administrator teknis</td></tr>
+      </tbody>
+    </table>
+    <p class="small">Diagnosis di atas tidak memberikan kewenangan untuk mengubah database, migrasi, file server, environment, atau konfigurasi provider. Tindakan teknis hanya administrator berwenang.</p>
+  </section>
+
+  <section class="chapter" id="bab-19">
+    <div class="eyebrow">Bab XIX</div>
+    <h1>Glosarium dan FAQ</h1>
+    <table>
+      <thead><tr><th>Istilah</th><th>Arti praktis</th></tr></thead>
+      <tbody>
+        <tr><td>BMN</td><td>Barang Milik Negara yang dicatat/ditatausahakan sesuai aturan.</td></tr>
+        <tr><td>ATK / ARK</td><td>Alat Tulis Kantor / Alat Rumah Tangga Kantor dalam katalog persediaan.</td></tr>
+        <tr><td>NUP</td><td>Nomor Urut Pendaftaran aset.</td></tr>
+        <tr><td>DBR</td><td>Daftar Barang Ruangan.</td></tr>
+        <tr><td>SPB</td><td>Surat Permintaan Barang; permohonan internal persediaan.</td></tr>
+        <tr><td>Pemohon</td><td>Pegawai yang mengajukan permohonan atas akun/unitnya.</td></tr>
+        <tr><td>RBAC</td><td>Pengaturan akses berdasarkan role dan permission.</td></tr>
+        <tr><td>Verifikasi</td><td>Pemeriksaan permohonan/transaksi sebelum tahap berikutnya.</td></tr>
+        <tr><td>Persetujuan</td><td>Keputusan oleh role yang diotorisasi; bukan tugas Pemohon.</td></tr>
+        <tr><td>Stok tersedia</td><td>Jumlah yang bisa diajukan setelah mempertimbangkan validasi/reservasi aplikasi.</td></tr>
+        <tr><td>Stock Opname</td><td>Pencocokan saldo buku dengan hitung fisik.</td></tr>
+        <tr><td>Draft / Final</td><td>Status dokumen di aplikasi. Final bukan otomatis tanda tangan elektronik atau legalisasi.</td></tr>
+        <tr><td>BAST</td><td>Berita Acara Serah Terima; arsip pendukung sesuai transaksi/SOP.</td></tr>
+        <tr><td>Fonnte / webhook</td><td>Provider/endpoint eksternal WhatsApp yang memerlukan konfigurasi dan uji nyata.</td></tr>
+      </tbody>
+    </table>
+    <h2>Pertanyaan singkat</h2>
+    <h3>Apakah permohonan langsung mengurangi stok saat diajukan?</h3>
+    <p>Tidak. Pengajuan mencatat permintaan/reservasi. Pengeluaran aktual dicatat saat serah terima dikonfirmasi Pemohon.</p>
+    <h3>Apakah transaksi barang masuk langsung menaikkan saldo?</h3>
+    <p>Tidak. Transaksi menunggu pemeriksaan dan verifikasi diterima.</p>
+    <h3>Apakah semua pengguna dapat melihat harga nota?</h3>
+    <p>Tidak. Kode membatasi harga/rincian finansial kepada permission pengelola persediaan.</p>
+    <h3>Apakah “Final” berarti ditandatangani elektronik?</h3>
+    <p>Tidak ada bukti proses tanda tangan elektronik dalam pemeriksaan kode ini. Gunakan prosedur penandatanganan resmi instansi.</p>
+    <h3>Apakah chatbot boleh menentukan keputusan?</h3>
+    <p>Tidak. Gunakan AI hanya untuk petunjuk; cek data dan SOP resmi sebelum tindakan.</p>
+    <h3>Bagaimana bila baris Excel memiliki ruangan baru?</h3>
+    <p>Alur import aset membuat entri master ruangan dasar dan menghubungkan aset. Periksa nama, gedung, PIC, dan kategori ruangan setelah import.</p>
+  </section>
+
+  <section class="chapter" id="bab-20">
+    <div class="eyebrow">Bab XX</div>
+    <h1>Penutup dan Kontak Bantuan</h1>
+    <p>Penggunaan BMN-Minut yang teliti dapat membantu menyatukan pencatatan, permohonan, transaksi persediaan dan arsip dalam alur yang dapat ditelusuri. Keandalan tetap bergantung pada data yang benar, role yang tepat, verifikasi fisik, dokumentasi yang sah, dan layanan backend/provider yang berfungsi.</p>
+    <p>Ikuti prosedur pengelolaan BMN, persediaan, pengadaan, serah terima dan arsip resmi BPS. Setiap pegawai bertanggung jawab atas akun dan tindakan yang dilakukan. Administrator perlu mengonfirmasi menu, role, konfigurasi produksi dan kontak support sebelum membagikan edisi final sebagai SOP.</p>
+    <h2>Kontak bantuan (diisi oleh instansi)</h2>
+    <table>
+      <tbody>
+        <tr><th>Administrator aplikasi</th><td>____________________________________________</td></tr>
+        <tr><th>Unit kerja / meja bantuan</th><td>____________________________________________</td></tr>
+        <tr><th>Telepon / surel resmi</th><td>____________________________________________</td></tr>
+        <tr><th>Jam layanan</th><td>____________________________________________</td></tr>
+      </tbody>
+    </table>
+    <div class="page-note">
+      <strong>Metadata dokumen:</strong> Buku Panduan Penggunaan Sistem BMN-Minut / BMN-BPSMinut · Versi 1.0 · Disusun 18 Oktober 2026.<br>
+      <strong>Basis verifikasi:</strong> kode sumber aplikasi yang tersedia dan halaman login publik; akun internal, data produksi, tanda tangan elektronik dan delivery provider belum diuji langsung.<br>
+      <strong>Hak perubahan:</strong> instansi dapat menyesuaikan kolom kontak dan melakukan tinjauan teknis/SOP sebelum menerbitkan sebagai pedoman formal.
+    </div>
+  </section>
+</main>
+</body>
+</html>
