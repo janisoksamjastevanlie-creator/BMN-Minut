@@ -61,7 +61,8 @@ export const GlobalSearchModal: React.FC = () => {
           (i.subkategori || '').toLowerCase().includes(cleanQuery)
       )
     : [];
-  const filteredInventory = inventoryMatches.slice(0, 5);
+  // Barang yang masih ada stoknya ditampilkan lebih dulu agar hasil pencarian jenis langsung informatif.
+  const filteredInventory = [...inventoryMatches].sort((a, b) => b.stokSaatIni - a.stokSaatIni).slice(0, 5);
   const inventoryMatchStock = inventoryMatches.reduce((sum, item) => sum + item.stokSaatIni, 0);
 
   const filteredRooms = cleanQuery
