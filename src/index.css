@@ -639,6 +639,12 @@
     min-height: 24.5mm !important;
   }
 
+  /* Dokumen resmi dicetak monokrom: semua teks (termasuk nomor dan aksen berwarna) hitam */
+  .official-print-document,
+  .official-print-document * {
+    color: #000000 !important;
+  }
+
   .report-signatures {
     display: grid;
     gap: 8mm;

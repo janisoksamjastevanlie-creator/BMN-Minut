@@ -1639,7 +1639,7 @@ export const StockRequestsView: React.FC = () => {
                 <div className="font-bold text-xs uppercase tracking-wider text-white underline">
                   SURAT BUKTI PENGELUARAN BARANG (SBBK) / FORMULIR PERMOHONAN
                 </div>
-                <div className="text-[11px] font-mono text-cyan-400 font-bold mt-0.5">
+                <div className="text-[11px] font-mono text-cyan-400 print:text-black font-bold mt-0.5">
                   Nomor: {selectedDetail.nomorPermintaan}
                 </div>
               </div>
