@@ -145,9 +145,11 @@ export const DashboardView: React.FC<{
   };
   const atkStock = stockByType('ATK');
   const arkStock = stockByType('ARK');
-  // Daftar saldo stok mengikuti pencarian/filter dashboard; tanpa filter tampilkan stok terbesar.
+  // Daftar saldo stok hanya tampil saat pencarian/filter persediaan aktif, diurutkan dari stok tertinggi.
   const isInventoryFiltered = Boolean(dashboardFilters.keyword.trim()) || hasDashboardInventoryCriteria(dashboardFilters);
-  const stockHighlights = [...inventoryItems].sort((a, b) => b.stokSaatIni - a.stokSaatIni).slice(0, 6);
+  const stockHighlights = isInventoryFiltered
+    ? [...inventoryItems].sort((a, b) => b.stokSaatIni - a.stokSaatIni).slice(0, 6)
+    : [];
   const totalInvValue = inventoryItems.reduce((sum, i) => sum + i.totalNilai, 0);
   const lowStockCount = inventoryItems.filter(i => i.status === 'Menipis').length;
   const outOfStockCount = inventoryItems.filter(i => i.status === 'Habis').length;
@@ -441,12 +443,11 @@ export const DashboardView: React.FC<{
             </div>
           </div>
 
-          {/* Stock Balance per Item */}
+          {/* Stock Balance per Item — hanya saat pencarian/filter persediaan aktif */}
+          {isInventoryFiltered && (
           <div className="rounded-xl bg-slate-950/60 border border-slate-800 p-3">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] font-semibold text-slate-300">
-                {isInventoryFiltered ? 'Saldo Stok Barang Sesuai Pencarian' : 'Saldo Stok Barang Terbesar'}
-              </span>
+              <span className="text-[11px] font-semibold text-slate-300">Saldo Stok Barang Sesuai Pencarian</span>
               <span className="text-[10px] font-mono text-slate-400">
                 {inventoryItems.length.toLocaleString('id-ID')} jenis • {totalStockQty.toLocaleString('id-ID')} unit
               </span>
@@ -495,6 +496,7 @@ export const DashboardView: React.FC<{
               </button>
             )}
           </div>
+          )}
 
           {/* Quick Transaction Info */}
           <div className="grid grid-cols-2 gap-3 text-xs">
