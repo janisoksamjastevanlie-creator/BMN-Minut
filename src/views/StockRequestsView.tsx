@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { useApp } from '../context/AppContext';
-import { InventoryRequest, InventoryRequestItem, RequestStatus } from '../types';
+import { AuditLog, InventoryRequest, InventoryRequestItem, RequestStatus } from '../types';
 import { ListPager, usePagedList } from '../components/common/ListPager';
 import { StockRequestModal } from '../components/inventory/StockRequestModal';
 import { OfficialLetterhead } from '../components/common/OfficialLetterhead';
@@ -44,6 +44,112 @@ const getRequestItems = (request: InventoryRequest): InventoryRequestItem[] => r
 
 type OutstandingRequestItem = InventoryRequestItem & { jumlahTersisa: number };
 
+// Tahapan alur dokumen permohonan dari pengajuan sampai barang diterima pemohon.
+const REQUEST_FLOW_STAGES: RequestStatus[] = ['Diajukan', 'Diverifikasi', 'Disetujui', 'Diproses', 'Menunggu Konfirmasi', 'Diterima'];
+const REQUEST_FLOW_LABELS: Partial<Record<RequestStatus, string>> = {
+  'Menunggu Konfirmasi': 'Diserahkan (Menunggu Konfirmasi)',
+  Diterima: 'Diterima Pemohon'
+};
+
+type RequestFlowEntry = {
+  status: RequestStatus;
+  label: string;
+  timestamp: string | null;
+  actor?: string;
+  reached: boolean;
+  current: boolean;
+};
+
+const formatFlowDate = (date: string) => {
+  const parsed = new Date(`${date}T00:00:00`);
+  return Number.isNaN(parsed.getTime())
+    ? date
+    : parsed.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
+};
+
+const formatFlowTimestamp = (value: string | null) => {
+  if (!value) return null;
+  if (value.includes('T')) {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) {
+      return `${parsed.toLocaleString('id-ID', {
+        day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Makassar'
+      })} WITA`;
+    }
+  }
+  const [date, ...rest] = value.split(' ');
+  const time = rest.join(' ').replace(/\s*WITA$/i, '').replace(/\./g, ':').slice(0, 5);
+  return time ? `${formatFlowDate(date)} ${time} WITA` : formatFlowDate(date);
+};
+
+const getRequestFlowTimeline = (request: InventoryRequest, auditLogs: AuditLog[]): RequestFlowEntry[] => {
+  const auditTimestamp = (log: AuditLog) => `${log.tanggal} ${log.waktu}`;
+  // Log audit tersusun terbaru di depan, sehingga temuan pertama adalah kejadian terakhir.
+  const findStatusLog = (status: RequestStatus) => auditLogs.find(log =>
+    log.aktivitas === 'Pembaruan Status Permohonan' &&
+    log.detail.startsWith(`Permohonan ${request.nomorPermintaan} `) &&
+    log.detail.endsWith(`menjadi ${status}.`)
+  );
+  const submissionLog = auditLogs.find(log =>
+    log.aktivitas === 'Pengajuan Permohonan Barang' && log.detail.includes(`(${request.id})`)
+  );
+  const confirmationLog = auditLogs.find(log =>
+    log.aktivitas === 'Konfirmasi Penerimaan Barang' &&
+    log.detail.startsWith(`Permohonan ${request.nomorPermintaan} `)
+  );
+  const cancellationLog = auditLogs.find(log =>
+    log.aktivitas === 'Pembatalan Permohonan Barang' && log.detail.startsWith(`Permohonan ${request.id} `)
+  );
+
+  const effectiveStatus: RequestStatus = request.status === 'Selesai' ? 'Diterima' : request.status;
+  const currentIndex = REQUEST_FLOW_STAGES.indexOf(effectiveStatus);
+  const isTerminated = request.status === 'Ditolak' || request.status === 'Dibatalkan';
+
+  const entries: RequestFlowEntry[] = REQUEST_FLOW_STAGES.map((status, index) => {
+    let timestamp: string | null = null;
+    let actor: string | undefined;
+    if (status === 'Diajukan') {
+      timestamp = submissionLog ? auditTimestamp(submissionLog) : request.tanggal;
+      actor = submissionLog?.userName || request.pemohonNama;
+    } else if (status === 'Menunggu Konfirmasi' && request.penerimaan?.diserahkanPada) {
+      timestamp = request.penerimaan.diserahkanPada;
+      actor = request.penerimaan.diserahkanOleh;
+    } else if (status === 'Diterima' && request.penerimaan?.dikonfirmasiPada &&
+      (request.status === 'Diterima' || request.status === 'Selesai')) {
+      timestamp = request.penerimaan.dikonfirmasiPada;
+      actor = request.penerimaan.dikonfirmasiOleh;
+    } else {
+      const log = status === 'Diterima' ? (confirmationLog || findStatusLog(status)) : findStatusLog(status);
+      if (log) {
+        timestamp = auditTimestamp(log);
+        actor = log.userName;
+      }
+    }
+    const reached = Boolean(timestamp) || (currentIndex >= 0 && index <= currentIndex);
+    return {
+      status,
+      label: REQUEST_FLOW_LABELS[status] || status,
+      timestamp,
+      actor,
+      reached,
+      current: !isTerminated && status === effectiveStatus
+    };
+  });
+
+  if (isTerminated) {
+    const log = request.status === 'Dibatalkan' ? (cancellationLog || findStatusLog('Dibatalkan')) : findStatusLog('Ditolak');
+    entries.push({
+      status: request.status,
+      label: request.status,
+      timestamp: log ? auditTimestamp(log) : null,
+      actor: log?.userName,
+      reached: true,
+      current: true
+    });
+  }
+  return entries;
+};
+
 const getRequestRemainingItems = (request: InventoryRequest): OutstandingRequestItem[] => {
   const items = getRequestItems(request);
   const quantitiesById = new Map(getRequestItemQuantities(request).map(item => [item.itemId, item]));
@@ -63,7 +169,7 @@ const getRequestRemainingItems = (request: InventoryRequest): OutstandingRequest
 
 export const StockRequestsView: React.FC = () => {
   const {
-    requests, inventoryItems, updateRequestStatus, cancelInventoryRequest,
+    requests, inventoryItems, auditLogs, updateRequestStatus, cancelInventoryRequest,
     confirmInventoryRequestReceipt, reportInventoryReceiptDiscrepancy,
     reopenInventoryRequestHandover, deleteInventoryRequests, currentUser, hasPermission
   } = useApp();
@@ -1595,11 +1701,39 @@ export const StockRequestsView: React.FC = () => {
                     <td className="p-2 text-white">{selectedDetail.keperluan}</td>
                   </tr>
                   <tr className="border-b border-slate-800">
-                    <td className="p-2 font-semibold text-slate-400 bg-slate-900">Status Alur Dokumen</td>
+                    <td className="p-2 font-semibold text-slate-400 bg-slate-900 align-top">Status Alur Dokumen</td>
                     <td className="p-2">
                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${getBadgeStyle(selectedDetail.status)}`}>
                         {selectedDetail.status}
                       </span>
+                      <ol className="mt-2 space-y-1">
+                        {getRequestFlowTimeline(selectedDetail, auditLogs).map(entry => (
+                          <li key={entry.status} className="flex items-start gap-2 text-[11px]">
+                            <span
+                              className={`mt-1 w-2 h-2 rounded-full shrink-0 ${
+                                !entry.reached
+                                  ? 'bg-slate-700'
+                                  : entry.status === 'Ditolak'
+                                    ? 'bg-rose-400'
+                                    : entry.status === 'Dibatalkan'
+                                      ? 'bg-slate-400'
+                                      : entry.current
+                                        ? 'bg-cyan-400 ring-2 ring-cyan-400/30'
+                                        : 'bg-emerald-400'
+                              }`}
+                            />
+                            <span className={`w-44 shrink-0 ${entry.reached ? 'text-slate-200 font-semibold' : 'text-slate-500'}`}>
+                              {entry.label}
+                            </span>
+                            <span className={`font-mono ${entry.reached ? 'text-white' : 'text-slate-500'}`}>
+                              {formatFlowTimestamp(entry.timestamp) || (entry.reached ? 'Tanggal tidak tercatat' : 'Belum')}
+                              {entry.actor && entry.timestamp && (
+                                <span className="ml-1 font-sans text-slate-400">• {entry.actor}</span>
+                              )}
+                            </span>
+                          </li>
+                        ))}
+                      </ol>
                     </td>
                   </tr>
                   {selectedDetail.catatan && (
