@@ -58,6 +58,7 @@ export const DashboardView: React.FC<{
     dashboardFilters,
     setDashboardFilters,
     setActiveView,
+    setSelectedInventoryItem,
     setIsQrScannerOpen,
     currentUser,
     hasPermission
@@ -144,6 +145,9 @@ export const DashboardView: React.FC<{
   };
   const atkStock = stockByType('ATK');
   const arkStock = stockByType('ARK');
+  // Daftar saldo stok mengikuti pencarian/filter dashboard; tanpa filter tampilkan stok terbesar.
+  const isInventoryFiltered = Boolean(dashboardFilters.keyword.trim()) || hasDashboardInventoryCriteria(dashboardFilters);
+  const stockHighlights = [...inventoryItems].sort((a, b) => b.stokSaatIni - a.stokSaatIni).slice(0, 6);
   const totalInvValue = inventoryItems.reduce((sum, i) => sum + i.totalNilai, 0);
   const lowStockCount = inventoryItems.filter(i => i.status === 'Menipis').length;
   const outOfStockCount = inventoryItems.filter(i => i.status === 'Habis').length;
@@ -435,6 +439,61 @@ export const DashboardView: React.FC<{
               <div className="text-lg font-bold text-rose-300 mt-0.5">{outOfStockCount}</div>
               <div className="text-[9px] text-rose-400/80">Saldo 0</div>
             </div>
+          </div>
+
+          {/* Stock Balance per Item */}
+          <div className="rounded-xl bg-slate-950/60 border border-slate-800 p-3">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-semibold text-slate-300">
+                {isInventoryFiltered ? 'Saldo Stok Barang Sesuai Pencarian' : 'Saldo Stok Barang Terbesar'}
+              </span>
+              <span className="text-[10px] font-mono text-slate-400">
+                {inventoryItems.length.toLocaleString('id-ID')} jenis • {totalStockQty.toLocaleString('id-ID')} unit
+              </span>
+            </div>
+            {stockHighlights.length === 0 ? (
+              <div className="text-[11px] text-slate-400 py-2 text-center">Tidak ada barang persediaan yang cocok dengan pencarian.</div>
+            ) : (
+              <ul className="divide-y divide-slate-800/70">
+                {stockHighlights.map(item => (
+                  <li
+                    key={item.id}
+                    onClick={() => {
+                      setSelectedInventoryItem(item);
+                      setActiveView('inventory');
+                    }}
+                    className="flex items-center justify-between gap-3 py-1.5 text-xs cursor-pointer hover:bg-slate-900/60 rounded px-1"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="truncate text-slate-200 font-medium">{item.nama}</span>
+                        <span className={`shrink-0 text-[9px] px-1.5 py-0.5 rounded font-bold ${
+                          item.jenis === 'ATK' ? 'bg-blue-500/10 text-blue-300' : 'bg-violet-500/10 text-violet-300'
+                        }`}>
+                          {item.jenis}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-slate-500 font-mono truncate">{item.kodeBarang} • {item.rak || item.lokasiGudang}</div>
+                    </div>
+                    <div className={`shrink-0 text-right font-mono font-bold ${
+                      item.status === 'Aman' ? 'text-emerald-300' : item.status === 'Menipis' ? 'text-amber-300' : 'text-rose-300'
+                    }`}>
+                      {item.stokSaatIni.toLocaleString('id-ID')} {item.satuan}
+                      <div className="text-[9px] font-sans font-normal text-slate-500">min. {item.stokMinimum.toLocaleString('id-ID')}</div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {inventoryItems.length > stockHighlights.length && (
+              <button
+                onClick={() => setActiveView('inventory')}
+                className="mt-2 w-full text-[11px] text-amber-400 hover:text-amber-300 font-semibold flex items-center justify-center gap-1"
+              >
+                <span>Lihat {inventoryItems.length.toLocaleString('id-ID')} barang di Master Persediaan</span>
+                <ArrowUpRight className="w-3 h-3" />
+              </button>
+            )}
           </div>
 
           {/* Quick Transaction Info */}

@@ -97,6 +97,7 @@ export const DashboardFilterPanel: React.FC<DashboardFilterPanelProps> = ({
         id: `inventory-${item.id}`,
         title: item.nama,
         details: [
+          `Stok: ${item.stokSaatIni.toLocaleString('id-ID')} ${item.satuan} (${item.status})`,
           item.kodeBarang && `Kode: ${item.kodeBarang}`,
           item.merek && `Merek: ${item.merek}`,
           item.kategori && `Kategori: ${item.kategori}`,
@@ -298,7 +299,14 @@ export const DashboardFilterPanel: React.FC<DashboardFilterPanelProps> = ({
                   <span className="block truncate text-xs font-semibold text-white">{suggestion.title}</span>
                   {suggestion.details.length > 0 && (
                     <span className="mt-1 block text-[10px] font-normal leading-relaxed text-slate-400">
-                      {suggestion.details.join(' · ')}
+                      {suggestion.details.map((detail, detailIndex) => (
+                        <React.Fragment key={detail}>
+                          {detailIndex > 0 && ' · '}
+                          {detail.startsWith('Stok: ')
+                            ? <span className="font-mono font-semibold text-cyan-300">{detail}</span>
+                            : detail}
+                        </React.Fragment>
+                      ))}
                     </span>
                   )}
                 </li>
