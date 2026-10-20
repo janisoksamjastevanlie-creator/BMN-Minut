@@ -93,7 +93,8 @@ export const DashboardFilterPanel: React.FC<DashboardFilterPanelProps> = ({
           asset.nomorSeri, asset.penanggungJawab
         ].filter((value): value is string => Boolean(value))
       })),
-      ...inventoryItems.map(item => ({
+      // Kandidat persediaan diurutkan dari stok tertinggi agar saran dengan stok tersedia tampil lebih dulu.
+      ...[...inventoryItems].sort((a, b) => b.stokSaatIni - a.stokSaatIni).map(item => ({
         id: `inventory-${item.id}`,
         title: item.nama,
         details: [
