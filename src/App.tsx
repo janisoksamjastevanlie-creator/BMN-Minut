@@ -48,7 +48,8 @@ import { canAccessView, getHomeView } from './utils/rbac';
 const MainLayout: React.FC = () => {
   const {
     activeView, currentUser, setActiveView, hasPermission, isInitializing,
-    syncError, isReloadingServerData, reloadServerData
+    syncError, isSyncRecoverable, syncRecoveryAttempt, connectionStatus,
+    isReloadingServerData, reloadServerData
   } = useApp();
 
   // Floating & Quick Transaction Modals state
@@ -112,13 +113,24 @@ const MainLayout: React.FC = () => {
 
         {/* Main View Port */}
         <main ref={mainRef} className="flex-1 overflow-y-auto p-3 sm:p-6 lg:p-8 pb-28 md:pb-8 w-full print:p-0 print:m-0 print:max-w-none print:overflow-visible">
-          {syncError && (
+          {(syncError || connectionStatus !== 'online') && (
             <div role="alert" className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-200">
-              Sinkronisasi server gagal: {syncError}
+              {syncError
+                ? <>Sinkronisasi server gagal: {syncError}</>
+                : connectionStatus === 'offline'
+                  ? 'Koneksi ke server terputus. Perubahan akan disinkronkan kembali secara otomatis saat koneksi pulih.'
+                  : 'Menghubungkan kembali ke server...'}
+              {syncError && isSyncRecoverable && (
+                <span className="ml-2 text-amber-300/90">
+                  {connectionStatus === 'reconnecting'
+                    ? 'Menghubungkan kembali...'
+                    : `Mencoba menghubungkan kembali secara otomatis${syncRecoveryAttempt > 0 ? ` (percobaan ke-${syncRecoveryAttempt + 1})` : ''}.`}
+                </span>
+              )}
               <button
                 onClick={() => void reloadServerData()}
-                disabled={isReloadingServerData}
-                className="ml-3 font-bold underline underline-offset-2"
+                disabled={isReloadingServerData || connectionStatus === 'reconnecting'}
+                className="ml-3 font-bold underline underline-offset-2 disabled:opacity-60"
               >
                 {isReloadingServerData ? 'Memuat data server...' : 'Muat ulang data server'}
               </button>

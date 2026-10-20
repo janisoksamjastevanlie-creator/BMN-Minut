@@ -23,6 +23,7 @@ import {
   validateNewRequestStock
 } from './requestStockValidation.mjs';
 import { assignNewRequestNumbers } from './requestNumber.mjs';
+import { fillOmittedCollections } from './stateConflict.mjs';
 import { sendTwilioWhatsAppMessage } from './twilioWhatsAppService.mjs';
 import { createWhatsAppService } from './whatsapp/service.mjs';
 import { getWhatsAppConfig } from './whatsapp/config.mjs';
@@ -78,6 +79,7 @@ if (n8nIntegration.configurationError) {
   console.error(`n8n integration disabled: ${n8nIntegration.configurationError}`);
 }
 const port = Number(process.env.PORT || 3000);
+const UNREADABLE_REQUEST_BODY_MESSAGE = 'Format data yang dikirim tidak dapat dibaca server.';
 const host = process.env.HOST?.trim() || (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1');
 const adminNip = process.env.ADMIN_NIP?.trim();
 const adminPassword = process.env.ADMIN_PASSWORD;
@@ -2419,7 +2421,7 @@ app.put('/api/state', performanceTiming('PUT /api/state'), requireUserFromTransa
   if (!submittedState || typeof submittedState !== 'object' || Array.isArray(submittedState)) {
     return response.status(400).json({ error: 'Format data tidak valid.' });
   }
-  const state = JSON.parse(JSON.stringify(submittedState));
+  let state = JSON.parse(JSON.stringify(submittedState));
   let transactionStartedAt = 0;
   let transactionMs = 0;
   let stateReadMs = 0;
@@ -2447,6 +2449,7 @@ app.put('/api/state', performanceTiming('PUT /api/state'), requireUserFromTransa
       if (authorizationError) {
         return { status: 403, body: { error: authorizationError, revision } };
       }
+      state = fillOmittedCollections(state, currentState, collections);
       const numberFloors = await queryRows(connection, "SELECT `key`, value FROM app_meta WHERE `key` LIKE 'request_number_floor:%'");
       const minimumSequences = {};
       for (const row of numberFloors) {
@@ -3124,8 +3127,17 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 app.use((error, _request, response, _next) => {
-  console.error(error);
   if (response.headersSent) return;
+  // Kesalahan body-parser (JSON rusak, body terkompresi tidak terbaca, terlalu besar) membawa
+  // status 4xx dan bukan kesalahan server; jangan laporkan sebagai 500.
+  if (error?.type === 'entity.too.large' || error?.status === 413) {
+    return response.status(413).json({ error: 'Ukuran data yang dikirim melebihi batas server.' });
+  }
+  if (error?.type === 'entity.parse.failed' || error?.type === 'encoding.unsupported' ||
+      error?.status === 400 || error?.status === 415) {
+    return response.status(400).json({ error: UNREADABLE_REQUEST_BODY_MESSAGE });
+  }
+  console.error(error);
   response.status(500).json({ error: 'Terjadi kesalahan pada server.' });
 });
 

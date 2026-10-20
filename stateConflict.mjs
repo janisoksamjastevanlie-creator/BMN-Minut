@@ -54,6 +54,18 @@ function mergeCollection(key, baseRows, localRows, remoteRows) {
   return { value: [...localAdds, ...merged] };
 }
 
+// Klien boleh mengirim hanya koleksi yang berubah; koleksi yang tidak dikirim berarti
+// identik dengan state server pada revisi yang sama (dijamin oleh pemeriksaan revisi).
+export function fillOmittedCollections(submittedState, currentState, keys) {
+  const state = { ...submittedState };
+  for (const key of keys) {
+    if (!Object.hasOwn(state, key)) {
+      state[key] = currentState && Object.hasOwn(currentState, key) ? currentState[key] : null;
+    }
+  }
+  return state;
+}
+
 export function mergeStateAfterConflict(baseState, localState, remoteState) {
   const mergedState = { ...remoteState };
   const conflicts = [];

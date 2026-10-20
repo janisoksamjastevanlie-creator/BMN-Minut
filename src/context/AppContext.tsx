@@ -47,6 +47,7 @@ import { planStockInDeletion } from '../../stockInDeletion.mjs';
 import { mergeStateAfterConflict } from '../../stateConflict.mjs';
 import { getRequestableStock, normalizeRequestHandoverItems } from '../../requestStockValidation.mjs';
 import { getNextRequestNumber } from '../../requestNumber.mjs';
+import { ApiResponseError, apiFailureMessage, fetchWithTimeout, isTransientApiFailure, readApiResponse, sendJson } from '../utils/serverRequest';
 
 const cloneSharedState = <T,>(state: T): T => JSON.parse(JSON.stringify(state)) as T;
 
@@ -66,10 +67,27 @@ const applyRequestNumberAssignments = (
 };
 
 class StateSyncError extends Error {
-  constructor(message: string, readonly definitelyNotSaved = false, readonly status?: number) {
+  constructor(
+    message: string,
+    readonly definitelyNotSaved = false,
+    readonly status?: number,
+    // true bila penyebabnya jaringan/server sementara sehingga layak dicoba ulang otomatis.
+    readonly recoverable = false
+  ) {
     super(message);
   }
 }
+
+const isRecoverableFailure = (error: unknown): boolean =>
+  isTransientApiFailure(error) ||
+  (error instanceof ApiResponseError && error.status >= 500) ||
+  (error instanceof StateSyncError && error.recoverable);
+
+export type ConnectionStatus = 'online' | 'offline' | 'reconnecting';
+const RECOVERY_BASE_DELAY_MS = 5_000;
+const RECOVERY_MAX_DELAY_MS = 60_000;
+const HEARTBEAT_ONLINE_MS = 30_000;
+const HEARTBEAT_OFFLINE_MS = 10_000;
 
 type RequestStateChange = {
   request: InventoryRequest;
@@ -77,64 +95,8 @@ type RequestStateChange = {
   notifications: NotificationItem[];
 };
 
-class ApiResponseError extends Error {
-  constructor(message: string, readonly status: number) {
-    super(message);
-  }
-}
-
-const readApiResponse = async <T,>(
-  response: Response,
-  endpoint: string,
-  allowErrorStatuses: number[] = []
-): Promise<T> => {
-  const body = await response.text();
-  let result: T;
-  try {
-    result = JSON.parse(body) as T;
-  } catch {
-    const isHtml = /^\s*(?:<!doctype html\b|<html\b)/i.test(body);
-    throw new ApiResponseError(
-      response.status === 401
-        ? 'Sesi berakhir. Silakan masuk kembali.'
-        : response.status === 403
-          ? 'Akses ditolak oleh server.'
-          : isHtml
-        ? `Endpoint ${endpoint} mengembalikan HTML, bukan JSON. Pastikan permintaan API diteruskan ke server Node.js.`
-        : `Respons ${endpoint} tidak valid (HTTP ${response.status}).`,
-      response.status
-    );
-  }
-  if (!response.ok && !allowErrorStatuses.includes(response.status)) {
-    const errorMessage = result && typeof result === 'object' && 'error' in result
-      ? String(result.error)
-      : '';
-    throw new ApiResponseError(
-      response.status === 401
-        ? errorMessage || 'Sesi berakhir. Silakan masuk kembali.'
-        : response.status === 403
-          ? errorMessage || 'Akses ditolak oleh server.'
-          : response.status >= 500
-            ? errorMessage || `Server mengalami kesalahan (HTTP ${response.status}).`
-            : errorMessage || `Permintaan gagal (HTTP ${response.status}).`,
-      response.status
-    );
-  }
-  return result;
-};
-
-const apiFailureMessage = (error: unknown): string => {
-  if (error instanceof ApiResponseError) return error.message;
-  if (error instanceof DOMException && error.name === 'TimeoutError') {
-    return 'Server terlalu lama merespons. Periksa status data di server sebelum mengulangi transaksi.';
-  }
-  if (error instanceof TypeError) return 'Server tidak dapat dihubungi. Periksa koneksi jaringan lalu coba lagi.';
-  return error instanceof Error ? error.message : 'Terjadi kesalahan saat menghubungi server.';
-};
 const sameSharedState = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
 const MAX_STATE_CONFLICT_RETRIES = 3;
-const fetchWithTimeout = (url: string, options: RequestInit = {}) =>
-  fetch(url, { ...options, signal: AbortSignal.timeout(30_000) });
 
 export type ActiveView =
   | 'landing'
@@ -174,6 +136,10 @@ interface AppContextType {
   dataBackend: 'legacy' | 'operational';
   isInitializing: boolean;
   syncError: string | null;
+  // Pemulihan otomatis berjalan hanya untuk kegagalan jaringan/server sementara.
+  isSyncRecoverable: boolean;
+  syncRecoveryAttempt: number;
+  connectionStatus: ConnectionStatus;
   isReloadingServerData: boolean;
   reloadServerData: () => Promise<boolean>;
   requestPageRefresh: () => void;
@@ -379,7 +345,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [dataBackend, setDataBackend] = useState<'legacy' | 'operational'>('legacy');
   const [authReady, setAuthReady] = useState(false);
   const [dataReady, setDataReady] = useState(false);
-  const [syncError, setSyncError] = useState<string | null>(null);
+  const [syncError, setSyncErrorState] = useState<string | null>(null);
+  const [isSyncRecoverable, setIsSyncRecoverable] = useState(false);
+  const [syncRecoveryAttempt, setSyncRecoveryAttempt] = useState(0);
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(
+    typeof navigator !== 'undefined' && navigator.onLine === false ? 'offline' : 'online'
+  );
+  const syncErrorRef = useRef<string | null>(null);
+  const syncRecoverableRef = useRef(false);
+  const setSyncError = (message: string | null, recoverable = false) => {
+    syncErrorRef.current = message;
+    syncRecoverableRef.current = Boolean(message) && recoverable;
+    setSyncErrorState(message);
+    setIsSyncRecoverable(Boolean(message) && recoverable);
+  };
   const [isReloadingServerData, setIsReloadingServerData] = useState(false);
   const reloadInFlightRef = useRef(false);
   const pendingSessionRecoveryRef = useRef<{
@@ -672,11 +651,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ? sharedState.users.map(user => user.id === authenticatedUser.id ? { ...user, ...authenticatedUser, role: 'Administrator' } : user)
         : [authenticatedUser, ...sharedState.users];
       const initialState = { ...sharedState, users: initialUsers };
-      const saveResponse = await fetch('/api/state', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ state: initialState, revision: revisionRef.current })
-      });
+      const saveResponse = await sendJson('/api/state', 'PUT', { state: initialState, revision: revisionRef.current });
       const saveResult = await readApiResponse<{
         revision: number;
         requestNumbers?: Record<string, string>;
@@ -712,7 +687,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     let mounted = true;
     const restoreSession = async () => {
       try {
-        const response = await fetch('/api/auth/me');
+        const response = await fetchWithTimeout('/api/auth/me');
         if (response.status === 401) {
           if (mounted) setCurrentUser(null);
           return;
@@ -725,7 +700,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (mounted) {
           setCurrentUser(null);
           setDataReady(false);
-          setSyncError(apiFailureMessage(error));
+          setSyncError(apiFailureMessage(error), isRecoverableFailure(error));
         }
       } finally {
         if (mounted) setAuthReady(true);
@@ -792,23 +767,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           requestNumbers?: Record<string, string>;
           requests?: InventoryRequest[];
         } | null = null;
+        let saveOutcomeUncertain = false;
         for (let attempt = 0; attempt < MAX_STATE_CONFLICT_RETRIES; attempt += 1) {
-          const response = await fetchWithTimeout('/api/state', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ state: stateToSave, revision: revisionRef.current })
-          });
-          let result: {
-            revision?: number;
-            requestNumbers?: Record<string, string>;
-            requests?: InventoryRequest[];
-          };
           try {
-            result = await readApiResponse<{
+            // Hanya koleksi yang berbeda dari salinan tersinkron terakhir yang diunggah;
+            // server mengisi sisanya dari revisi yang sama (lihat fillOmittedCollections).
+            const baseline = lastSyncedStateRef.current;
+            const changedEntries = baseline
+              ? Object.entries(stateToSave).filter(([key, value]) => !sameSharedState(value, baseline[key]))
+              : null;
+            const payloadState = changedEntries && changedEntries.length > 0
+              ? Object.fromEntries(changedEntries)
+              : stateToSave;
+            const response = await sendJson('/api/state', 'PUT', { state: payloadState, revision: revisionRef.current });
+            const result = await readApiResponse<{
               revision?: number;
               requestNumbers?: Record<string, string>;
               requests?: InventoryRequest[];
             }>(response, '/api/state', [409]);
+            if (response.status !== 409) {
+              saveResult = result;
+              break;
+            }
           } catch (error) {
             if (error instanceof ApiResponseError && error.status === 401) {
               expireSession(stateToSave);
@@ -818,31 +798,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               syncBlockedRef.current = true;
               throw new StateSyncError(`Akses ditolak: ${error.message}`, true, error.status);
             }
-            const definitelyNotSaved = error instanceof ApiResponseError && error.status < 500;
-            if (definitelyNotSaved) syncBlockedRef.current = true;
-            throw new StateSyncError(apiFailureMessage(error), definitelyNotSaved,
-              error instanceof ApiResponseError ? error.status : undefined);
-          }
-          if (response.status !== 409) {
-            saveResult = result;
-            break;
+            if (!isTransientApiFailure(error)) {
+              const definitelyNotSaved = error instanceof ApiResponseError && error.status < 500;
+              if (definitelyNotSaved) syncBlockedRef.current = true;
+              throw new StateSyncError(apiFailureMessage(error), definitelyNotSaved,
+                error instanceof ApiResponseError ? error.status : undefined, !definitelyNotSaved);
+            }
+            saveOutcomeUncertain = true;
+            console.warn('[sync] Penyimpanan terputus; memeriksa state dan revisi server sebelum mencoba kembali.');
           }
 
-          const latestResponse = await fetchWithTimeout('/api/state');
           let latest: { state?: Record<string, unknown>; revision?: number };
           try {
+            const latestResponse = await fetchWithTimeout('/api/state');
             latest = await readApiResponse<{ state?: Record<string, unknown>; revision?: number }>(latestResponse, '/api/state');
           } catch (error) {
             if (error instanceof ApiResponseError && error.status === 401) {
               expireSession(stateToSave);
               throw new StateSyncError(error.message, true, error.status);
             }
-            throw new StateSyncError(apiFailureMessage(error), true,
-              error instanceof ApiResponseError ? error.status : undefined);
+            if (saveOutcomeUncertain) syncBlockedRef.current = true;
+            throw new StateSyncError(apiFailureMessage(error), !saveOutcomeUncertain,
+              error instanceof ApiResponseError ? error.status : undefined, isRecoverableFailure(error));
           }
           if (!latest.state || typeof latest.revision !== 'number' || !Number.isInteger(latest.revision)) {
             syncBlockedRef.current = true;
-            const error = new StateSyncError('Konflik data terjadi dan data terbaru dari server tidak valid. Muat ulang data server sebelum melanjutkan.', true);
+            const error = new StateSyncError('Konflik data terjadi dan data terbaru dari server tidak valid. Muat ulang data server sebelum melanjutkan.', !saveOutcomeUncertain);
             for (const waiter of requestPersistenceWaitersRef.current.values()) waiter.reject(error);
             requestPersistenceWaitersRef.current.clear();
             setSyncError(error.message);
@@ -851,7 +832,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const baseState = lastSyncedStateRef.current;
           if (!baseState) {
             syncBlockedRef.current = true;
-            const error = new StateSyncError('Konflik data terjadi tanpa salinan perubahan terakhir. Muat ulang halaman sebelum melanjutkan.', true);
+            const error = new StateSyncError('Konflik data terjadi tanpa salinan perubahan terakhir. Muat ulang halaman sebelum melanjutkan.', !saveOutcomeUncertain);
             for (const waiter of requestPersistenceWaitersRef.current.values()) waiter.reject(error);
             requestPersistenceWaitersRef.current.clear();
             setSyncError(error.message);
@@ -860,7 +841,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const { mergedState, conflicts } = mergeStateAfterConflict(baseState, stateToSave, latest.state);
           if (conflicts.length > 0) {
             syncBlockedRef.current = true;
-            const error = new StateSyncError(`Data yang sama berubah di perangkat lain (${conflicts.slice(0, 3).join(', ')}). Muat ulang halaman untuk memeriksa perubahan sebelum mencoba lagi.`, true);
+            const error = new StateSyncError(`Data yang sama berubah di perangkat lain (${conflicts.slice(0, 3).join(', ')}). Muat ulang halaman untuk memeriksa perubahan sebelum mencoba lagi.`, !saveOutcomeUncertain);
             for (const waiter of requestPersistenceWaitersRef.current.values()) waiter.reject(error);
             requestPersistenceWaitersRef.current.clear();
             setSyncError(error.message);
@@ -876,10 +857,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         if (!saveResult) {
           syncBlockedRef.current = true;
-          const error = new StateSyncError('Data terus berubah di perangkat lain. Perubahan lokal belum tersimpan; muat ulang halaman sebelum melanjutkan.', true);
+          const error = new StateSyncError('Sinkronisasi belum dapat dipastikan. Periksa data server sebelum melanjutkan.', !saveOutcomeUncertain, undefined, true);
           for (const waiter of requestPersistenceWaitersRef.current.values()) waiter.reject(error);
           requestPersistenceWaitersRef.current.clear();
-          setSyncError(error.message);
+          setSyncError(error.message, true);
           return;
         }
         if (!Number.isInteger(saveResult.revision)) {
@@ -954,18 +935,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (refreshAfterSave) requestPageRefresh();
       }).catch(error => {
         pageRefreshRequestedRef.current = false;
-        const message = error instanceof Error ? error.message : 'Perubahan tidak tersimpan ke server.';
+        const message = apiFailureMessage(error);
+        const recoverable = isRecoverableFailure(error);
         const pendingWaiters = [...requestPersistenceWaitersRef.current.values()];
         requestPersistenceWaitersRef.current.clear();
-        let reportedError = error instanceof Error ? error : new Error(message);
+        let reportedError = error instanceof StateSyncError ? error : new Error(message);
         if (pendingWaiters.length > 0 && !(error instanceof StateSyncError && error.definitelyNotSaved)) {
           syncBlockedRef.current = true;
-          reportedError = new StateSyncError('Status penyimpanan permohonan belum dapat dipastikan. Muat ulang halaman dan periksa daftar permohonan sebelum mengirim ulang.');
+          reportedError = new StateSyncError('Status penyimpanan permohonan belum dapat dipastikan. Muat ulang halaman dan periksa daftar permohonan sebelum mengirim ulang.', false, undefined, recoverable);
         }
         for (const waiter of pendingWaiters) {
           waiter.reject(reportedError);
         }
-        setSyncError(reportedError.message);
+        setSyncError(reportedError.message, recoverable);
       });
       return syncQueueRef.current;
   };
@@ -1048,12 +1030,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       pendingSessionRecoveryRef.current = null;
       syncBlockedRef.current = false;
       setSyncError(null);
+      setConnectionStatus('online');
       return true;
     } catch (error) {
       if (error instanceof ApiResponseError && error.status === 401) {
         expireSession();
       } else {
-        setSyncError(apiFailureMessage(error));
+        setSyncError(apiFailureMessage(error), isRecoverableFailure(error));
       }
       return false;
     } finally {
@@ -1061,6 +1044,145 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setIsReloadingServerData(false);
     }
   };
+
+  // Pemulihan otomatis setelah gangguan jaringan: ambil state server terbaru dan gabungkan
+  // dengan perubahan lokal yang belum tersinkron, alih-alih membuangnya seperti reloadServerData.
+  const recoverServerSync = async (): Promise<boolean> => {
+    if (reloadInFlightRef.current) return false;
+    reloadInFlightRef.current = true;
+    setConnectionStatus('reconnecting');
+    try {
+      const userResponse = await fetchWithTimeout('/api/auth/me');
+      if (userResponse.status === 401 && !currentUser) {
+        // Belum masuk; tidak ada sesi yang perlu dipulihkan.
+        setSyncError(null);
+        setConnectionStatus('online');
+        return true;
+      }
+      const { user } = await readApiResponse<{ user: User }>(userResponse, '/api/auth/me');
+      const base = lastSyncedStateRef.current;
+      if (!currentUser || !base || !dataReady) {
+        setCurrentUser(user);
+        await loadSessionData(user);
+      } else {
+        const latestResponse = await fetchWithTimeout('/api/state');
+        const latest = await readApiResponse<{ state?: Record<string, unknown>; revision?: number }>(latestResponse, '/api/state');
+        if (!latest.state || !Number.isInteger(latest.revision)) {
+          throw new Error('Data terbaru dari server tidak valid.');
+        }
+        const local = latestSharedStateRef.current;
+        let nextState = latest.state;
+        if (!sameSharedState(local, base)) {
+          const merged = mergeStateAfterConflict(base, local, latest.state);
+          if (merged.conflicts.length > 0) {
+            syncBlockedRef.current = true;
+            setSyncError(`Koneksi pulih, tetapi data yang sama berubah di perangkat lain (${merged.conflicts.slice(0, 3).join(', ')}). Muat ulang data server untuk mengambil versi server.`);
+            setConnectionStatus('online');
+            return false;
+          }
+          nextState = merged.mergedState;
+        }
+        revisionRef.current = latest.revision as number;
+        lastSyncedStateRef.current = cloneSharedState(latest.state);
+        const storedUser = (latest.state.users as User[] | null)?.find(item => item.id === user.id);
+        setCurrentUser(storedUser || user);
+        // Bila ada perubahan lokal yang tergabung, efek persist akan mengunggahnya kembali.
+        applySharedState(nextState);
+      }
+      pendingSessionRecoveryRef.current = null;
+      syncBlockedRef.current = false;
+      setSyncError(null);
+      setConnectionStatus('online');
+      return true;
+    } catch (error) {
+      if (error instanceof ApiResponseError && error.status === 401) {
+        expireSession();
+        setConnectionStatus('online');
+        return false;
+      }
+      setSyncError(apiFailureMessage(error), isRecoverableFailure(error));
+      setConnectionStatus(isTransientApiFailure(error) ? 'offline' : 'online');
+      return false;
+    } finally {
+      reloadInFlightRef.current = false;
+    }
+  };
+  const recoverServerSyncRef = useRef(recoverServerSync);
+  recoverServerSyncRef.current = recoverServerSync;
+
+  // Jadwal coba-ulang otomatis dengan backoff selama kegagalannya bersifat sementara.
+  useEffect(() => {
+    if (!syncError || !isSyncRecoverable) {
+      if (syncRecoveryAttempt !== 0) setSyncRecoveryAttempt(0);
+      return;
+    }
+    const delay = Math.min(RECOVERY_MAX_DELAY_MS, RECOVERY_BASE_DELAY_MS * 2 ** syncRecoveryAttempt);
+    const timer = window.setTimeout(() => {
+      void recoverServerSyncRef.current().then(recovered => {
+        if (!recovered && syncRecoverableRef.current) setSyncRecoveryAttempt(attempt => attempt + 1);
+      });
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [syncError, isSyncRecoverable, syncRecoveryAttempt]);
+
+  // Segera pulihkan saat jaringan kembali atau tab kembali aktif.
+  useEffect(() => {
+    const tryRecover = () => {
+      if (syncErrorRef.current && syncRecoverableRef.current) void recoverServerSyncRef.current();
+    };
+    const handleOnline = () => {
+      setConnectionStatus('online');
+      tryRecover();
+    };
+    const handleOffline = () => setConnectionStatus('offline');
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') tryRecover();
+    };
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, []);
+
+  // Heartbeat ringan ke /api/health agar putusnya koneksi terdeteksi sebelum pengguna menyimpan.
+  const connectionStatusRef = useRef<ConnectionStatus>(connectionStatus);
+  connectionStatusRef.current = connectionStatus;
+  useEffect(() => {
+    if (!currentUser || !dataReady) return;
+    let cancelled = false;
+    let inFlight = false;
+    const tick = async () => {
+      if (inFlight || reloadInFlightRef.current || document.visibilityState === 'hidden') return;
+      inFlight = true;
+      try {
+        const response = await fetchWithTimeout('/api/health', {}, { timeoutMs: 8_000, retryDelayMs: 500 });
+        if (cancelled) return;
+        if (!response.ok) {
+          setConnectionStatus('offline');
+          return;
+        }
+        const wasOffline = connectionStatusRef.current === 'offline';
+        if (connectionStatusRef.current !== 'reconnecting') setConnectionStatus('online');
+        if (wasOffline && syncErrorRef.current && syncRecoverableRef.current) {
+          void recoverServerSyncRef.current();
+        }
+      } catch {
+        if (!cancelled) setConnectionStatus('offline');
+      } finally {
+        inFlight = false;
+      }
+    };
+    const timer = window.setInterval(() => { void tick(); },
+      connectionStatus === 'offline' ? HEARTBEAT_OFFLINE_MS : HEARTBEAT_ONLINE_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [currentUser, dataReady, connectionStatus]);
 
   const logout = async () => {
     const response = await fetch('/api/auth/logout', { method: 'POST' });
@@ -2140,7 +2262,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ? 'Penerimaan ini sudah pernah dikonfirmasi; stok tidak dikurangi kembali.'
         : fallbackMessage };
     } catch (error) {
-      const message = error instanceof Error ? error.message : fallbackMessage;
+      const message = apiFailureMessage(error);
       if (syncBlockedRef.current) {
         pageRefreshRequestedRef.current = false;
         setSyncError(message);
@@ -2493,6 +2615,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         dataBackend,
         isInitializing: !authReady || (!!currentUser && !dataReady),
         syncError,
+        isSyncRecoverable,
+        syncRecoveryAttempt,
+        connectionStatus,
         isReloadingServerData,
         reloadServerData,
         requestPageRefresh,

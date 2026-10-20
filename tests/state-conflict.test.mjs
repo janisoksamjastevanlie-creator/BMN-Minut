@@ -1,6 +1,19 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mergeStateAfterConflict } from '../stateConflict.mjs';
+import { fillOmittedCollections, mergeStateAfterConflict } from '../stateConflict.mjs';
+
+test('fills collections omitted by the client from the current server state', () => {
+  const current = { assets: [{ id: 'a-1' }], auditLogs: [{ id: 'log-1' }], users: null };
+  const submitted = { auditLogs: [{ id: 'log-1' }, { id: 'log-2' }] };
+
+  const filled = fillOmittedCollections(submitted, current, ['assets', 'auditLogs', 'users', 'roles']);
+
+  assert.deepEqual(filled.assets, [{ id: 'a-1' }]);
+  assert.deepEqual(filled.auditLogs, submitted.auditLogs);
+  assert.equal(filled.users, null);
+  assert.equal(filled.roles, null);
+  assert.deepEqual(submitted, { auditLogs: [{ id: 'log-1' }, { id: 'log-2' }] });
+});
 
 test('merges local stock-in deletion with a remote edit to another collection', () => {
   const base = {
