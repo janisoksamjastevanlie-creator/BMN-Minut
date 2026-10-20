@@ -7,7 +7,7 @@ import { ImportAssetModal } from '../components/bmn/ImportAssetModal';
 import { MasterAssetImportModal } from '../components/bmn/MasterAssetImportModal';
 import { DbrReconciliationModal } from '../components/bmn/DbrReconciliationModal';
 import { AssetListPrintModal } from '../components/bmn/AssetListPrintModal';
-import { OfficialLetterhead } from '../components/common/OfficialLetterhead';
+import { PrintableDocument } from '../components/common/PrintableDocument';
 import { ReportSignatureBlock } from '../components/common/ReportSignatureBlock';
 import { getAssetPhotoUrl } from '../utils/assetImages';
 import { triggerPrint } from '../utils/printHelper';
@@ -481,7 +481,7 @@ export const AssetsView: React.FC = () => {
 
         {/* DESKTOP TABLE VIEW */}
         <div className="assets-print-table">
-          <OfficialLetterhead />
+          <PrintableDocument>
           <div className="hidden md:block overflow-x-auto assets-table-scroll">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
@@ -659,6 +659,7 @@ export const AssetsView: React.FC = () => {
             },
             { heading: 'Kepala Sub Bagian Umum', role: 'Kepala Sub Bagian Umum' }
           ]} />
+          </PrintableDocument>
         </div>
 
         {/* Pagination Bar */}

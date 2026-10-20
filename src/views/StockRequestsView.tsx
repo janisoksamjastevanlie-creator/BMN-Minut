@@ -3,7 +3,7 @@ import { useApp } from '../context/AppContext';
 import { AuditLog, InventoryRequest, InventoryRequestItem, RequestStatus } from '../types';
 import { ListPager, usePagedList } from '../components/common/ListPager';
 import { StockRequestModal } from '../components/inventory/StockRequestModal';
-import { OfficialLetterhead } from '../components/common/OfficialLetterhead';
+import { PrintableDocument } from '../components/common/PrintableDocument';
 import { ReportSignatureBlock } from '../components/common/ReportSignatureBlock';
 import { triggerPrint } from '../utils/printHelper';
 import { isPimpinanUser } from '../utils/rbac';
@@ -1632,8 +1632,8 @@ export const StockRequestsView: React.FC = () => {
             </div>
 
             {/* Printable Content Area */}
-            <div className="p-6 overflow-y-auto space-y-4 text-xs bg-slate-950 print-page text-slate-200">
-              <OfficialLetterhead />
+            <div className="p-6 overflow-y-auto text-xs bg-slate-950 print-page text-slate-200">
+              <PrintableDocument className="space-y-4">
 
               <div className="text-center py-1">
                 <div className="font-bold text-xs uppercase tracking-wider text-white underline">
@@ -1749,6 +1749,7 @@ export const StockRequestsView: React.FC = () => {
                 { heading: 'Pemohon', name: selectedDetail.pemohonNama },
                 { heading: 'Kepala Sub Bagian Umum', role: 'Kepala Sub Bagian Umum' }
               ]} />
+              </PrintableDocument>
             </div>
 
             {/* Modal Actions */}

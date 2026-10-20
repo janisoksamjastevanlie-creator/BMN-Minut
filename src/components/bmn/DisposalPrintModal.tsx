@@ -1,7 +1,7 @@
 import React from 'react';
 import { AssetDisposal } from '../../types';
 import { triggerPrint } from '../../utils/printHelper';
-import { OfficialLetterhead } from '../common/OfficialLetterhead';
+import { PrintableDocument } from '../common/PrintableDocument';
 import { ReportSignatureBlock } from '../common/ReportSignatureBlock';
 import { X, Printer, FileText, Trash2 } from 'lucide-react';
 
@@ -56,8 +56,8 @@ export const DisposalPrintModal: React.FC<{
         </div>
 
         {/* Printable Document Paper */}
-        <div className="p-6 sm:p-8 overflow-y-auto flex-1 space-y-6 bg-slate-950 text-slate-100 print:bg-white print:text-black print:p-0">
-          <OfficialLetterhead />
+        <div className="p-6 sm:p-8 overflow-y-auto flex-1 bg-slate-950 text-slate-100 print:bg-white print:text-black print:p-0">
+          <PrintableDocument className="space-y-6">
           <div className="text-center pb-1 space-y-1">
             <div className="text-base sm:text-lg font-black tracking-wide text-white print:text-black uppercase">
               SURAT USULAN PENGHAPUSAN BARANG MILIK NEGARA (BMN)
@@ -152,6 +152,7 @@ export const DisposalPrintModal: React.FC<{
             },
             { heading: 'Kepala Sub Bagian Umum', role: 'Kepala Sub Bagian Umum' }
           ]} />
+          </PrintableDocument>
         </div>
 
         {/* Footer */}

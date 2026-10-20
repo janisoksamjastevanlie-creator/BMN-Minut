@@ -2,7 +2,7 @@ import React from 'react';
 import { useApp } from '../../context/AppContext';
 import { InventoryItem } from '../../types';
 import { triggerPrint } from '../../utils/printHelper';
-import { OfficialLetterhead } from '../common/OfficialLetterhead';
+import { PrintableDocument } from '../common/PrintableDocument';
 import { ReportSignatureBlock } from '../common/ReportSignatureBlock';
 import { getInventoryPhotoUrl } from '../../utils/assetImages';
 import {
@@ -154,8 +154,8 @@ export const StockCardModal: React.FC<{
         </div>
 
         {/* Printable Content Paper */}
-        <div className="p-6 overflow-y-auto flex-1 space-y-5 bg-slate-950 text-slate-100 print:bg-white print:text-black print:p-0">
-          <OfficialLetterhead />
+        <div className="p-6 overflow-y-auto flex-1 bg-slate-950 text-slate-100 print:bg-white print:text-black print:p-0">
+          <PrintableDocument className="space-y-5">
           <div className="text-center pb-1 space-y-1">
             <div className="text-base sm:text-lg font-black tracking-wide text-white print:text-black uppercase">
               KARTU KENDALI PERSEDIAAN BARANG HABIS PAKAI (STOCK CARD)
@@ -276,6 +276,7 @@ export const StockCardModal: React.FC<{
             },
             { heading: 'Kepala Sub Bagian Umum', role: 'Kepala Sub Bagian Umum' }
           ]} />
+          </PrintableDocument>
         </div>
 
         {/* Footer (Screen only) */}

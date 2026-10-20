@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { triggerPrint } from '../utils/printHelper';
 import { filterDashboardAssets, filterDashboardInventory } from '../utils/dashboardFilters';
-import { OfficialLetterhead } from '../components/common/OfficialLetterhead';
+import { PrintableDocument } from '../components/common/PrintableDocument';
 import { ReportSignatureBlock } from '../components/common/ReportSignatureBlock';
 import {
   FileText,
@@ -170,8 +170,8 @@ export const ReportsView: React.FC = () => {
       </div>
 
       {/* Official Printable Report Paper Container */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 md:p-8 space-y-6 shadow-2xl print-page">
-        <OfficialLetterhead />
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 md:p-8 shadow-2xl print-page">
+        <PrintableDocument className="space-y-6">
         <div className="pb-1 text-center">
           <h2 className="text-lg md:text-xl font-extrabold text-white mt-1 uppercase tracking-wide">
             {activeReport === 'DAFTAR_BMN' && 'DAFTAR BARANG KUASA PENGGUNA (BMN)'}
@@ -381,6 +381,7 @@ export const ReportsView: React.FC = () => {
           },
           { heading: 'Kepala Sub Bagian Umum', role: 'Kepala Sub Bagian Umum' }
         ]} />
+        </PrintableDocument>
       </div>
     </div>
   );

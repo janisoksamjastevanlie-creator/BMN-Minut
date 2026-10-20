@@ -456,7 +456,6 @@
   }
 
   body.printing-active:not(.printing-page-label) #root main {
-    padding-top: 22.35mm !important;
     -webkit-box-decoration-break: clone;
     box-decoration-break: clone;
   }
@@ -605,11 +604,46 @@
     background: #000000;
   }
 
+  /* Pembungkus dokumen cetak: <thead> kosong diulang browser di awal setiap halaman dan
+     memesan ruang setinggi kop yang fixed, sehingga isi tidak pernah tertimpa kop. */
+  .official-print-document {
+    display: table !important;
+    width: 100% !important;
+    table-layout: fixed;
+    border-collapse: collapse !important;
+    border-spacing: 0 !important;
+    font-size: inherit !important;
+  }
+
+  .official-print-document > thead {
+    display: table-header-group !important;
+  }
+
+  .official-print-document > thead > tr,
+  .official-print-document > tbody > tr {
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+  }
+
+  .official-print-document > thead > tr > td,
+  .official-print-document > tbody > tr > td {
+    display: table-cell !important;
+    border: 0 !important;
+    padding: 0 !important;
+    background: transparent !important;
+    vertical-align: top;
+  }
+
+  .official-print-document-spacer {
+    /* min-height dipakai karena aturan global cetak memaksa height: auto pada semua div */
+    min-height: 24.5mm !important;
+  }
+
   .report-signatures {
     display: grid;
     gap: 8mm;
-    margin-top: 8mm;
-    padding-top: 4mm;
+    margin-top: 12mm;
+    padding-top: 2mm;
     color: #000000 !important;
     text-align: center;
     font-size: 9pt;
@@ -624,8 +658,9 @@
     overflow-wrap: anywhere;
   }
 
+  /* Ruang kosong untuk tanda tangan basah (min-height agar tidak ditimpa aturan height: auto global) */
   .report-signature-space {
-    height: 22mm;
+    min-height: 32mm !important;
   }
 
   .report-signature-name {
@@ -665,7 +700,7 @@
     box-shadow: none !important;
   }
 
-  .assets-print-table,
+  /* Pembungkus tabel aset memuat kop, jadi mengikuti aturan tabel cetak di atas; hanya area gulirnya yang di-block. */
   .assets-print-table > .assets-table-scroll {
     display: block !important;
     overflow: visible !important;
@@ -761,6 +796,22 @@
   display: none;
 }
 
+/* Di layar, pembungkus dokumen cetak dirender sebagai blok biasa tanpa bekas tabel. */
+.official-print-document,
+.official-print-document > tbody,
+.official-print-document > tbody > tr,
+.official-print-document > tbody > tr > td {
+  display: block;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.official-print-document > thead {
+  display: none;
+}
+
 .report-signatures {
   display: grid;
   gap: 2rem;
@@ -775,7 +826,7 @@
 }
 
 .report-signature-space {
-  height: 3.5rem;
+  height: 5rem;
 }
 
 .report-signature-name {
