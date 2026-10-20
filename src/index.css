@@ -610,7 +610,6 @@
     gap: 8mm;
     margin-top: 8mm;
     padding-top: 4mm;
-    border-top: 0.3mm solid #111111;
     color: #000000 !important;
     text-align: center;
     font-size: 9pt;
@@ -631,16 +630,16 @@
 
   .report-signature-name {
     min-height: 5mm;
-    padding-top: 1mm;
-    border-top: 0.25mm solid #111111;
     font-weight: 700;
     text-decoration: underline;
+    line-height: 1.2;
   }
 
   .report-signature-nip,
   .report-signature-note {
-    margin-top: 1mm;
+    margin-top: 0.4mm;
     font-size: 8pt;
+    line-height: 1.2;
   }
 
   .report-signature-note {
@@ -767,7 +766,6 @@
   gap: 2rem;
   margin-top: 2rem;
   padding-top: 1rem;
-  border-top: 1px solid currentColor;
   text-align: center;
 }
 
@@ -782,14 +780,15 @@
 
 .report-signature-name {
   min-height: 1.5rem;
-  border-top: 1px solid currentColor;
   font-weight: 700;
+  line-height: 1.25;
 }
 
 .report-signature-nip,
 .report-signature-note {
-  margin-top: 0.25rem;
+  margin-top: 0.125rem;
   font-size: 0.75rem;
+  line-height: 1.25;
 }
 
 .report-signature-note {
