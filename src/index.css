@@ -660,7 +660,7 @@
 
   /* Ruang kosong untuk tanda tangan basah (min-height agar tidak ditimpa aturan height: auto global) */
   .report-signature-space {
-    min-height: 32mm !important;
+    min-height: 20mm !important;
   }
 
   .report-signature-name {
@@ -826,7 +826,7 @@
 }
 
 .report-signature-space {
-  height: 5rem;
+  height: 3.5rem;
 }
 
 .report-signature-name {
