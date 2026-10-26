@@ -176,7 +176,7 @@ export function createWebChat({ config, getCollection, userHasPermission, getOwn
       const habis = context.persediaan.habis ?? '-';
       const items = Array.isArray(context.persediaan.items) ? context.persediaan.items : [];
       const lines = items.length
-        ? `\n\nItem menipis/habis (contoh):\n${formatList(items, (it, idx) => `${idx + 1}. ${it.nama} — stok ${it.stok} ${it.satuan || ''} (${it.status})`)}`
+        ? `\n\nItem menipis/habis (contoh):\n${formatList(items, (it, idx) => `${idx + 1}. ${it.nama} - stok ${it.stok} ${it.satuan || ''} (${it.status})`)}`
         : '';
       return `${header}\n\nRingkasan persediaan: total jenis ${totalJenis}, menipis ${menipis}, habis ${habis}.${lines}`;
     }
@@ -187,7 +187,7 @@ export function createWebChat({ config, getCollection, userHasPermission, getOwn
       if (!total) {
         return `${header}\n\nSaya tidak menemukan barang persediaan yang cocok.\n\nContoh: "stok toner" atau "persediaan kertas A4".`;
       }
-      const lines = formatList(items, (it, idx) => `${idx + 1}. ${it.nama} — stok ${it.stok} ${it.satuan || ''} (${it.status})`);
+      const lines = formatList(items, (it, idx) => `${idx + 1}. ${it.nama} - stok ${it.stok} ${it.satuan || ''} (${it.status})`);
       const extra = total > 5 ? `\n...dan ${total - 5} lainnya.` : '';
       return `${header}\n\nSaya temukan ${total} item persediaan.\n${lines}${extra}`;
     }
@@ -199,7 +199,7 @@ export function createWebChat({ config, getCollection, userHasPermission, getOwn
       const scope = context.permohonan.scope ?? '-';
       const items = Array.isArray(context.permohonan.items) ? context.permohonan.items : [];
       const lines = items.length
-        ? `\n\nContoh permohonan terbaru:\n${formatList(items, (it, idx) => `${idx + 1}. ${it.nomor} (${it.tanggal}) — ${it.status}`)}`
+        ? `\n\nContoh permohonan terbaru:\n${formatList(items, (it, idx) => `${idx + 1}. ${it.nomor} (${it.tanggal}) - ${it.status}`)}`
         : '';
       return `${header}\n\nRingkasan permohonan (${scope}): total ${total}, masih diproses ${pending}.${lines}`;
     }
@@ -210,7 +210,7 @@ export function createWebChat({ config, getCollection, userHasPermission, getOwn
       const open = context.pemeliharaan.open ?? '-';
       const items = Array.isArray(context.pemeliharaan.items) ? context.pemeliharaan.items : [];
       const lines = items.length
-        ? `\n\nContoh pemeliharaan:\n${formatList(items, (it, idx) => `${idx + 1}. ${it.nomor} — ${it.aset} (${it.status})`)}`
+        ? `\n\nContoh pemeliharaan:\n${formatList(items, (it, idx) => `${idx + 1}. ${it.nomor} - ${it.aset} (${it.status})`)}`
         : '';
       return `${header}\n\nRingkasan pemeliharaan: total ${total}, belum selesai ${open}.${lines}`;
     }
