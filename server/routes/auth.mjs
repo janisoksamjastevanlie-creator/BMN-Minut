@@ -27,7 +27,7 @@ export function registerAuthRoutes(app, context) {
       response.json({ status: 'ok' });
     } catch (error) {
       const code = typeof error?.code === 'string' ? error.code : 'UNKNOWN';
-      console.error(`Health check database query failed (${code}).`);
+      console.error(`Health check database query failed (${code}):`, error);
       response.status(503).json({ status: 'unavailable' });
     }
   }));
