@@ -122,6 +122,108 @@ export function createWebChat({ config, getCollection, userHasPermission, getOwn
     };
   }
 
+
+  function localFallbackReply(question, context) {
+    const q = normalizeQuery(question);
+    const isSkipped = value => typeof value === 'string' && value.startsWith('tidak');
+
+    const formatList = (items, mapper) => {
+      const lines = (Array.isArray(items) ? items : []).slice(0, 5).map(mapper).filter(Boolean);
+      return lines.join("\n");
+    };
+
+    const header = '(Mode Tanya AI lokal: tanpa layanan AI eksternal)';
+
+    if (!context || typeof context !== 'object') {
+      return `${header}\n\nSaya belum bisa membaca konteks data aplikasi. Coba muat ulang halaman lalu kirim pertanyaan lagi.`;
+    }
+
+    // Aset
+    if (!isSkipped(context.jumlahAset) && context.jumlahAset && typeof context.jumlahAset === 'object') {
+      const count = Number(context.jumlahAset.count ?? context.jumlahAset.jumlah ?? 0);
+      const filter = context.jumlahAset.filter ? JSON.stringify(context.jumlahAset.filter) : null;
+      const kelompok = Array.isArray(context.jumlahAset.kelompok) ? context.jumlahAset.kelompok : null;
+      if (kelompok && kelompok.length) {
+        const lines = formatList(kelompok, item => `- ${item.nama}: ${item.count}`);
+        return `${header}\n\nTotal aset cocok: ${count}.\n${lines}`;
+      }
+      return `${header}\n\nTotal aset cocok: ${count}${filter ? ` (filter: ${filter})` : ''}.`;
+    }
+
+    if (!isSkipped(context.asetCocokDenganPertanyaan) && context.asetCocokDenganPertanyaan && typeof context.asetCocokDenganPertanyaan === 'object') {
+      const total = Number(context.asetCocokDenganPertanyaan.total ?? 0);
+      const items = Array.isArray(context.asetCocokDenganPertanyaan.items) ? context.asetCocokDenganPertanyaan.items : [];
+      if (!total) {
+        return `${header}\n\nSaya tidak menemukan aset yang cocok.\n\nContoh: "aset nup 123" atau "aset printer ruangan TU".`;
+      }
+      const lines = formatList(items, (asset, idx) => {
+        const nama = asset.namaBarang || asset.nama || '(tanpa nama)';
+        const nup = asset.nup ?? '-';
+        const kode = asset.kodeBarang ?? '-';
+        const kondisi = asset.kondisi ?? '-';
+        const status = asset.status ?? '-';
+        const lokasi = asset.lokasi || asset.ruanganNama || asset.ruangan || asset.gedung || '-';
+        return `${idx + 1}. ${nama} (NUP ${nup}, Kode ${kode}) • ${kondisi} • ${status} • ${lokasi}`;
+      });
+      const extra = total > 5 ? `\n...dan ${total - 5} lainnya.` : '';
+      return `${header}\n\nSaya temukan ${total} aset.\n${lines}${extra}`;
+    }
+
+    // Persediaan
+    if (!isSkipped(context.persediaan) && context.persediaan && typeof context.persediaan === 'object') {
+      const totalJenis = context.persediaan.totalJenis ?? '-';
+      const menipis = context.persediaan.menipis ?? '-';
+      const habis = context.persediaan.habis ?? '-';
+      const items = Array.isArray(context.persediaan.items) ? context.persediaan.items : [];
+      const lines = items.length
+        ? `\n\nItem menipis/habis (contoh):\n${formatList(items, (it, idx) => `${idx + 1}. ${it.nama} — stok ${it.stok} ${it.satuan || ''} (${it.status})`)}`
+        : '';
+      return `${header}\n\nRingkasan persediaan: total jenis ${totalJenis}, menipis ${menipis}, habis ${habis}.${lines}`;
+    }
+
+    if (!isSkipped(context.barangCocokDenganPertanyaan) && context.barangCocokDenganPertanyaan && typeof context.barangCocokDenganPertanyaan === 'object') {
+      const total = Number(context.barangCocokDenganPertanyaan.total ?? 0);
+      const items = Array.isArray(context.barangCocokDenganPertanyaan.items) ? context.barangCocokDenganPertanyaan.items : [];
+      if (!total) {
+        return `${header}\n\nSaya tidak menemukan barang persediaan yang cocok.\n\nContoh: "stok toner" atau "persediaan kertas A4".`;
+      }
+      const lines = formatList(items, (it, idx) => `${idx + 1}. ${it.nama} — stok ${it.stok} ${it.satuan || ''} (${it.status})`);
+      const extra = total > 5 ? `\n...dan ${total - 5} lainnya.` : '';
+      return `${header}\n\nSaya temukan ${total} item persediaan.\n${lines}${extra}`;
+    }
+
+    // Permohonan
+    if (!isSkipped(context.permohonan) && context.permohonan && typeof context.permohonan === 'object') {
+      const total = context.permohonan.total ?? '-';
+      const pending = context.permohonan.pending ?? '-';
+      const scope = context.permohonan.scope ?? '-';
+      const items = Array.isArray(context.permohonan.items) ? context.permohonan.items : [];
+      const lines = items.length
+        ? `\n\nContoh permohonan terbaru:\n${formatList(items, (it, idx) => `${idx + 1}. ${it.nomor} (${it.tanggal}) — ${it.status}`)}`
+        : '';
+      return `${header}\n\nRingkasan permohonan (${scope}): total ${total}, masih diproses ${pending}.${lines}`;
+    }
+
+    // Pemeliharaan
+    if (!isSkipped(context.pemeliharaan) && context.pemeliharaan && typeof context.pemeliharaan === 'object') {
+      const total = context.pemeliharaan.total ?? '-';
+      const open = context.pemeliharaan.open ?? '-';
+      const items = Array.isArray(context.pemeliharaan.items) ? context.pemeliharaan.items : [];
+      const lines = items.length
+        ? `\n\nContoh pemeliharaan:\n${formatList(items, (it, idx) => `${idx + 1}. ${it.nomor} — ${it.aset} (${it.status})`)}`
+        : '';
+      return `${header}\n\nRingkasan pemeliharaan: total ${total}, belum selesai ${open}.${lines}`;
+    }
+
+    // Dashboard ringkas
+    if (!isSkipped(context.ringkasan) && context.ringkasan && typeof context.ringkasan === 'object') {
+      const r = context.ringkasan;
+      return `${header}\n\nRingkasan dashboard:\n- Total aset: ${r.totalAset ?? '-'}\n- Baik: ${r.baik ?? '-'}\n- Rusak ringan: ${r.rusakRingan ?? '-'}\n- Rusak berat: ${r.rusakBerat ?? '-'}\n- Persediaan menipis: ${r.persediaanMenipis ?? '-'}\n- Persediaan habis: ${r.persediaanHabis ?? '-'}`;
+    }
+
+    return `${header}\n\nSaya bisa bantu cek data yang ada di sistem. Contoh pertanyaan:\n- "stok kertas A4"\n- "aset nup 123"\n- "berapa jumlah aset kategori komputer"\n- "permohonan saya"\n\nCatatan: untuk jawaban bahasa alami seperti ChatGPT, butuh konfigurasi AI eksternal (Groq/Gemini/n8n).`;
+  }
+
   async function callModel(system, history) {
     const webChatProvider = config.webChatProvider || config.aiProvider || (config.groqApiKey ? 'groq' : 'gemini');
     if (!config.webChatEnabled && config.webChatEnabled !== undefined) return { error: 'not_configured' };
@@ -227,7 +329,12 @@ export function createWebChat({ config, getCollection, userHasPermission, getOwn
       if (!last || last.role !== 'user') return { error: 'bad_request' };
       const context = await buildContext(user, last.content, history);
       const system = `${SYSTEM_PROMPT}\n\nDATA_APLIKASI (data aktual dari backend, sudah disaring sesuai izin pengguna):\n${JSON.stringify(context)}`;
-      return callModel(system, history);
+      const result = await callModel(system, history);
+      if (result?.reply) return result;
+      const externalConfigured = Boolean(config.groqApiKey) || Boolean(config.geminiApiKey) || (config.webChatProvider === 'n8n' && config.n8nChatConfigured && config.n8nChatWebhookUrl && config.n8nChatSecret);
+      const canUseLocalFallback = config.webChatProvider !== 'n8n' && !externalConfigured;
+      if (result?.error === 'not_configured' && canUseLocalFallback) return { reply: localFallbackReply(last.content, context) };
+      return result;
     }
   };
 }

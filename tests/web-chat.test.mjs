@@ -54,7 +54,11 @@ test('kesalahan dipetakan tanpa membocorkan detail', async () => {
   assert.equal((await mk(async () => ({ ok: false, status: 401 })).answer(user, msg)).error, 'not_configured');
   assert.equal((await mk(async () => { throw new Error('boom'); }).answer(user, msg)).error, 'unreachable');
   assert.equal((await mk(async () => ({ ok: true, json: async () => ({ choices: [] }) })).answer(user, msg)).error, 'empty');
-  assert.equal((await createWebChat({ config: { ...config, groqApiKey: '' }, getCollection, userHasPermission }).answer(user, msg)).error, 'not_configured');
+  {
+  const local = await createWebChat({ config: { ...config, groqApiKey: '' }, getCollection, userHasPermission }).answer(user, msg);
+  assert.ok(local.reply);
+  assert.match(local.reply, /Mode Tanya AI lokal/);
+}
   assert.equal((await mk(okFetch({})).answer(user, [])).error, 'bad_request');
 });
 
