@@ -126,7 +126,9 @@ export function createWebChat({ config, getCollection, userHasPermission, getOwn
   function localFallbackReply(question, context) {
     const q = normalizeQuery(question);
     const isSkipped = value => typeof value === 'string' && value.startsWith('tidak');
+    const raw = String(question ?? '').toLowerCase();
     const has = re => re.test(q);
+    const hasRaw = re => re.test(raw);
 
     const formatList = (items, mapper) => {
       const lines = (Array.isArray(items) ? items : []).slice(0, 5).map(mapper).filter(Boolean);
@@ -148,13 +150,13 @@ export function createWebChat({ config, getCollection, userHasPermission, getOwn
     }
 
     // Definisi singkat (tetap tanpa AI eksternal)
-    if (has(/\bapa itu\b/) && has(/\bbmn\b/)) {
+    if (hasRaw(/\bapa\s+itu\b/) && has(/\bbmn\b/)) {
       return `${header}\n\nBMN (Barang Milik Negara) adalah barang yang dibeli/diperoleh atas beban APBN atau perolehan lain yang sah, dan dicatat/diadministrasikan sebagai aset negara.\n\nDi aplikasi ini, BMN biasanya memiliki identitas seperti kode barang, NUP, lokasi/ruangan, kondisi, dan status.`;
     }
-    if (has(/\bapa itu\b/) && has(/\bnup\b/)) {
+    if (hasRaw(/\bapa\s+itu\b/) && has(/\bnup\b/)) {
       return `${header}\n\nNUP adalah Nomor Urut Pendaftaran untuk tiap aset dalam satu kode barang. Singkatnya, NUP membantu membedakan unit-unit aset yang kode barangnya sama.`;
     }
-    if (has(/\bapa itu\b/) && has(/\bpersediaan\b/)) {
+    if (hasRaw(/\bapa\s+itu\b/) && has(/\bpersediaan\b/)) {
       return `${header}\n\nPersediaan adalah barang habis pakai/bernilai relatif kecil yang dikelola di gudang (mis. ATK/ARK), dengan transaksi masuk/keluar dan stok yang berubah dari waktu ke waktu.`;
     }
 
