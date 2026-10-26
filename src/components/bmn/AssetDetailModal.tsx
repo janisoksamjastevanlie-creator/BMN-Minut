@@ -1,7 +1,8 @@
-import React, { useState, useRef } from 'react';
+﻿import React, { useState, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { BmnAsset } from '../../types';
 import { getAssetPhotoUrl } from '../../utils/assetImages';
+import { normalizePhotoUrl } from '../../utils/normalizeUrl';
 import { AssetLabelPrintModal } from './AssetLabelPrintModal';
 import {
   X,
@@ -36,7 +37,7 @@ export const AssetDetailModal: React.FC<{
 
   if (!asset) return null;
 
-  const currentPhoto = photoPreview || asset.fotoUrl || getAssetPhotoUrl(asset.namaBarang, asset.kategori);
+  const currentPhoto = photoPreview || normalizePhotoUrl(asset.fotoUrl) || getAssetPhotoUrl(asset.namaBarang, asset.kategori);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -132,7 +133,7 @@ export const AssetDetailModal: React.FC<{
                   className="mt-2 w-full py-1.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors border border-slate-700"
                 >
                   <Camera className="w-3.5 h-3.5 text-blue-400" />
-                  <span>{isPhotoUpdated ? '✓ Foto Diperbarui' : 'Ganti / Unggah Foto'}</span>
+                  <span>{isPhotoUpdated ? 'âœ“ Foto Diperbarui' : 'Ganti / Unggah Foto'}</span>
                 </button>
               </div>
 
@@ -279,7 +280,7 @@ export const AssetDetailModal: React.FC<{
                       <div>
                         <div className="font-semibold text-white">{m.jenisPemeliharaan}</div>
                         <div className="text-[10px] text-slate-400">
-                          {m.tanggalMulai} • Vendor: {m.vendor} • Teknisi: {m.teknisi}
+                          {m.tanggalMulai} â€¢ Vendor: {m.vendor} â€¢ Teknisi: {m.teknisi}
                         </div>
                       </div>
                       <div className="text-right">
@@ -308,10 +309,10 @@ export const AssetDetailModal: React.FC<{
                     <div key={m.id} className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800 text-xs flex items-center justify-between">
                       <div>
                         <div className="font-semibold text-white">
-                          {m.lokasiAsalNama} → <span className="text-cyan-400">{m.lokasiTujuanNama}</span>
+                          {m.lokasiAsalNama} â†’ <span className="text-cyan-400">{m.lokasiTujuanNama}</span>
                         </div>
                         <div className="text-[10px] text-slate-400">
-                          {m.tanggal} • Pemohon: {m.pemohon} • {m.alasan}
+                          {m.tanggal} â€¢ Pemohon: {m.pemohon} â€¢ {m.alasan}
                         </div>
                       </div>
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
@@ -350,3 +351,5 @@ export const AssetDetailModal: React.FC<{
     </div>
   );
 };
+
+

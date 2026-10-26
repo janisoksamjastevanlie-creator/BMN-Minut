@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+﻿import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { BmnAsset, AssetCondition } from '../types';
 import { AssetDetailModal } from '../components/bmn/AssetDetailModal';
@@ -10,6 +10,7 @@ import { AssetListPrintModal } from '../components/bmn/AssetListPrintModal';
 import { PrintableDocument } from '../components/common/PrintableDocument';
 import { ReportSignatureBlock } from '../components/common/ReportSignatureBlock';
 import { getAssetPhotoUrl } from '../utils/assetImages';
+import { normalizePhotoUrl } from '../utils/normalizeUrl';
 import { triggerPrint } from '../utils/printHelper';
 import { PageSizeSelect, DEFAULT_PAGE_SIZE, resolvePageSize } from '../components/common/ListPager';
 import { ListViewToolbar, type ListViewMode } from '../components/common/ListViewToolbar';
@@ -398,7 +399,7 @@ export const AssetsView: React.FC = () => {
                     className="w-16 h-16 rounded-xl bg-slate-950 border border-slate-800 overflow-hidden shrink-0 cursor-pointer relative"
                   >
                     <img
-                      src={asset.fotoUrl || getAssetPhotoUrl(asset.namaBarang, asset.kategori)}
+                      src={normalizePhotoUrl(asset.fotoUrl) || getAssetPhotoUrl(asset.namaBarang, asset.kategori)}
                       alt={asset.namaBarang}
                       className="w-full h-full object-cover"
                       onError={(e) => {
@@ -417,7 +418,7 @@ export const AssetsView: React.FC = () => {
                     <div className="text-[11px] text-slate-400 mt-0.5 truncate">{asset.merkType}</div>
                     <div className="text-[11px] text-slate-300 mt-1 flex items-center gap-1.5 flex-wrap">
                       <span className="text-blue-400 font-medium">{asset.ruanganNama}</span>
-                      <span className="text-slate-500">•</span>
+                      <span className="text-slate-500">â€¢</span>
                       <span className="text-slate-400 truncate max-w-[120px]">PIC: {asset.penanggungJawab}</span>
                     </div>
                   </div>
@@ -545,7 +546,7 @@ export const AssetsView: React.FC = () => {
                           title="Klik untuk melihat foto & rincian aset"
                         >
                           <img
-                            src={asset.fotoUrl || getAssetPhotoUrl(asset.namaBarang, asset.kategori)}
+                            src={normalizePhotoUrl(asset.fotoUrl) || getAssetPhotoUrl(asset.namaBarang, asset.kategori)}
                             alt={asset.namaBarang}
                             className="w-full h-full object-cover group-hover/img:scale-110 transition-transform duration-200"
                             onError={(e) => {
@@ -561,7 +562,7 @@ export const AssetsView: React.FC = () => {
                             {asset.namaBarang}
                           </div>
                           <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                            {asset.merkType} • SN: {asset.nomorSeri}
+                            {asset.merkType} â€¢ SN: {asset.nomorSeri}
                           </div>
                         </div>
                       </div>
@@ -751,3 +752,5 @@ export const AssetsView: React.FC = () => {
     </div>
   );
 };
+
+

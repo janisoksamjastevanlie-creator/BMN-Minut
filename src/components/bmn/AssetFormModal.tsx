@@ -1,8 +1,9 @@
-import React, { useState, useRef } from 'react';
+﻿import React, { useState, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { BmnAsset, AssetCondition } from '../../types';
 import { BMN_ASSET_CATEGORIES } from '../../data/bmnAssetCategories';
 import { getAssetPhotoUrl, ASSET_PHOTO_PRESETS } from '../../utils/assetImages';
+import { normalizePhotoUrl } from '../../utils/normalizeUrl';
 import { X, Box, PlusCircle, Check, Camera, Image as ImageIcon, Upload } from 'lucide-react';
 
 export const AssetFormModal: React.FC<{
@@ -32,7 +33,7 @@ export const AssetFormModal: React.FC<{
 
   if (!isOpen) return null;
 
-  const currentPreviewPhoto = fotoUrl || (namaBarang ? getAssetPhotoUrl(namaBarang, kategori) : '');
+  const currentPreviewPhoto = normalizePhotoUrl(fotoUrl) || (namaBarang ? getAssetPhotoUrl(namaBarang, kategori) : '');
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -53,7 +54,7 @@ export const AssetFormModal: React.FC<{
     const val = Number(nilaiPerolehan) || 0;
     const nup = initialAsset ? initialAsset.nup : assets.length + 1;
     const kodeBarang = '3.10.01.02.001';
-    const finalPhoto = fotoUrl.trim() || getAssetPhotoUrl(namaBarang, kategori);
+    const finalPhoto = normalizePhotoUrl(fotoUrl.trim()) || getAssetPhotoUrl(namaBarang, kategori);
 
     if (initialAsset) {
       updateAsset(initialAsset.id, {
@@ -343,3 +344,6 @@ export const AssetFormModal: React.FC<{
     </div>
   );
 };
+
+
+

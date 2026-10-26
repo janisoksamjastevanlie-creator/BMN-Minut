@@ -1,7 +1,8 @@
-import React, { useState, useRef } from 'react';
+﻿import React, { useState, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { InventoryItem, InventoryType } from '../../types';
 import { X, Boxes, Check, Camera, Upload, Image as ImageIcon } from 'lucide-react';
+import { normalizePhotoUrl } from '../../utils/normalizeUrl';
 
 export const InventoryFormModal: React.FC<{
   isOpen: boolean;
@@ -32,7 +33,7 @@ export const InventoryFormModal: React.FC<{
 
   if (!isOpen) return null;
 
-  const currentPreviewPhoto = fotoUrl;
+  const currentPreviewPhoto = normalizePhotoUrl(fotoUrl);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -54,7 +55,7 @@ export const InventoryFormModal: React.FC<{
     const [currentStockNum, minStockNum, maxStockNum, priceNum, averageNum] = numericValues;
     if (![currentStockNum, minStockNum, maxStockNum, averageNum].every(Number.isSafeInteger) ||
         minStockNum > maxStockNum) return;
-    const finalPhoto = fotoUrl.trim() || initialItem?.fotoUrl || undefined;
+    const finalPhoto = normalizePhotoUrl(fotoUrl.trim()) || normalizePhotoUrl(initialItem?.fotoUrl) || undefined;
 
     let status: 'Aman' | 'Menipis' | 'Habis' = 'Aman';
     if (currentStockNum === 0) status = 'Habis';
@@ -471,3 +472,6 @@ export const InventoryFormModal: React.FC<{
     </div>
   );
 };
+
+
+

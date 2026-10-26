@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+﻿import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { InventoryItem, StockInTransaction } from '../types';
 import { StockInModal } from '../components/inventory/StockInModal';
@@ -7,6 +7,7 @@ import { StockCardModal } from '../components/inventory/StockCardModal';
 import { ImportInventoryModal } from '../components/inventory/ImportInventoryModal';
 import { InventoryFormModal } from '../components/inventory/InventoryFormModal';
 import { getInventoryPhotoUrl } from '../utils/assetImages';
+import { normalizePhotoUrl } from '../utils/normalizeUrl';
 import { PageSizeSelect, DEFAULT_PAGE_SIZE, resolvePageSize } from '../components/common/ListPager';
 import { ListViewToolbar, type ListViewMode } from '../components/common/ListViewToolbar';
 import {
@@ -644,7 +645,7 @@ export const InventoryView: React.FC = () => {
                     </td>
                     <td className="px-4 py-3 align-top">
                       <div className="text-xs font-semibold text-slate-100">{tx.namaBarang}</div>
-                      <div className="text-[10px] text-slate-400 mt-1">{tx.nomorDokumen} · {tx.sumber}</div>
+                      <div className="text-[10px] text-slate-400 mt-1">{tx.nomorDokumen} Â· {tx.sumber}</div>
                     </td>
                     <td className="px-4 py-3 text-right align-top">
                       <div className="text-xs font-bold text-white">{tx.jumlah} {tx.satuan}</div>
@@ -1027,7 +1028,7 @@ export const InventoryView: React.FC = () => {
                     className="w-14 h-14 rounded-xl bg-slate-950 border border-slate-800 overflow-hidden shrink-0 cursor-pointer relative"
                   >
                     <img
-                      src={item.fotoUrl || getInventoryPhotoUrl(item.nama, item.subkategori, item.jenis)}
+                      src={normalizePhotoUrl(item.fotoUrl) || getInventoryPhotoUrl(item.nama, item.subkategori, item.jenis)}
                       alt={item.nama}
                       className="w-full h-full object-cover"
                       onError={(e) => {
@@ -1045,7 +1046,7 @@ export const InventoryView: React.FC = () => {
                     </h3>
                     <div className="text-[11px] text-slate-400 mt-0.5">{item.subkategori}</div>
                     <div className="text-[11px] text-cyan-400 font-mono mt-1">
-                      {item.binCode} • <span className="text-slate-400">{item.rak}</span>
+                      {item.binCode} â€¢ <span className="text-slate-400">{item.rak}</span>
                     </div>
                   </div>
                 </div>
@@ -1176,7 +1177,7 @@ export const InventoryView: React.FC = () => {
                         title="Klik untuk membuka kartu stok & foto"
                       >
                         <img
-                          src={item.fotoUrl || getInventoryPhotoUrl(item.nama, item.subkategori, item.jenis)}
+                          src={normalizePhotoUrl(item.fotoUrl) || getInventoryPhotoUrl(item.nama, item.subkategori, item.jenis)}
                           alt={item.nama}
                           className="w-full h-full object-cover group-hover/img:scale-110 transition-transform duration-200"
                           onError={(e) => {
@@ -1210,7 +1211,7 @@ export const InventoryView: React.FC = () => {
                   {/* Lokasi Rak & Bin Code (e.g. WH-B-02-05) */}
                   <td className="py-3 px-3 text-center">
                     <div className="font-mono text-cyan-400 font-semibold text-[11px]">{item.binCode}</div>
-                    <div className="text-[10px] text-slate-400">{item.rak} • {item.shelf}</div>
+                    <div className="text-[10px] text-slate-400">{item.rak} â€¢ {item.shelf}</div>
                   </td>
 
                   {/* Stok Saat Ini */}
@@ -1395,7 +1396,7 @@ export const InventoryView: React.FC = () => {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h2 className="text-base font-bold text-white">Pemeriksaan Barang Masuk</h2>
-                <p className="text-xs text-slate-400 mt-1">{inspectingStockIn.nomorTransaksi} · {inspectingStockIn.namaBarang}</p>
+                <p className="text-xs text-slate-400 mt-1">{inspectingStockIn.nomorTransaksi} Â· {inspectingStockIn.namaBarang}</p>
               </div>
               <button type="button" onClick={() => setInspectingStockIn(null)} className="text-slate-400 hover:text-white" aria-label="Tutup"><X className="w-5 h-5" /></button>
             </div>
@@ -1455,13 +1456,13 @@ export const InventoryView: React.FC = () => {
               {viewingStockIn.pemeriksaan && (
                 <>
                   <div><dt className="text-slate-500">Kondisi pemeriksaan</dt><dd className="mt-1 text-white">{viewingStockIn.pemeriksaan.kondisi}</dd></div>
-                  <div><dt className="text-slate-500">Pemeriksa / waktu</dt><dd className="mt-1 text-white">{viewingStockIn.pemeriksaan.diperiksaOleh} · {new Date(viewingStockIn.pemeriksaan.diperiksaPada).toLocaleString('id-ID')}</dd></div>
-                  <div className="col-span-2"><dt className="text-slate-500">Hasil pemeriksaan</dt><dd className="mt-1 text-slate-200">Jumlah {viewingStockIn.pemeriksaan.jumlahSesuai ? 'sesuai' : 'tidak sesuai'} · Dokumen {viewingStockIn.pemeriksaan.dokumenSesuai ? 'sesuai' : 'tidak sesuai'} · Barang {viewingStockIn.pemeriksaan.barangSesuai ? 'sesuai' : 'tidak sesuai'}</dd></div>
+                  <div><dt className="text-slate-500">Pemeriksa / waktu</dt><dd className="mt-1 text-white">{viewingStockIn.pemeriksaan.diperiksaOleh} Â· {new Date(viewingStockIn.pemeriksaan.diperiksaPada).toLocaleString('id-ID')}</dd></div>
+                  <div className="col-span-2"><dt className="text-slate-500">Hasil pemeriksaan</dt><dd className="mt-1 text-slate-200">Jumlah {viewingStockIn.pemeriksaan.jumlahSesuai ? 'sesuai' : 'tidak sesuai'} Â· Dokumen {viewingStockIn.pemeriksaan.dokumenSesuai ? 'sesuai' : 'tidak sesuai'} Â· Barang {viewingStockIn.pemeriksaan.barangSesuai ? 'sesuai' : 'tidak sesuai'}</dd></div>
                   <div className="col-span-2"><dt className="text-slate-500">Catatan pemeriksaan</dt><dd className="mt-1 text-slate-200">{viewingStockIn.pemeriksaan.catatan || '-'}</dd></div>
                 </>
               )}
               {(viewingStockIn.diverifikasiOleh || !viewingStockIn.status) && (
-                <div className="col-span-2"><dt className="text-slate-500">Verifikasi</dt><dd className="mt-1 text-slate-200">{viewingStockIn.diverifikasiOleh || 'Data historis (sebelum alur verifikasi)'}{viewingStockIn.diverifikasiPada ? ` · ${new Date(viewingStockIn.diverifikasiPada).toLocaleString('id-ID')}` : ''}</dd></div>
+                <div className="col-span-2"><dt className="text-slate-500">Verifikasi</dt><dd className="mt-1 text-slate-200">{viewingStockIn.diverifikasiOleh || 'Data historis (sebelum alur verifikasi)'}{viewingStockIn.diverifikasiPada ? ` Â· ${new Date(viewingStockIn.diverifikasiPada).toLocaleString('id-ID')}` : ''}</dd></div>
               )}
             </dl>
             <div className="mt-5 flex justify-end"><button onClick={() => setViewingStockIn(null)} className="px-4 py-2 rounded-xl bg-slate-800 text-slate-200 text-xs font-semibold">Tutup</button></div>
@@ -1517,3 +1518,5 @@ export const InventoryView: React.FC = () => {
     </div>
   );
 };
+
+
