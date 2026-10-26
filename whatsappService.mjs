@@ -49,10 +49,10 @@ export async function sendWhatsAppMessage({ phone, message }) {
     );
   } catch (error) {
     if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
-      throw new Error('Permintaan ke Meta WhatsApp Cloud API melewati batas waktu 15 detik.');
+      throw new Error('Permintaan ke Meta WhatsApp Cloud API melewati batas waktu 15 detik.', { cause: error });
     }
     const detail = error instanceof Error ? error.message : 'koneksi tidak dapat dibuat';
-    throw new Error(`Meta WhatsApp Cloud API tidak dapat dihubungi: ${detail.replaceAll(accessToken, '[redacted]').slice(0, 250)}`);
+    throw new Error(`Meta WhatsApp Cloud API tidak dapat dihubungi: ${detail.replaceAll(accessToken, '[redacted]').slice(0, 250)}`, { cause: error });
   }
 
   let result;

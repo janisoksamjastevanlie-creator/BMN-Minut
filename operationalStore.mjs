@@ -138,15 +138,6 @@ async function queryRows(executor, sql, params = []) {
   }
 }
 
-async function execute(executor, sql, params = []) {
-  const startedAt = Date.now();
-  try {
-    const [result] = await executor.execute(sql, params);
-    return result;
-  } finally {
-    logSlowDatabaseQuery(sql, Date.now() - startedAt);
-  }
-}
 
 function parseJson(value, label, fallback = {}) {
   if (value == null || value === '') return fallback;
@@ -157,7 +148,7 @@ function parseJson(value, label, fallback = {}) {
     }
     return parsed;
   } catch (error) {
-    throw new Error(`Invalid JSON metadata for ${label}: ${error instanceof Error ? error.message : error}`);
+    throw new Error(`Invalid JSON metadata for ${label}: ${error instanceof Error ? error.message : error}`, { cause: error });
   }
 }
 

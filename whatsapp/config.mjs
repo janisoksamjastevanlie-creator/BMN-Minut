@@ -14,7 +14,7 @@ function positiveInt(value, fallback) {
 export function getWhatsAppConfig(env = process.env) {
   const provider = clean(env.WHATSAPP_PROVIDER).toLowerCase() || 'meta';
   const fonnteApiUrl = clean(env.FONNTE_API_URL) || 'https://api.fonnte.com/send';
-  let validFonnteApiUrl = false;
+  let validFonnteApiUrl;
   try {
     const url = new URL(fonnteApiUrl);
     validFonnteApiUrl = url.protocol === 'https:' &&

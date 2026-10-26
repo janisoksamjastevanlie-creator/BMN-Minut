@@ -234,7 +234,7 @@ try {
 } catch (error) {
   await db.end();
   console.error('Database startup validation failed:', error instanceof Error ? error.message : error);
-  throw new Error('Could not connect to or validate the configured database.');
+  throw new Error('Could not connect to or validate the configured database.', { cause: error });
 }
 
 async function queryRows(executor, sql, params = []) {
@@ -284,7 +284,10 @@ async function withTransaction(callback) {
     await connection.commit();
     return result;
   } catch (error) {
-    try { await connection.rollback(); } catch {}
+    try { await connection.rollback(); }
+    catch {
+      // Rollback sedang gagal biasanya karena koneksi sudah mati; error asli lebih penting.
+    }
     throw error;
   } finally {
     connection.release();
@@ -1616,7 +1619,7 @@ app.post('/api/requests/:id/confirm-receipt', requireUserFromTransactionState, a
     nextState = JSON.parse(JSON.stringify(currentState));
     const nextRequest = nextState.requests.find(item => item.id === target.id);
     const mutationIds = [];
-    for (const [index, { item, quantity }] of issuedItems.entries()) {
+    for (const { item, quantity } of issuedItems.entries()) {
       const mutableItem = nextState.inventoryItems.find(candidate => candidate.id === item.id);
       mutableItem.stokSaatIni -= quantity;
       mutableItem.totalNilai = mutableItem.stokSaatIni * Number(mutableItem.hargaSatuan || 0);

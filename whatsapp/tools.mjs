@@ -23,7 +23,7 @@ export function parseInventoryQuery(input) {
   if (/\b(?:belum|bukan|tidak|selain)\s+(?:aman|menipis|habis)\b/.test(normalized)) filter.unsupported = true;
   const name = normalized
     .replace(/\b(berapa|jumlah|cek|lihat|tampilkan|stok|stoknya|barang|persediaan|tersedia|yang|ada|dong|tolong|sisa|kalau|bagaimana|dengan|apa|saja|aman|menipis|habis)\b/g, ' ')
-    .replace(/[^\p{L}\p{N}\s.\-]/gu, ' ')
+    .replace(/[^\p{L}\p{N}\s.-]/gu, ' ')
     .replace(/\s+/g, ' ').trim();
   if (name) filter.nama = name.slice(0, 60);
   return filter;
@@ -47,7 +47,7 @@ export function parseAssetQuery(input) {
   if (location) { filter.lokasi = location[1].trim(); rest = rest.replace(location[0], ' '); }
   const name = rest
     .replace(/\b(cari|carikan|tampilkan|lihat|bmn|aset|barang|data|tolong|dong|berapa|jumlah|total|yang|dengan|kondisi|status|kalau|bagaimana|apa|saja|tersedia)\b/g, ' ')
-    .replace(/[^\p{L}\p{N}\s.\-]/gu, ' ').replace(/\s+/g, ' ').trim();
+    .replace(/[^\p{L}\p{N}\s.-]/gu, ' ').replace(/\s+/g, ' ').trim();
   if (name) filter.nama = name.slice(0, 60);
   return filter;
 }
@@ -121,7 +121,7 @@ export function parseMaintenanceQuery(question) {
     /\b(?:belum|bukan|tidak|selain)\s+(?:terjadwal|dalam proses|ditunda|dibatalkan)\b/i.test(input)) filter.unsupported = true;
   const name = input.replace(document.nomor || /$^/, ' ').replace(nup?.[0] || /$^/, ' ')
     .replace(/\b(?:status|tiket|nomor|no|cek|lihat|tampilkan|berapa|jumlah|pemeliharaan|perawatan|servis|aset|bmn|untuk|pada|yang|tolong|dong|terjadwal|dalam proses|selesai|ditunda|dibatalkan|kalau|bagaimana|dengan)\b/gi, ' ')
-    .replace(/[^\p{L}\p{N}\s.\-]/gu, ' ').replace(/\s+/g, ' ').trim();
+    .replace(/[^\p{L}\p{N}\s.-]/gu, ' ').replace(/\s+/g, ' ').trim();
   if (name && !filter.unsupported) filter.nama = name.slice(0, 60);
   return filter;
 }

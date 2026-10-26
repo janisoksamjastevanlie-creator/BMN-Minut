@@ -131,7 +131,7 @@ export async function createWhatsAppService({
     try {
       await store.setMeta('whatsapp_last_failure_at', nowIso());
       await store.incrementMeta('whatsapp_error_count');
-    } catch (storageError) {
+    } catch {
       console.error('WhatsApp failure metadata could not be recorded.');
     }
     const code = ['ER_ACCESS_DENIED_ERROR', 'ER_NO_SUCH_TABLE', 'ER_BAD_FIELD_ERROR', 'ECONNREFUSED', 'ETIMEDOUT'].includes(error?.code)

@@ -126,16 +126,6 @@ async function syncSimple(executor, previousRows, nextRows, table, columns, mapR
   return previousRows.filter(row => !nextIds.has(row.id)).map(row => row.id);
 }
 
-function referenceByName(rows, name, label) {
-  const normalized = String(name || '').trim().toLocaleLowerCase();
-  if (!normalized) return null;
-  const matches = rows.filter(row => String(row.name || '').trim().toLocaleLowerCase() === normalized);
-  if (matches.length !== 1) {
-    fail(matches.length ? `${label} is ambiguous: ${name}.` : `${label} does not exist: ${name}.`);
-  }
-  return matches[0].id;
-}
-
 function referenceMap(rows, label) {
   const byName = new Map();
   for (const row of rows) {
@@ -244,7 +234,6 @@ function collectLedgerEvents(previous, next, actor, revision) {
     const after = afterIn.get(id);
     const oldQty = before && postedStockIn(before) ? assertNumber(before.jumlah, 'Stock-in quantity', true, 0) : 0;
     const newQty = after && postedStockIn(after) ? assertNumber(after.jumlah, 'Stock-in quantity', true, 0) : 0;
-    const itemId = after?.itemId || before?.itemId;
     if (oldQty !== newQty || before?.itemId !== after?.itemId) {
       const isOrphanedHistorical = before && (before.status == null || before.status === '') &&
         !next.inventoryItems.some(item => item.id === before.itemId);

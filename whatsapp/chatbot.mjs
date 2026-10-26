@@ -14,7 +14,7 @@ const CONTEXT_INTENTS = new Set([
 
 const hasCriteria = filter => Object.keys(filter).length > 0;
 
-export function createChatbot({ config, store, tools, resolveUser, classifyIntent, appUrl }) {
+export function createChatbot({ config: _config, store, tools, resolveUser, classifyIntent, appUrl }) {
   function menuIntent(textValue, interactiveId) {
     const id = interactiveId || normalize(textValue).replace(/^[/!.]/, '');
     const byNumber = MENU_ITEMS.find(item => String(item.number) === id);
@@ -222,7 +222,7 @@ export function createChatbot({ config, store, tools, resolveUser, classifyInten
         }
         if (['SEARCH_ASSET', 'COUNT_ASSET'].includes(previous.intent) &&
           /^(?:kalau|bagaimana dengan)\b/.test(lower) && filter.nama) {
-          const { nama, nup, kodeBarang, ...prior } = previous.filter;
+          const { nama: _nama, nup: _nup, kodeBarang: _kodeBarang, ...prior } = previous.filter;
           return answer(previous.intent, { ...prior, ...filter });
         }
         if (/^(?:kalau|bagaimana dengan)\b/.test(lower) && !hasCriteria(filter)) return answer('HELP');

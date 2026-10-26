@@ -91,7 +91,10 @@ export async function createWhatsAppStore(db, { initializeSchema = true } = {}) 
       await connection.commit();
       return result;
     } catch (error) {
-      try { await connection.rollback(); } catch {}
+      try { await connection.rollback(); }
+      catch {
+        // Rollback sedang gagal biasanya karena koneksi sudah mati; error asli lebih penting.
+      }
       throw error;
     } finally {
       connection.release();

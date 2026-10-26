@@ -50,9 +50,9 @@ export async function sendTwilioWhatsAppMessage({ phone, message }) {
     });
   } catch (error) {
     if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
-      throw new Error('Permintaan ke Twilio melewati batas waktu 15 detik.');
+      throw new Error('Permintaan ke Twilio melewati batas waktu 15 detik.', { cause: error });
     }
-    throw new Error('Twilio tidak dapat dihubungi karena masalah jaringan.');
+    throw new Error('Twilio tidak dapat dihubungi karena masalah jaringan.', { cause: error });
   }
 
   let result;

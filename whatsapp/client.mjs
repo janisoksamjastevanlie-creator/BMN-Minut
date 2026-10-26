@@ -21,8 +21,10 @@ async function postMeta(config, payload) {
       }
     );
   } catch (error) {
-    if (error?.name === 'TimeoutError' || error?.name === 'AbortError') throw new Error('Meta WhatsApp Cloud API melewati batas waktu.');
-    throw new Error('Meta WhatsApp Cloud API tidak dapat dihubungi.');
+    if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
+      throw new Error('Meta WhatsApp Cloud API melewati batas waktu.', { cause: error });
+    }
+    throw new Error('Meta WhatsApp Cloud API tidak dapat dihubungi.', { cause: error });
   }
   let result = null;
   try { result = await response.json(); } catch { /* respons tanpa JSON */ }

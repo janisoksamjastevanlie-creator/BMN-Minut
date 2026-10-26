@@ -26,6 +26,7 @@ test('document API persists MySQL backups, recovers lost files, and preserves re
   });
   const database = `bmn_doc_test_${crypto.randomBytes(6).toString('hex')}`;
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmn-document-api-'));
+  // eslint-disable-next-line prefer-const -- nilai ditetapkan di dalam callback promise, bukan saat deklarasi
   let server;
   t.after(async () => {
     if (server && server.exitCode === null) {

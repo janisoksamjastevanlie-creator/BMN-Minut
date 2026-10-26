@@ -78,9 +78,9 @@ export async function sendFonnteMessage(config, phone, message, fetchImpl = fetc
     });
   } catch (error) {
     if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
-      throw new Error('Fonnte API melewati batas waktu.');
+      throw new Error('Fonnte API melewati batas waktu.', { cause: error });
     }
-    throw new Error('Fonnte API tidak dapat dihubungi.');
+    throw new Error('Fonnte API tidak dapat dihubungi.', { cause: error });
   }
 
   let result;

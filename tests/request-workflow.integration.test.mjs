@@ -32,6 +32,7 @@ test('request workflow persists every stage and confirms stock exactly once', {
   });
   const database = `bmn_request_test_${crypto.randomBytes(6).toString('hex')}`;
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmn-request-api-'));
+  // eslint-disable-next-line prefer-const -- nilai ditetapkan di dalam callback promise, bukan saat deklarasi
   let server;
   t.after(async () => {
     if (server && server.exitCode === null) {

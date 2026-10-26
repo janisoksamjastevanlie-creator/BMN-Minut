@@ -126,7 +126,9 @@ export function validateStoredFile({ fileName, mimeType, bytes, maxBytes }) {
   if (typeof fileName !== 'string' || fileName.length > 255) {
     throw new DocumentStorageError('Nama berkas tidak valid.', 'INVALID_DOCUMENT_FILE');
   }
-  const safeName = fileName.replace(/[\\/]/g, '_').replace(/[\u0000-\u001f\u007f]/g, '').trim();
+  const safeName = fileName.replace(/[\\/]/g, '_')
+    // eslint-disable-next-line no-control-regex -- kontrol karakter memang sengaja dibersihkan dari nama berkas
+    .replace(/[\u0000-\u001f\u007f]/g, '').trim();
   const extension = safeName.slice(safeName.lastIndexOf('.')).toLowerCase();
   const formats = {
     '.pdf': { mime: 'application/pdf', signature: [0x25, 0x50, 0x44, 0x46, 0x2d] },
