@@ -1,4 +1,4 @@
-// Tanya AI pada aplikasi web. Model hanya menerima ringkasan data yang sudah disaring
+﻿// Tanya AI pada aplikasi web. Model hanya menerima ringkasan data yang sudah disaring
 // berdasarkan izin pengguna; tidak ada SQL, tidak ada penulisan data, dan tidak ada rahasia.
 import { createTools, normalizeQuery, parseAssetQuery, parseInventoryQuery, parseDocumentQuery, parseMaintenanceQuery } from '../whatsapp/tools.mjs';
 
@@ -292,13 +292,31 @@ export function createWebChat({ config, getCollection, userHasPermission, getOwn
       } catch (error) {
         return { error: error?.name === 'TimeoutError' || error?.name === 'AbortError' ? 'timeout' : 'unreachable' };
       }
-      if (!response.ok) {
-        console.error(`Web AI request failed (provider=n8n, status=${response.status}).`);
-        if (response.status === 429) return { error: 'quota' };
-        if (response.status === 401 || response.status === 403) return { error: 'not_configured' };
-        if (response.status === 413) return { error: 'too_long' };
-        return { error: 'upstream' };
+    if (!response.ok) {
+      let detail = "";
+      try {
+        detail = await response.text();
+      } catch {
+        detail = "";
       }
+
+      const snippet = String(detail || "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 600);
+
+      console.error(
+        "Web AI request failed (provider=" + provider + ", status=" + response.status + ")" +
+          (snippet ? ", detail=" + snippet : "") +
+          "."
+      );
+
+      if (response.status === 429) return { error: "quota" };
+      if (response.status === 401 || response.status === 403) return { error: "not_configured" };
+      if (response.status === 413) return { error: "too_long" };
+      if (response.status === 400 && /context|token|max(imum)? context|too (many|large)|length/i.test(snippet)) return { error: "too_long" };
+      return { error: "upstream" };
+    }
       try {
         const body = await response.json();
         const reply = typeof body?.reply === 'string' ? body.reply.trim() : '';
@@ -319,7 +337,7 @@ export function createWebChat({ config, getCollection, userHasPermission, getOwn
           method: 'POST',
           headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            model: config.groqModel,
+            model: config.groqModel || "llama3-8b-8192",
             messages: [{ role: 'system', content: system }, ...history],
             temperature: 0.3,
             max_tokens: 900
@@ -346,13 +364,30 @@ export function createWebChat({ config, getCollection, userHasPermission, getOwn
     } catch {
       return { error: 'unreachable' };
     }
-
     if (!response.ok) {
-      console.error(`Web AI request failed (provider=${provider}, status=${response.status}).`);
-      if (response.status === 429) return { error: 'quota' };
-      if (response.status === 401 || response.status === 403) return { error: 'not_configured' };
-      if (response.status === 413) return { error: 'too_long' };
-      return { error: 'upstream' };
+      let detail = "";
+      try {
+        detail = await response.text();
+      } catch {
+        detail = "";
+      }
+
+      const snippet = String(detail || "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 600);
+
+      console.error(
+        "Web AI request failed (provider=" + provider + ", status=" + response.status + ")" +
+          (snippet ? ", detail=" + snippet : "") +
+          "."
+      );
+
+      if (response.status === 429) return { error: "quota" };
+      if (response.status === 401 || response.status === 403) return { error: "not_configured" };
+      if (response.status === 413) return { error: "too_long" };
+      if (response.status === 400 && /context|token|max(imum)? context|too (many|large)|length/i.test(snippet)) return { error: "too_long" };
+      return { error: "upstream" };
     }
 
     try {
@@ -394,3 +429,6 @@ export const WEB_CHAT_ERRORS = {
   upstream: [502, 'Layanan AI sedang bermasalah. Coba lagi beberapa saat lagi.'],
   empty: [502, 'AI tidak menghasilkan jawaban. Coba ulangi atau ubah pertanyaan Anda.']
 };
+
+
+
