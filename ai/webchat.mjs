@@ -147,6 +147,17 @@ export function createWebChat({ config, getCollection, userHasPermission, getOwn
       return `${header}\n\nSama-sama. Kalau ada pertanyaan lain tentang aset/persediaan/permohonan, tinggal kirim saja.`;
     }
 
+    // Definisi singkat (tetap tanpa AI eksternal)
+    if (has(/\bapa itu\b/) && has(/\bbmn\b/)) {
+      return `${header}\n\nBMN (Barang Milik Negara) adalah barang yang dibeli/diperoleh atas beban APBN atau perolehan lain yang sah, dan dicatat/diadministrasikan sebagai aset negara.\n\nDi aplikasi ini, BMN biasanya memiliki identitas seperti kode barang, NUP, lokasi/ruangan, kondisi, dan status.`;
+    }
+    if (has(/\bapa itu\b/) && has(/\bnup\b/)) {
+      return `${header}\n\nNUP adalah Nomor Urut Pendaftaran untuk tiap aset dalam satu kode barang. Singkatnya, NUP membantu membedakan unit-unit aset yang kode barangnya sama.`;
+    }
+    if (has(/\bapa itu\b/) && has(/\bpersediaan\b/)) {
+      return `${header}\n\nPersediaan adalah barang habis pakai/bernilai relatif kecil yang dikelola di gudang (mis. ATK/ARK), dengan transaksi masuk/keluar dan stok yang berubah dari waktu ke waktu.`;
+    }
+
     // Bantuan penggunaan aplikasi (tanpa AI eksternal)
     if (has(/\b(?:cara|bagaimana|tutorial|panduan|petunjuk)\b/) && has(/\b(?:ajukan|permohonan|atk|ark|barang)\b/)) {
       return `${header}\n\nCara mengajukan permohonan ATK/ARK:\n1. Buka menu: Persediaan ATK & ARK -> Permohonan Barang (ATK).\n2. Klik tombol tambah/ajukan, pilih barang dan jumlah.\n3. Kirim permohonan.\n4. Status berubah saat diverifikasi/disetujui petugas sesuai role.\n\nJika menu tidak muncul, biasanya role akun belum punya izin permohonan.`;
