@@ -308,10 +308,13 @@ app.use((request, response, next) => {
   const hostHeader = request.headers.host || '';
   const host = hostHeader.split(':')[0].toLowerCase();
 
-  if (process.env.NODE_ENV === 'production' && host === 'www.bmnbpsminut.online') {
-    const protoHeader = String(request.headers['x-forwarded-proto'] || '').split(',')[0].trim();
-    const proto = protoHeader || request.protocol || 'https';
-    const target = `${proto}://bmnbpsminut.online${request.originalUrl}`;
+  const isProd = process.env.NODE_ENV === 'production';
+  const shouldRedirectToApex =
+    host === 'www.bmnbpsminut.online' || host.endsWith('.hostingersite.com');
+
+  if (isProd && shouldRedirectToApex) {
+    // Paksa HTTPS untuk host kanonik.
+    const target = `https://bmnbpsminut.online${request.originalUrl}`;
 
     // 308 menjaga method (mis. POST) agar tidak berubah menjadi GET.
     return response.redirect(308, target);
