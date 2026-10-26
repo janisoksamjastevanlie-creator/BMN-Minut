@@ -10,8 +10,14 @@ Untuk development lokal, `DB_PASSWORD` boleh kosong hanya jika akun MariaDB loka
 
 Jalankan `npm install`, `npm run dev`, lalu buka `http://localhost:3000`. Pilih administrator, lalu gunakan **Manajemen Pengguna** untuk menetapkan kata sandi minimal 12 karakter bagi tiap pegawai. Data aplikasi, sesi, dan catatan WhatsApp disimpan di MySQL, bukan di file lokal.
 
+## Dependensi dan cadangan
+
+- **`xlsx`** dipasang dari tarball resmi SheetJS (`https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz`). Ini kanal distribusi resmi SheetJS (versi di npm registry sudah tidak dipelihara dan berisiko); versi terpinjam berserta integrity hash berada di `package-lock.json` sehingga `npm ci` tetap reproducible. Saat memperbarui, ganti URL + lockfile sekaligus dengan `npm install <url-baru>`.
+- **Cadangan data**: `data/siman.sqlite` (mode legacy) dan folder dokumen privat harus dicadangkan bersama database (`mysqldump`) — perubahan direkam setiap commit. Snapshot harian tidak diganti otomatis.
+
 ## Migrasi database
 
+Skema operasional di `migrations/` kini dapat diterapkan dengan runner bawaan tanpa DDL startup otomatis:
 Skema operasional di `migrations/` kini dapat diterapkan dengan runner bawaan tanpa DDL startup otomatis:
 
 ```bash
