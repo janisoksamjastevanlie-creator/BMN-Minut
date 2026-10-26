@@ -29,6 +29,21 @@ export const AiAssistantModal: React.FC = () => {
 
   if (!isAiAssistantOpen) return null;
 
+  const QUICK_PROMPTS: Array<{ label: string; query: string }> = [
+    { label: 'Total Aset BMN', query: 'Berapa total aset BMN?' },
+    { label: 'Aset Rusak Berat', query: 'Aset apa saja yang rusak berat?' },
+    { label: 'Aset Rusak Ringan', query: 'Aset apa saja yang rusak ringan?' },
+    { label: 'Ruangan Terbanyak Aset', query: 'Ruangan mana yang memiliki aset paling banyak?' },
+    { label: 'Cari Aset (contoh NUP)', query: 'Detail aset NUP 1' },
+    { label: 'Stok Kertas A4', query: 'Berapa stok kertas A4?' },
+    { label: 'Barang Menipis', query: 'Barang persediaan apa saja yang menipis?' },
+    { label: 'Barang Habis', query: 'Barang persediaan apa saja yang habis?' },
+    { label: 'Permohonan Saya', query: 'Tampilkan permohonan saya yang masih diproses' },
+    { label: 'Pemeliharaan Aktif', query: 'Ada pemeliharaan apa saja yang masih berjalan?' },
+    { label: 'Cara Ajukan ATK', query: 'Bagaimana cara mengajukan permohonan ATK?' },
+    { label: 'Cara Stock Opname', query: 'Bagaimana cara melakukan stock opname?' }
+  ];
+
   const sendToAi = async (userText: string, history: ChatMessage[]) => {
     setIsTyping(true);
     setFailedQuery(null);
@@ -51,11 +66,11 @@ export const AiAssistantModal: React.FC = () => {
       if (response.ok && typeof body.reply === 'string' && body.reply.trim()) {
         pushAi(body.reply);
       } else {
-        pushAi(`⚠️ ${body.error || 'Terjadi kesalahan saat memproses pertanyaan.'}`);
+        pushAi(`Peringatan: ${body.error || 'Terjadi kesalahan saat memproses pertanyaan.'}`);
         setFailedQuery(userText);
       }
     } catch {
-      pushAi('⚠️ Tidak dapat terhubung ke server. Periksa koneksi internet lalu coba lagi.');
+      pushAi('Peringatan: Tidak dapat terhubung ke server. Periksa koneksi internet lalu coba lagi.');
       setFailedQuery(userText);
     } finally {
       setIsTyping(false);
@@ -81,7 +96,7 @@ export const AiAssistantModal: React.FC = () => {
 
   const handleRetry = () => {
     if (!failedQuery || isTyping) return;
-    void sendToAi(failedQuery, messages.filter(m => !m.text.startsWith('⚠️')));
+    void sendToAi(failedQuery, messages.filter(m => !m.text.startsWith('Peringatan:')));
   };
 
   return (
@@ -168,38 +183,15 @@ export const AiAssistantModal: React.FC = () => {
 
         {/* Sample Prompt Chips */}
         <div className="p-2 border-t border-slate-800/80 bg-slate-950/60 overflow-x-auto flex gap-1.5 no-scrollbar text-[11px]">
-          <button
-            onClick={() => {
-              setInputQuery('Berapa total aset BMN?');
-            }}
-            className="px-2.5 py-1 rounded-lg bg-slate-800/70 hover:bg-slate-700 text-slate-300 whitespace-nowrap"
-          >
-            📊 Total Aset BMN
-          </button>
-          <button
-            onClick={() => {
-              setInputQuery('Berapa stok kertas A4?');
-            }}
-            className="px-2.5 py-1 rounded-lg bg-slate-800/70 hover:bg-slate-700 text-slate-300 whitespace-nowrap"
-          >
-            📄 Stok Kertas A4
-          </button>
-          <button
-            onClick={() => {
-              setInputQuery('Aset apa saja yang rusak berat?');
-            }}
-            className="px-2.5 py-1 rounded-lg bg-slate-800/70 hover:bg-slate-700 text-slate-300 whitespace-nowrap"
-          >
-            ⚠️ Aset Rusak Berat
-          </button>
-          <button
-            onClick={() => {
-              setInputQuery('Ruangan mana yang memiliki aset paling banyak?');
-            }}
-            className="px-2.5 py-1 rounded-lg bg-slate-800/70 hover:bg-slate-700 text-slate-300 whitespace-nowrap"
-          >
-            🏢 Ruangan Terbanyak Aset
-          </button>
+          {QUICK_PROMPTS.map(p => (
+            <button
+              key={p.label}
+              onClick={() => setInputQuery(p.query)}
+              className="px-2.5 py-1 rounded-lg bg-slate-800/70 hover:bg-slate-700 text-slate-300 whitespace-nowrap"
+            >
+              {p.label}
+            </button>
+          ))}
         </div>
 
         {/* Input Bar */}

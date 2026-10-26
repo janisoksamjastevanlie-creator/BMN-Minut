@@ -126,6 +126,7 @@ export function createWebChat({ config, getCollection, userHasPermission, getOwn
   function localFallbackReply(question, context) {
     const q = normalizeQuery(question);
     const isSkipped = value => typeof value === 'string' && value.startsWith('tidak');
+    const has = re => re.test(q);
 
     const formatList = (items, mapper) => {
       const lines = (Array.isArray(items) ? items : []).slice(0, 5).map(mapper).filter(Boolean);
@@ -136,6 +137,37 @@ export function createWebChat({ config, getCollection, userHasPermission, getOwn
 
     if (!context || typeof context !== 'object') {
       return `${header}\n\nSaya belum bisa membaca konteks data aplikasi. Coba muat ulang halaman lalu kirim pertanyaan lagi.`;
+    }
+
+    // Sapaan / pertanyaan ringan
+    if (has(/\b(?:halo|hai|hi|assalamualaikum|pagi|siang|sore|malam)\b/)) {
+      return `${header}\n\nHalo! Silakan tanya apa saja terkait data aset BMN, persediaan, permohonan, atau pemeliharaan.\n\nContoh:\n- "stok kertas A4"\n- "aset nup 123"\n- "barang menipis"\n- "permohonan saya"`;
+    }
+    if (has(/\b(?:terima kasih|makasih|thanks)\b/)) {
+      return `${header}\n\nSama-sama. Kalau ada pertanyaan lain tentang aset/persediaan/permohonan, tinggal kirim saja.`;
+    }
+
+    // Bantuan penggunaan aplikasi (tanpa AI eksternal)
+    if (has(/\b(?:cara|bagaimana|tutorial|panduan|petunjuk)\b/) && has(/\b(?:ajukan|permohonan|atk|ark|barang)\b/)) {
+      return `${header}\n\nCara mengajukan permohonan ATK/ARK:\n1. Buka menu: Persediaan ATK & ARK -> Permohonan Barang (ATK).\n2. Klik tombol tambah/ajukan, pilih barang dan jumlah.\n3. Kirim permohonan.\n4. Status berubah saat diverifikasi/disetujui petugas sesuai role.\n\nJika menu tidak muncul, biasanya role akun belum punya izin permohonan.`;
+    }
+    if (has(/\b(?:cara|bagaimana|tutorial|panduan|petunjuk)\b/) && has(/\b(?:stock opname|stok opname|opname)\b/)) {
+      return `${header}\n\nCara melakukan stock opname:\n1. Buka menu: Persediaan ATK & ARK -> Stock Opname.\n2. Pilih periode/kegiatan opname (sesuai pilihan di sistem).\n3. Input hasil hitung fisik lalu simpan.\n\nJika tidak bisa menyimpan, cek apakah akun punya izin Stock Opname.`;
+    }
+    if (has(/\b(?:qr|barcode|kamera|scan|pindai)\b/)) {
+      return `${header}\n\nUntuk fitur scan QR/Barcode:\n- Pastikan membuka aplikasi lewat HTTPS (bukan http).\n- Izinkan akses kamera di browser.\n- Jika tetap gagal, refresh halaman atau gunakan Chrome/Edge terbaru.`;
+    }
+    if (has(/\b(?:import|excel|csv)\b/)) {
+      return `${header}\n\nImport file (Excel/CSV) biasanya ada di menu data terkait (contoh Aset BMN atau Master Persediaan):\n1. Buka menu data yang ingin diimport.\n2. Klik tombol Import File.\n3. Ikuti template/format kolom yang diminta sistem.\n4. Upload lalu cek hasil validasi.`;
+    }
+    if (has(/\b(?:export|unduh|download)\b/) && has(/\b(?:aset|bmn|persediaan|laporan)\b/)) {
+      return `${header}\n\nExport data:\n- Di halaman daftar aset/persediaan biasanya ada tombol Export Excel/CSV.\n- Untuk dokumen resmi, cek menu Dokumentasi & Laporan.\n\nJika tombol tidak ada, kemungkinan role Anda tidak punya izin laporan/export.`;
+    }
+    if (has(/\b(?:login|masuk|lupa|password|kata sandi)\b/)) {
+      return `${header}\n\nJika bermasalah login / lupa password:\n- Pastikan username & password benar (cek Caps Lock).\n- Jika lupa password, minta Administrator reset lewat menu Manajemen Pengguna.\n- Setelah reset, login ulang.`;
+    }
+    if (has(/\b(?:404|not found|tidak ditemukan|page not found)\b/) || has(/\bwww\b/)) {
+      return `${header}\n\nJika muncul 404 / halaman tidak ditemukan:\n- Gunakan domain yang benar: https://bmnbpsminut.online (atau https://www.bmnbpsminut.online jika diarahkan).\n- Jika baru ubah domain/DNS, tunggu propagasi & cek redirect www/non-www.\n- Hindari bookmark URL lama; masuk dari beranda lalu navigasi lewat menu.`;
     }
 
     // Aset
@@ -163,7 +195,7 @@ export function createWebChat({ config, getCollection, userHasPermission, getOwn
         const kondisi = asset.kondisi ?? '-';
         const status = asset.status ?? '-';
         const lokasi = asset.lokasi || asset.ruanganNama || asset.ruangan || asset.gedung || '-';
-        return `${idx + 1}. ${nama} (NUP ${nup}, Kode ${kode}) • ${kondisi} • ${status} • ${lokasi}`;
+        return `${idx + 1}. ${nama} (NUP ${nup}, Kode ${kode}) | ${kondisi} | ${status} | ${lokasi}`;
       });
       const extra = total > 5 ? `\n...dan ${total - 5} lainnya.` : '';
       return `${header}\n\nSaya temukan ${total} aset.\n${lines}${extra}`;
@@ -221,7 +253,7 @@ export function createWebChat({ config, getCollection, userHasPermission, getOwn
       return `${header}\n\nRingkasan dashboard:\n- Total aset: ${r.totalAset ?? '-'}\n- Baik: ${r.baik ?? '-'}\n- Rusak ringan: ${r.rusakRingan ?? '-'}\n- Rusak berat: ${r.rusakBerat ?? '-'}\n- Persediaan menipis: ${r.persediaanMenipis ?? '-'}\n- Persediaan habis: ${r.persediaanHabis ?? '-'}`;
     }
 
-    return `${header}\n\nSaya bisa bantu cek data yang ada di sistem. Contoh pertanyaan:\n- "stok kertas A4"\n- "aset nup 123"\n- "berapa jumlah aset kategori komputer"\n- "permohonan saya"\n\nCatatan: untuk jawaban bahasa alami seperti ChatGPT, butuh konfigurasi AI eksternal (Groq/Gemini/n8n).`;
+    return `${header}\n\nSaya sudah menerima pertanyaan Anda, tapi belum menemukan data/jenis permintaan yang cocok di modul lokal saya.\n\nSaya paling kuat untuk pertanyaan terkait sistem BMN ini (berbasis data backend), misalnya:\n- "stok kertas A4" / "barang menipis" / "barang habis"\n- "aset nup 123" / "aset printer ruangan TU"\n- "permohonan saya" / "permohonan pending"\n- "pemeliharaan yang masih berjalan"\n- "cara ajukan ATK" / "cara stock opname"`;
   }
 
   async function callModel(system, history) {
