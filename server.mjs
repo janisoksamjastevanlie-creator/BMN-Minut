@@ -308,11 +308,10 @@ app.use((request, response, next) => {
   const hostHeader = request.headers.host || '';
   const host = hostHeader.split(':')[0].toLowerCase();
 
-  const isProd = process.env.NODE_ENV === 'production';
   const shouldRedirectToApex =
     host === 'www.bmnbpsminut.online' || host.endsWith('.hostingersite.com');
 
-  if (isProd && shouldRedirectToApex) {
+  if (shouldRedirectToApex) {
     // Paksa HTTPS untuk host kanonik.
     const target = `https://bmnbpsminut.online${request.originalUrl}`;
 
@@ -325,7 +324,7 @@ app.use((request, response, next) => {
 // Webhook harus dipasang sebelum express.json agar body mentah tersedia untuk verifikasi signature.
 app.use(whatsapp.webhook);
 
-// Security headers dasar (setara subset helmet) — diterapkan sebelum parser body.
+// Security headers dasar (setara subset helmet) - diterapkan sebelum parser body.
 app.use(securityHeaders);
 
 app.use(express.json({ limit: '25mb' }));
