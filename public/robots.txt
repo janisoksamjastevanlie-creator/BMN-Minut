@@ -1,0 +1,3 @@
+# Aplikasi internal BPS Kab. Minahasa Utara - larang semua pengindeks.
+User-agent: *
+Disallow: /
