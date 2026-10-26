@@ -20,7 +20,7 @@ test('listMigrationFiles lists only sql files in a sorted order', () => {
 });
 
 test('migration runner applies pending files once and skips them afterwards', async () => {
-  const statements = [];
+  const _statements = [];
   const executed = [];
   const rows = { schema_migrations: [] };
   const client = {
