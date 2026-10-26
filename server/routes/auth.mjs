@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 export function registerAuthRoutes(app, context) {
   const {
     db,
-    healthQueryOne: queryOne,
+    queryOne,
     execute,
     asyncRoute,
     scryptAsync,
