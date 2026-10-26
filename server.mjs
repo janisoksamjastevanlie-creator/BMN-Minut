@@ -4,6 +4,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import express from 'express';
+import { promisify } from 'node:util';
+const scryptAsync = promisify(crypto.scrypt);
 import mysql from 'mysql2/promise';
 import {
   logExternalServiceTiming,
@@ -34,6 +36,7 @@ import { getWebChatConfig } from './ai/webchatConfig.mjs';
 import { buildRequestEvents, createN8nIntegration } from './automation/n8n/integration.mjs';
 import { createDocumentStorage, DocumentStorageError, validateStoredFile } from './documentStorage.mjs';
 import { readDocumentWithBackup, saveDocumentBackup, verifyDocumentBytes } from './documentFileBackup.mjs';
+import { securityHeaders } from './securityHeaders.mjs';
 import {
   authorizeChangedCollections,
   getChangedCollections,
@@ -576,7 +579,7 @@ if (dataBackend === 'legacy') {
     statusAktif: true
   };
   const adminSalt = crypto.randomBytes(16);
-  const adminHash = crypto.scryptSync(adminPassword, adminSalt, 64);
+  const adminHash = await scryptAsync(adminPassword, adminSalt, 64);
   await execute(db, `
     INSERT IGNORE INTO auth_users (id, nip, profile_json, salt, password_hash)
     VALUES (?, ?, ?, ?, ?)
@@ -1288,6 +1291,10 @@ const app = express();
 app.disable('x-powered-by');
 // Webhook harus dipasang sebelum express.json agar body mentah tersedia untuk verifikasi signature.
 app.use(whatsapp.webhook);
+
+// Security headers dasar (setara subset helmet) — diterapkan sebelum parser body.
+app.use(securityHeaders);
+
 app.use(express.json({ limit: '25mb' }));
 app.use(sameOrigin);
 app.use(whatsapp.api);
@@ -1325,7 +1332,7 @@ app.post('/api/auth/login', requireCloudflareAccess, asyncRoute(async (request, 
   const account = await queryOne(db, 'SELECT * FROM auth_users WHERE nip = ?', [nip]);
   const salt = account ? Buffer.from(account.salt, 'hex') : Buffer.alloc(16);
   const expected = account ? Buffer.from(account.password_hash, 'hex') : Buffer.alloc(64);
-  const actual = crypto.scryptSync(password, salt, 64);
+  const actual = await scryptAsync(password, salt, 64);
   const valid = account && crypto.timingSafeEqual(actual, expected);
   if (!valid) {
     const current = attempt && now - attempt.startedAt < 15 * 60 * 1000
@@ -1389,7 +1396,7 @@ app.put('/api/auth/users/:id/password', requireUser, asyncRoute(async (request, 
   const duplicateNip = await queryOne(db, 'SELECT id FROM auth_users WHERE nip = ? AND id != ?', [String(user.nip).trim(), user.id]);
   if (duplicateNip) return response.status(409).json({ error: 'NIP tersebut sudah digunakan oleh akun lain.' });
   const salt = crypto.randomBytes(16);
-  const passwordHash = crypto.scryptSync(password, salt, 64);
+  const passwordHash = await scryptAsync(password, salt, 64);
   const profile = { ...(canonical || user), nip: String(user.nip).trim() };
   await execute(db, `
     INSERT INTO auth_users (id, nip, profile_json, salt, password_hash)
