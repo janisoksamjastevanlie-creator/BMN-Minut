@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { Navbar } from './components/layout/Navbar';
@@ -21,28 +21,29 @@ import { StockOutModal } from './components/inventory/StockOutModal';
 import { StockRequestModal } from './components/inventory/StockRequestModal';
 import { AssetFormModal } from './components/bmn/AssetFormModal';
 
-// Views
-import { LandingPageView } from './views/LandingPageView';
-import { LoginView } from './views/LoginView';
-import { DashboardView } from './views/DashboardView';
-import { ExecutiveDashboardView } from './views/ExecutiveDashboardView';
-import { AssetsView } from './views/AssetsView';
-import { RoomsView } from './views/RoomsView';
-import { AssetMapping3DView } from './views/AssetMapping3DView';
-import { AssetMovementsView } from './views/AssetMovementsView';
-import { AssetMaintenanceView } from './views/AssetMaintenanceView';
-import { AssetDisposalView } from './views/AssetDisposalView';
-import { InventoryView } from './views/InventoryView';
-import { Warehouse3D } from './components/3d/Warehouse3D';
-import { StockRequestsView } from './views/StockRequestsView';
-import { StockOpnameView } from './views/StockOpnameView';
-import { DocumentsView } from './views/DocumentsView';
-import { ReportsView } from './views/ReportsView';
-import { AuditTrailView } from './views/AuditTrailView';
-import { UsersView } from './views/UsersView';
-import { SettingsView } from './views/SettingsView';
-import { AccessDeniedView } from './views/AccessDeniedView';
-import { NotFoundView } from './views/NotFoundView';
+// Halaman berat hanya dimuat saat pengguna benar-benar membukanya. Ini menjaga
+// halaman login dan dashboard awal tetap kecil, terutama pada koneksi kantor.
+const LandingPageView = lazy(() => import('./views/LandingPageView').then(({ LandingPageView }) => ({ default: LandingPageView })));
+const LoginView = lazy(() => import('./views/LoginView').then(({ LoginView }) => ({ default: LoginView })));
+const DashboardView = lazy(() => import('./views/DashboardView').then(({ DashboardView }) => ({ default: DashboardView })));
+const ExecutiveDashboardView = lazy(() => import('./views/ExecutiveDashboardView').then(({ ExecutiveDashboardView }) => ({ default: ExecutiveDashboardView })));
+const AssetsView = lazy(() => import('./views/AssetsView').then(({ AssetsView }) => ({ default: AssetsView })));
+const RoomsView = lazy(() => import('./views/RoomsView').then(({ RoomsView }) => ({ default: RoomsView })));
+const AssetMapping3DView = lazy(() => import('./views/AssetMapping3DView').then(({ AssetMapping3DView }) => ({ default: AssetMapping3DView })));
+const AssetMovementsView = lazy(() => import('./views/AssetMovementsView').then(({ AssetMovementsView }) => ({ default: AssetMovementsView })));
+const AssetMaintenanceView = lazy(() => import('./views/AssetMaintenanceView').then(({ AssetMaintenanceView }) => ({ default: AssetMaintenanceView })));
+const AssetDisposalView = lazy(() => import('./views/AssetDisposalView').then(({ AssetDisposalView }) => ({ default: AssetDisposalView })));
+const InventoryView = lazy(() => import('./views/InventoryView').then(({ InventoryView }) => ({ default: InventoryView })));
+const Warehouse3D = lazy(() => import('./components/3d/Warehouse3D').then(({ Warehouse3D }) => ({ default: Warehouse3D })));
+const StockRequestsView = lazy(() => import('./views/StockRequestsView').then(({ StockRequestsView }) => ({ default: StockRequestsView })));
+const StockOpnameView = lazy(() => import('./views/StockOpnameView').then(({ StockOpnameView }) => ({ default: StockOpnameView })));
+const DocumentsView = lazy(() => import('./views/DocumentsView').then(({ DocumentsView }) => ({ default: DocumentsView })));
+const ReportsView = lazy(() => import('./views/ReportsView').then(({ ReportsView }) => ({ default: ReportsView })));
+const AuditTrailView = lazy(() => import('./views/AuditTrailView').then(({ AuditTrailView }) => ({ default: AuditTrailView })));
+const UsersView = lazy(() => import('./views/UsersView').then(({ UsersView }) => ({ default: UsersView })));
+const SettingsView = lazy(() => import('./views/SettingsView').then(({ SettingsView }) => ({ default: SettingsView })));
+const AccessDeniedView = lazy(() => import('./views/AccessDeniedView').then(({ AccessDeniedView }) => ({ default: AccessDeniedView })));
+const NotFoundView = lazy(() => import('./views/NotFoundView').then(({ NotFoundView }) => ({ default: NotFoundView })));
 import { canAccessView, getHomeView } from './utils/rbac';
 
 const MainLayout: React.FC = () => {
@@ -242,7 +243,9 @@ export default function App() {
   return (
     <ThemeProvider>
       <AppProvider>
-        <MainLayout />
+        <Suspense fallback={<div className="min-h-screen grid place-items-center bg-slate-950 text-sm text-slate-300">Memuat halaman...</div>}>
+          <MainLayout />
+        </Suspense>
       </AppProvider>
     </ThemeProvider>
   );
