@@ -298,6 +298,27 @@ await whatsapp.start();
 
 const app = express();
 app.disable('x-powered-by');
+
+// Proxy (Hostinger/CDN) meneruskan protokol asli via X-Forwarded-Proto.
+// Ini membuat req.protocol akurat untuk redirect kanonik.
+app.set('trust proxy', true);
+
+// Redirect kanonik: www -> non-www untuk domain produksi.
+app.use((request, response, next) => {
+  const hostHeader = request.headers.host || '';
+  const host = hostHeader.split(':')[0].toLowerCase();
+
+  if (process.env.NODE_ENV === 'production' && host === 'www.bmnbpsminut.online') {
+    const protoHeader = String(request.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+    const proto = protoHeader || request.protocol || 'https';
+    const target = `${proto}://bmnbpsminut.online${request.originalUrl}`;
+
+    // 308 menjaga method (mis. POST) agar tidak berubah menjadi GET.
+    return response.redirect(308, target);
+  }
+
+  next();
+});
 // Webhook harus dipasang sebelum express.json agar body mentah tersedia untuk verifikasi signature.
 app.use(whatsapp.webhook);
 
