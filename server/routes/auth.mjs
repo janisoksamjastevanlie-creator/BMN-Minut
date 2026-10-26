@@ -23,7 +23,11 @@ export function registerAuthRoutes(app, context) {
   app.get('/api/health', asyncRoute(async (_request, response) => {
     try {
       const result = await queryOne(db, 'SELECT 1 AS ready');
-      if (result?.ready !== 1) return response.status(503).json({ status: 'unavailable' });
+      const ready = result?.ready;
+      if (ready !== 1) {
+        console.error(`Health check database query returned unexpected ready=${String(ready)} (${typeof ready}).`);
+        return response.status(503).json({ status: 'unavailable' });
+      }
       response.json({ status: 'ok' });
     } catch (error) {
       const code = typeof error?.code === 'string' ? error.code : 'UNKNOWN';
