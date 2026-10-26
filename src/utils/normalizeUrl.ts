@@ -1,7 +1,7 @@
 ﻿// Normalize user-provided URLs so they work reliably in <img src=...>.
 //
-// Common issue: Google Drive share URLs (drive.google.com/file/d/.../view) often return HTML,
-// so browsers can block them when used as an image source (e.g. net::ERR_BLOCKED_BY_ORB).
+// Google Drive / Googleusercontent links are often blocked by modern browsers when embedded cross-site
+// (e.g. net::ERR_BLOCKED_BY_ORB). To make them work consistently, we proxy them through our own API.
 
 export function normalizePhotoUrl(url?: string | null): string {
   if (!url) return '';
@@ -13,19 +13,30 @@ export function normalizePhotoUrl(url?: string | null): string {
 
   try {
     const parsed = new URL(raw);
+    const host = parsed.hostname;
 
-    // Only normalize Google Drive share links.
-    if (parsed.hostname !== 'drive.google.com') return raw;
+    // Convert Drive share links into a direct view URL, then proxy it same-origin.
+    if (host === 'drive.google.com') {
+      const id = extractGoogleDriveFileId(parsed);
+      if (!id) return raw;
+      const direct = 'https://drive.google.com/uc?export=view&id=' + id;
+      return proxyUrl(direct);
+    }
 
-    const id = extractGoogleDriveFileId(parsed);
-    if (!id) return raw;
+    // Newer Drive links often resolve to drive.usercontent.google.com; those are CORP-protected, so proxy.
+    if (host === 'drive.usercontent.google.com' || host.endsWith('googleusercontent.com')) {
+      return proxyUrl(parsed.toString());
+    }
 
-    // Direct view URL that returns the actual file bytes (works if the file is public).
-    return 'https://drive.google.com/uc?export=view&id=' + id;
+    return raw;
   } catch {
     // Not a valid absolute URL; leave unchanged.
     return raw;
   }
+}
+
+function proxyUrl(target: string): string {
+  return '/api/media/proxy?url=' + encodeURIComponent(target);
 }
 
 function extractGoogleDriveFileId(parsed: URL): string | null {
@@ -39,8 +50,3 @@ function extractGoogleDriveFileId(parsed: URL): string | null {
 
   return null;
 }
-
-
-
-
-

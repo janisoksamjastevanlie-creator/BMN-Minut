@@ -1,4 +1,4 @@
-import crypto from 'node:crypto';
+﻿import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,6 +24,7 @@ import {
   createTwilioRequestNotification
 } from './server/whatsappRequestEvents.mjs';
 import { registerAuthRoutes } from './server/routes/auth.mjs';
+import { registerMediaRoutes } from './server/routes/media.mjs';
 import { registerStateRoutes } from './server/routes/stateRoute.mjs';
 import { registerRequestRoutes } from './server/routes/requests.mjs';
 import { registerDocumentRoutes } from './server/routes/documents.mjs';
@@ -389,6 +390,7 @@ const context = {
 };
 
 registerAuthRoutes(app, context);
+registerMediaRoutes(app, context);
 registerStateRoutes(app, context);
 registerRequestRoutes(app, context);
 registerDocumentRoutes(app, context);
@@ -451,3 +453,5 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
     });
   });
 }
+
+
