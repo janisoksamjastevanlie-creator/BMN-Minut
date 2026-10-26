@@ -10,6 +10,7 @@
     "dev": "node server.mjs",
     "build": "vite build",
     "start": "node server.mjs",
+    "migrate": "node migrate.mjs",
     "preview": "vite preview --host 127.0.0.1",
     "clean": "node -e \"import('node:fs').then(fs => { fs.rmSync('dist', { recursive: true, force: true }); fs.rmSync('server.js', { force: true }); })\"",
     "lint": "tsc --noEmit && eslint .",

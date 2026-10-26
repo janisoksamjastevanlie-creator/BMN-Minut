@@ -16,3 +16,6 @@ data/
 backups/
 .cloudflared/
 *.credentials.json
+
+# Snapshot backup lokal
+backup-*/

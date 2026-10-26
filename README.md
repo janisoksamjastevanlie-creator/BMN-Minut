@@ -10,8 +10,21 @@ Untuk development lokal, `DB_PASSWORD` boleh kosong hanya jika akun MariaDB loka
 
 Jalankan `npm install`, `npm run dev`, lalu buka `http://localhost:3000`. Pilih administrator, lalu gunakan **Manajemen Pengguna** untuk menetapkan kata sandi minimal 12 karakter bagi tiap pegawai. Data aplikasi, sesi, dan catatan WhatsApp disimpan di MySQL, bukan di file lokal.
 
-## Impor Excel aset
+## Migrasi database
 
+Skema operasional di `migrations/` kini dapat diterapkan dengan runner bawaan tanpa DDL startup otomatis:
+
+```bash
+npm run migrate
+```
+
+Runner memakai `DB_*` dari `.env` (sama seperti server), menerapkan berkas `.sql`
+secara alfabetis, dan mencatat berkas yang sudah diterapkan di tabel
+`schema_migrations` sehingga aman dijalankan berulang. Setiap berkas berjalan di
+dalam transaksi satu-per-satu: bila satu pernyataan gagal, seluruh berkas itu
+di-rollback dan tidak dicatat.
+
+## Impor Excel aset
 Kategori aset mengikuti sembilan jenis BMN dari file sumber: TANAH, ALAT BESAR, ALAT ANGKUTAN BERMOTOR, MESIN PERALATAN NON TIK, MESIN PERALATAN KHUSUS TIK, BANGUNAN DAN GEDUNG, RUMAH NEGARA, ASET TETAP LAINNYA, dan ASET TAK BERWUJUD. Kategori ini tersedia pada formulir dan pemetaan impor meskipun belum ada aset tersimpan. Pembaca Excel menghitung area lembar dari sel aktual, sehingga file dengan metadata dimensi yang keliru (misalnya `A1:F1` meskipun data lebih luas) tetap dapat dibaca lengkap. File daftar aset dengan 78 kolom dan sheet `Master Aset` sebaiknya diunggah melalui **Impor / Ekspor Master Aset** agar seluruh kolom sumber dipertahankan. Kategori yang sama dengan kategori aplikasi dipetakan otomatis; kategori sumber lain dipertahankan secara default dan dapat dipetakan manual. Impor aset dari Master Aset, Excel/CSV, dan JSON mencocokkan ruangan berdasarkan nama atau kode, membuat entri master untuk lokasi baru, dan langsung menghubungkan ID ruangan ke aset. Lokasi kosong masuk ke ruangan penampung **Belum berlokasi**. Pasangan Kode Barang dan NUP yang sudah ada tidak ditimpa.
 
 ## Arsip dokumen privat di backend
