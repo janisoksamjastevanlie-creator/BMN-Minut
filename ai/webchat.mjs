@@ -271,6 +271,7 @@ export function createWebChat({ config, getCollection, userHasPermission, getOwn
 
   async function callModel(system, history) {
     const webChatProvider = config.webChatProvider || config.aiProvider || (config.groqApiKey ? 'groq' : 'gemini');
+    const provider = webChatProvider;
     if (!config.webChatEnabled && config.webChatEnabled !== undefined) return { error: 'not_configured' };
     if (webChatProvider === 'n8n') {
       if (!config.n8nChatConfigured ||
@@ -326,7 +327,6 @@ export function createWebChat({ config, getCollection, userHasPermission, getOwn
       }
     }
 
-    const provider = webChatProvider;
     const apiKey = provider === 'groq' ? config.groqApiKey : provider === 'gemini' ? config.geminiApiKey : '';
     if (!config.aiEnabled || !apiKey) return { error: 'not_configured' };
 
@@ -337,7 +337,7 @@ export function createWebChat({ config, getCollection, userHasPermission, getOwn
           method: 'POST',
           headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            model: config.groqModel || "llama3-8b-8192",
+            model: config.groqModel || 'openai/gpt-oss-120b',
             messages: [{ role: 'system', content: system }, ...history],
             temperature: 0.3,
             max_tokens: 900
