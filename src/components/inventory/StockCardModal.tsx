@@ -89,7 +89,7 @@ export const StockCardModal: React.FC<{
   let currentSaldo = item.stokAwal;
   itemIn.forEach(i => {
     currentSaldo += i.jumlah;
-    entries.push({
+    legacyEntries.push({
       tanggal: i.tanggal,
       noTransaksi: i.nomorTransaksi,
       tipe: 'MASUK',
@@ -103,7 +103,7 @@ export const StockCardModal: React.FC<{
 
   itemOut.forEach(o => {
     currentSaldo = Math.max(0, currentSaldo - o.jumlah);
-    entries.push({
+    legacyEntries.push({
       tanggal: o.tanggal,
       noTransaksi: o.nomorTransaksi,
       tipe: 'KELUAR',
