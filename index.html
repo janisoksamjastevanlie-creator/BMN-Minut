@@ -1,7 +1,19 @@
 <!doctype html>
-<html lang="id">
+<html lang="id" data-theme="light">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      // Terapkan tema sebelum halaman digambar agar tidak ada kedipan warna.
+      // Default: tema siang. Tema malam hanya dipakai bila pengguna memilihnya.
+      (function () {
+        try {
+          var stored = window.localStorage.getItem('bmn-theme-v2');
+          document.documentElement.dataset.theme = stored === 'dark' ? 'dark' : 'light';
+        } catch (error) {
+          document.documentElement.dataset.theme = 'light';
+        }
+      })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>BMN BPS MINUT | Sistem Informasi Manajemen Aset BMN & Persediaan</title>
     <meta name="description" content="Sistem Informasi Manajemen Aset BMN & Persediaan - BPS Kabupaten Minahasa Utara" />

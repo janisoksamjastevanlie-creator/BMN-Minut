@@ -7,11 +7,13 @@ interface ThemeContextValue {
   toggleTheme: () => void;
 }
 
-const THEME_STORAGE_KEY = 'bmn-theme';
+// Kunci baru agar preferensi lama (yang default-nya malam) tidak menimpa
+// pilihan baru: tema siang menjadi tampilan awal untuk semua pengguna.
+const THEME_STORAGE_KEY = 'bmn-theme-v2';
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 const getInitialTheme = (): AppTheme => {
-  return window.localStorage.getItem(THEME_STORAGE_KEY) === 'light' ? 'light' : 'dark';
+  return window.localStorage.getItem(THEME_STORAGE_KEY) === 'dark' ? 'dark' : 'light';
 };
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
