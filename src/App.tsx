@@ -10,7 +10,7 @@ import { Navbar } from './components/layout/Navbar';
 import { Sidebar } from './components/layout/Sidebar';
 import { MobileBottomNav } from './components/layout/MobileBottomNav';
 import { GlobalSearchModal } from './components/layout/GlobalSearchModal';
-import { QuickActionFab } from './components/layout/QuickActionFab';
+import { AiAssistantFab } from './components/ai/AiAssistantFab';
 import { QrScannerModal } from './components/common/QrScannerModal';
 import { AiAssistantModal } from './components/ai/AiAssistantModal';
 import { BackToTopButton } from './components/common/BackToTopButton';
@@ -168,7 +168,7 @@ const MainLayout: React.FC = () => {
                       Visualisasi tata letak Rak A s/d Rak E Gudang Logistik BPS Minahasa Utara
                     </p>
                   </div>
-                  <Warehouse3D />
+                  <Warehouse3D onOpenStockIn={() => setIsStockInModalOpen(true)} />
                 </div>
               )}
 
@@ -184,15 +184,9 @@ const MainLayout: React.FC = () => {
         </main>
       </div>
 
-      {/* Floating Action Buttons & Quick Menus */}
+      {/* Tombol mengambang Tanya AI */}
       <div className="no-print floating-action-fab">
-        <QuickActionFab
-          onOpenStockIn={() => setIsStockInModalOpen(true)}
-          onOpenStockOut={() => setIsStockOutModalOpen(true)}
-          onOpenRequest={() => setIsRequestModalOpen(true)}
-          onOpenStockOpname={() => setActiveView('stock-opname')}
-          onOpenAddAsset={() => setIsAddAssetModalOpen(true)}
-        />
+        <AiAssistantFab />
       </div>
 
       <BackToTopButton containerRef={mainRef} />
