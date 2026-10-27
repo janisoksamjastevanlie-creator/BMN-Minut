@@ -280,7 +280,7 @@ export const AssetDetailModal: React.FC<{
                       <div>
                         <div className="font-semibold text-white">{m.jenisPemeliharaan}</div>
                         <div className="text-[10px] text-slate-400">
-                          {m.tanggalMulai} â€¢ Vendor: {m.vendor} â€¢ Teknisi: {m.teknisi}
+                          {m.tanggalMulai} • Vendor: {m.vendor} • Teknisi: {m.teknisi}
                         </div>
                       </div>
                       <div className="text-right">
@@ -312,7 +312,7 @@ export const AssetDetailModal: React.FC<{
                           {m.lokasiAsalNama} â†’ <span className="text-cyan-400">{m.lokasiTujuanNama}</span>
                         </div>
                         <div className="text-[10px] text-slate-400">
-                          {m.tanggal} â€¢ Pemohon: {m.pemohon} â€¢ {m.alasan}
+                          {m.tanggal} • Pemohon: {m.pemohon} • {m.alasan}
                         </div>
                       </div>
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">

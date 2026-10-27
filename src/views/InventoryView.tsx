@@ -1046,7 +1046,7 @@ export const InventoryView: React.FC = () => {
                     </h3>
                     <div className="text-[11px] text-slate-400 mt-0.5">{item.subkategori}</div>
                     <div className="text-[11px] text-cyan-400 font-mono mt-1">
-                      {item.binCode} â€¢ <span className="text-slate-400">{item.rak}</span>
+                      {item.binCode} • <span className="text-slate-400">{item.rak}</span>
                     </div>
                   </div>
                 </div>
@@ -1211,7 +1211,7 @@ export const InventoryView: React.FC = () => {
                   {/* Lokasi Rak & Bin Code (e.g. WH-B-02-05) */}
                   <td className="py-3 px-3 text-center">
                     <div className="font-mono text-cyan-400 font-semibold text-[11px]">{item.binCode}</div>
-                    <div className="text-[10px] text-slate-400">{item.rak} â€¢ {item.shelf}</div>
+                    <div className="text-[10px] text-slate-400">{item.rak} • {item.shelf}</div>
                   </td>
 
                   {/* Stok Saat Ini */}

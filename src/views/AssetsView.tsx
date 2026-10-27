@@ -66,6 +66,14 @@ export const AssetsView: React.FC = () => {
     return Array.from(new Set(assets.map(a => a.kategori)));
   }, [assets]);
 
+  // Jumlah aset per kondisi untuk pill filter cepat
+  const kondisiCounts = useMemo(() => ({
+    all: assets.length,
+    baik: assets.filter(a => a.kondisi === 'Baik').length,
+    rusakRingan: assets.filter(a => a.kondisi === 'Rusak Ringan').length,
+    rusakBerat: assets.filter(a => a.kondisi === 'Rusak Berat').length
+  }), [assets]);
+
   // Filtered & Sorted Assets
   const filteredAssets = useMemo(() => {
     return assets.filter(asset => {
@@ -169,21 +177,21 @@ export const AssetsView: React.FC = () => {
   return (
     <div className="space-y-6 assets-view-root">
       {/* Top Header & Metrics */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl font-extrabold text-white">Daftar Barang Milik Negara (BMN)</h1>
-            <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 font-bold font-mono">
+      <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="text-xl font-extrabold text-white leading-tight">Daftar Barang Milik Negara (BMN)</h1>
+          <div className="flex flex-wrap items-center gap-2 mt-1">
+            <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 font-bold font-mono whitespace-nowrap">
               {assets.length} Unit Terdaftar
             </span>
+            <p className="text-xs text-slate-400">
+              Pengelolaan aset inventaris dinas Badan Pusat Statistik Kabupaten Minahasa Utara
+            </p>
           </div>
-          <p className="text-xs text-slate-400 mt-1">
-            Pengelolaan aset inventaris dinas Badan Pusat Statistik Kabupaten Minahasa Utara
-          </p>
         </div>
 
         {/* Action Buttons */}
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap md:justify-end">
           <button
             onClick={() => setActiveView('office-3d')}
             className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition-colors border border-slate-700"
@@ -249,24 +257,76 @@ export const AssetsView: React.FC = () => {
 
       {/* Filter and Search Bar */}
       <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl space-y-3">
-        <div className="flex flex-col md:flex-row items-center gap-3">
-          {/* Search box */}
-          <div className="relative flex-1 w-full">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={e => {
-                setSearchTerm(e.target.value);
-                setCurrentPage(1);
-              }}
-              placeholder="Cari aset berdasarkan nama, kode barang, NUP, nomor seri, merk, penanggung jawab..."
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
-            />
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col xl:flex-row items-center gap-3">
+            {/* Search box */}
+            <div className="relative flex-1 w-full">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={e => {
+                  setSearchTerm(e.target.value);
+                  setCurrentPage(1);
+                }}
+                placeholder="Cari aset berdasarkan nama, kode barang, NUP, nomor seri, merk, penanggung jawab..."
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
+              />
+            </div>
+
+            {/* Filter cepat berdasarkan kondisi */}
+            <div className="flex items-center gap-1.5 overflow-x-auto w-full xl:w-auto pb-1 xl:pb-0">
+              <button
+                onClick={() => {
+                  setFilterKondisi('all');
+                  setCurrentPage(1);
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap flex-shrink-0 ${
+                  filterKondisi === 'all' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                }`}
+              >
+                Semua ({kondisiCounts.all})
+              </button>
+              <button
+                onClick={() => {
+                  setFilterKondisi('Baik');
+                  setCurrentPage(1);
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap flex-shrink-0 flex items-center gap-1.5 ${
+                  filterKondisi === 'Baik' ? 'bg-emerald-600 text-white shadow' : 'text-emerald-400 hover:bg-emerald-500/10'
+                }`}
+              >
+                <CheckCircle2 className="w-3 h-3" />
+                <span>Baik ({kondisiCounts.baik})</span>
+              </button>
+              <button
+                onClick={() => {
+                  setFilterKondisi('Rusak Ringan');
+                  setCurrentPage(1);
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap flex-shrink-0 flex items-center gap-1.5 ${
+                  filterKondisi === 'Rusak Ringan' ? 'bg-amber-600 text-white shadow' : 'text-amber-400 hover:bg-amber-500/10'
+                }`}
+              >
+                <AlertTriangle className="w-3 h-3" />
+                <span>Rusak Ringan ({kondisiCounts.rusakRingan})</span>
+              </button>
+              <button
+                onClick={() => {
+                  setFilterKondisi('Rusak Berat');
+                  setCurrentPage(1);
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap flex-shrink-0 flex items-center gap-1.5 ${
+                  filterKondisi === 'Rusak Berat' ? 'bg-rose-600 text-white shadow' : 'text-rose-400 hover:bg-rose-500/10'
+                }`}
+              >
+                <AlertCircle className="w-3 h-3" />
+                <span>Rusak Berat ({kondisiCounts.rusakBerat})</span>
+              </button>
+            </div>
           </div>
 
-          {/* Quick Filters */}
-          <div className="flex items-center gap-2 w-full md:w-auto overflow-x-auto pb-1 md:pb-0">
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
             {/* Filter Kategori */}
             <select
               value={filterKategori}
@@ -274,7 +334,8 @@ export const AssetsView: React.FC = () => {
                 setFilterKategori(e.target.value);
                 setCurrentPage(1);
               }}
-              className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
+              aria-label="Filter kategori aset"
+              className="w-full sm:w-auto bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
             >
               <option value="all">Semua Kategori</option>
               {categories.map(cat => (
@@ -284,21 +345,6 @@ export const AssetsView: React.FC = () => {
               ))}
             </select>
 
-            {/* Filter Kondisi */}
-            <select
-              value={filterKondisi}
-              onChange={e => {
-                setFilterKondisi(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
-            >
-              <option value="all">Semua Kondisi</option>
-              <option value="Baik">Kondisi Baik</option>
-              <option value="Rusak Ringan">Rusak Ringan</option>
-              <option value="Rusak Berat">Rusak Berat</option>
-            </select>
-
             {/* Filter Ruangan */}
             <select
               value={filterRuangan}
@@ -306,7 +352,8 @@ export const AssetsView: React.FC = () => {
                 setFilterRuangan(e.target.value);
                 setCurrentPage(1);
               }}
-              className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
+              aria-label="Filter ruangan aset"
+              className="w-full sm:w-auto bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
             >
               <option value="all">Semua Ruangan</option>
               {rooms.map(r => (
@@ -316,11 +363,28 @@ export const AssetsView: React.FC = () => {
               ))}
             </select>
 
+            {/* Urutkan */}
+            <select
+              value={sortBy}
+              onChange={e => {
+                setSortBy(e.target.value as typeof sortBy);
+                setCurrentPage(1);
+              }}
+              aria-label="Urutkan aset"
+              className="w-full sm:w-auto bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
+            >
+              <option value="nup">Urutkan: NUP</option>
+              <option value="nama">Urutkan: Nama Barang</option>
+              <option value="nilai">Urutkan: Nilai Buku</option>
+              <option value="tahun">Urutkan: Tahun Perolehan</option>
+            </select>
+
             {/* Sort Order */}
             <button
               onClick={() => setSortOrder(prev => (prev === 'asc' ? 'desc' : 'asc'))}
-              title="Urutkan"
-              className="p-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-300 hover:text-white"
+              title={sortOrder === 'asc' ? 'Urutan naik' : 'Urutan turun'}
+              aria-label="Balik arah urutan"
+              className="p-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-300 hover:text-white self-start sm:self-auto"
             >
               <ArrowUpDown className="w-4 h-4" />
             </button>
@@ -349,39 +413,39 @@ export const AssetsView: React.FC = () => {
               className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-rose-400 text-xs font-semibold flex items-center gap-1.5 border border-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Trash2 className="w-4 h-4" />
-              Hapus Terpilih
+              Hapus Terpilih ({selectedAssetIds.size})
             </button>
           )}
         </ListViewToolbar>
         {/* CARD VIEW */}
-        <div className={`${viewMode === 'cards' ? '' : 'hidden'} divide-y divide-slate-800/80 no-print`}>
+        <div className={`${viewMode === 'cards' ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 p-3' : 'hidden'} no-print`}>
           {paginatedAssets.length === 0 ? (
-            <div className="py-12 px-4 text-center text-slate-400 text-xs">
+            <div className="col-span-full py-12 px-4 text-center text-slate-400 text-xs">
               Tidak ditemukan aset BMN yang sesuai dengan kriteria filter.
             </div>
           ) : (
             paginatedAssets.map(asset => (
-              <div key={asset.id} className="p-4 space-y-3 hover:bg-slate-800/30 transition-colors">
+              <div key={asset.id} className="p-4 space-y-3 hover:bg-slate-800/30 transition-colors rounded-xl border border-slate-800 bg-slate-900">
                 <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
                     {hasPermission('manageAssets') && (
                       <input
                         type="checkbox"
                         checked={selectedAssetIds.has(asset.id)}
                         onChange={() => toggleAssetSelection(asset.id)}
-                        className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-blue-500 focus:ring-blue-500"
+                        className="h-4 w-4 shrink-0 rounded border-slate-600 bg-slate-950 text-blue-500 focus:ring-blue-500"
                         aria-label={`Pilih aset ${asset.namaBarang}`}
                       />
                     )}
-                    <span className="font-mono font-bold text-xs text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">
+                    <span className="font-mono text-xs text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 whitespace-nowrap">
                       NUP #{asset.nup}
                     </span>
-                    <span className="text-[11px] font-mono text-slate-400 truncate max-w-[140px]">
+                    <span className="font-mono text-[11px] text-slate-400 truncate">
                       {asset.kodeBarang}
                     </span>
                   </div>
                   <span
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold whitespace-nowrap ${
                       asset.kondisi === 'Baik'
                         ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                         : asset.kondisi === 'Rusak Ringan'
@@ -389,14 +453,19 @@ export const AssetsView: React.FC = () => {
                         : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
                     }`}
                   >
-                    {asset.kondisi}
+                    {asset.kondisi === 'Baik'
+                      ? <CheckCircle2 className="w-3 h-3" />
+                      : asset.kondisi === 'Rusak Ringan'
+                      ? <AlertTriangle className="w-3 h-3" />
+                      : <AlertCircle className="w-3 h-3" />}
+                    <span>{asset.kondisi}</span>
                   </span>
                 </div>
 
                 <div className="flex items-start gap-3">
                   <div
                     onClick={() => setDetailModalAsset(asset)}
-                    className="w-16 h-16 rounded-xl bg-slate-950 border border-slate-800 overflow-hidden shrink-0 cursor-pointer relative"
+                    className="w-14 h-14 rounded-xl bg-slate-950 border border-slate-800 overflow-hidden shrink-0 cursor-pointer relative"
                   >
                     <img
                       src={normalizePhotoUrl(asset.fotoUrl) || getAssetPhotoUrl(asset.namaBarang, asset.kategori)}
@@ -415,67 +484,80 @@ export const AssetsView: React.FC = () => {
                     >
                       {asset.namaBarang}
                     </h3>
-                    <div className="text-[11px] text-slate-400 mt-0.5 truncate">{asset.merkType}</div>
-                    <div className="text-[11px] text-slate-300 mt-1 flex items-center gap-1.5 flex-wrap">
-                      <span className="text-blue-400 font-medium">{asset.ruanganNama}</span>
-                      <span className="text-slate-500">â€¢</span>
-                      <span className="text-slate-400 truncate max-w-[120px]">PIC: {asset.penanggungJawab}</span>
+                    <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
+                      <span className="text-[11px] text-slate-400 truncate">{asset.merkType}</span>
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20 shrink-0">
+                        {asset.kategori}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-blue-400 font-mono mt-1 flex items-center gap-1 min-w-0">
+                      <span className="truncate">{asset.ruanganNama}</span>
+                      <span className="text-slate-500 shrink-0">•</span>
+                      <span className="text-slate-400 truncate">PIC: {asset.penanggungJawab}</span>
                     </div>
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between pt-1 border-t border-slate-800/60 text-xs">
-                  <div>
+                <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80 text-xs">
+                  <div className="min-w-0">
                     <span className="text-[10px] text-slate-400 block">Nilai Buku:</span>
                     <span className="font-mono font-bold text-emerald-400">
                       Rp {asset.nilaiBuku.toLocaleString('id-ID')}
                     </span>
                   </div>
-
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      onClick={() => setDetailModalAsset(asset)}
-                      className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-400 text-xs font-medium flex items-center gap-1 min-h-[36px]"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>Detail</span>
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        setSelectedAsset(asset);
-                        setActiveView('office-3d');
-                      }}
-                      title="Lihat QR & Lokasi"
-                      className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-blue-400 min-h-[36px] min-w-[36px] flex items-center justify-center"
-                    >
-                      <QrCode className="w-4 h-4" />
-                    </button>
-
-                    {hasPermission('manageAssets') && (
-                      <>
-                        <button
-                          onClick={() => {
-                            setEditingAsset(asset);
-                            setIsFormOpen(true);
-                          }}
-                          className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 min-h-[36px] min-w-[36px] flex items-center justify-center"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => {
-                            if (confirm(`Yakin ingin menghapus ${asset.namaBarang} (NUP: ${asset.nup}) dari SIMAN?`)) {
-                              deleteAsset(asset.id);
-                            }
-                          }}
-                          className="p-2 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-rose-400 min-h-[36px] min-w-[36px] flex items-center justify-center"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </>
-                    )}
+                  <div className="text-right min-w-0">
+                    <span className="text-[10px] text-slate-400 block">Nilai Perolehan:</span>
+                    <span className="font-mono text-slate-300">
+                      Rp {asset.nilaiPerolehan.toLocaleString('id-ID')}
+                    </span>
                   </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-1.5 pt-1">
+                  <button
+                    onClick={() => setDetailModalAsset(asset)}
+                    className="flex-1 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-400 text-xs font-semibold flex items-center justify-center gap-1.5 min-h-[36px]"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>Detail</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setSelectedAsset(asset);
+                      setActiveView('office-3d');
+                    }}
+                    title="Lihat QR & Lokasi"
+                    className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-blue-400 min-h-[36px] min-w-[36px] flex items-center justify-center"
+                  >
+                    <QrCode className="w-3.5 h-3.5" />
+                  </button>
+
+                  {hasPermission('manageAssets') && (
+                    <>
+                      <button
+                        onClick={() => {
+                          setEditingAsset(asset);
+                          setIsFormOpen(true);
+                        }}
+                        title="Edit Data Aset"
+                        className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 min-h-[36px] min-w-[36px] flex items-center justify-center"
+                      >
+                        <Edit className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (confirm(`Yakin ingin menghapus ${asset.namaBarang} (NUP: ${asset.nup}) dari SIMAN?`)) {
+                            deleteAsset(asset.id);
+                          }
+                        }}
+                        title="Hapus Aset"
+                        className="p-2 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-rose-400 min-h-[36px] min-w-[36px] flex items-center justify-center"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             ))
@@ -562,7 +644,7 @@ export const AssetsView: React.FC = () => {
                             {asset.namaBarang}
                           </div>
                           <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                            {asset.merkType} â€¢ SN: {asset.nomorSeri}
+                            {asset.merkType} • SN: {asset.nomorSeri}
                           </div>
                         </div>
                       </div>
