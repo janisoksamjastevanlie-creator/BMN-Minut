@@ -12,6 +12,7 @@ export function registerAuthRoutes(app, context) {
     requireUser,
     refreshCollections,
     diagnostics,
+    healthHistory,
     loadSnapshot,
     getCollection,
     accessIdentityMatches,
@@ -41,12 +42,14 @@ export function registerAuthRoutes(app, context) {
   }));
 
   // Diagnostik lengkap hanya untuk Administrator: permintaan lambat, kegagalan fatal,
-  // dan riwayat error koneksi database.
+  // dan riwayat error koneksi database. Riwayat beban dari database ikut disertakan
+  // karena keluaran proses pada hosting terkelola tidak dapat dibaca kembali.
   app.get('/api/health/detail', requireUser, asyncRoute(async (request, response) => {
     if (request.user?.role !== 'Administrator') {
       return response.status(403).json({ error: 'Diagnostik hanya tersedia untuk Administrator.' });
     }
-    response.json({ status: 'ok', diagnostics: diagnostics() });
+    const history = await healthHistory.recent(40).catch(() => []);
+    response.json({ status: 'ok', diagnostics: diagnostics(), health_history: history });
   }));
 
   app.post('/api/auth/login', requireCloudflareAccess, asyncRoute(async (request, response) => {
@@ -56,29 +59,44 @@ export function registerAuthRoutes(app, context) {
       return response.status(400).json({ error: 'NIP atau kata sandi tidak valid.' });
     }
     const address = `${request.ip}:${nip}`;
+    // Alamat yang terbaca berasal dari X-Forwarded-For yang bisa ditulis ulang klien,
+    // jadi pembatas per alamat saja mudah dilewati dengan mengganti-ganti header.
+    // Pencatat per NIP tetap menahan tebak-tebakan pada satu akun.
+    const accountKey = `akun:${nip}`;
+    const windowMs = 15 * 60 * 1000;
     const now = Date.now();
     if (loginAttempts.size > 10000) {
       for (const [key, value] of loginAttempts) {
-        if (now - value.startedAt >= 15 * 60 * 1000) loginAttempts.delete(key);
+        if (now - value.startedAt >= windowMs) loginAttempts.delete(key);
       }
     }
-    const attempt = loginAttempts.get(address);
-    if (attempt && attempt.count >= 10 && now - attempt.startedAt < 15 * 60 * 1000) {
+    const throttled = [
+      [address, 10],
+      [accountKey, 25]
+    ].find(([key, limit]) => {
+      const attempt = loginAttempts.get(key);
+      return attempt && attempt.count >= limit && now - attempt.startedAt < windowMs;
+    });
+    if (throttled) {
       return response.status(429).json({ error: 'Terlalu banyak percobaan. Coba lagi dalam 15 menit.' });
     }
-    await refreshCollections(db, { force: true });
     const account = await queryOne(db, 'SELECT * FROM auth_users WHERE nip = ?', [nip]);
     const salt = account ? Buffer.from(account.salt, 'hex') : Buffer.alloc(16);
     const expected = account ? Buffer.from(account.password_hash, 'hex') : Buffer.alloc(64);
     const actual = await scryptAsync(password, salt, 64);
     const valid = account && crypto.timingSafeEqual(actual, expected);
     if (!valid) {
-      const current = attempt && now - attempt.startedAt < 15 * 60 * 1000
-        ? attempt
-        : { count: 0, startedAt: now };
-      loginAttempts.set(address, { ...current, count: current.count + 1 });
+      for (const key of [address, accountKey]) {
+        const previous = loginAttempts.get(key);
+        const current = previous && now - previous.startedAt < windowMs ? previous : { count: 0, startedAt: now };
+        loginAttempts.set(key, { ...current, count: current.count + 1 });
+      }
       return response.status(401).json({ error: 'NIP atau kata sandi salah.' });
     }
+    // Muat ulang state penuh hanya untuk percobaan yang benar-benar berhasil. Sebelumnya
+    // setiap tebakan — termasuk NIP acak dari luar — memaksa pembacaan seluruh koleksi
+    // (belasan megabyte) sehingga penembakan otomatis cukup untuk membuat server macet.
+    await refreshCollections(db, { force: true });
     const profile = JSON.parse(account.profile_json);
     const registeredUsers = getCollection('users');
     if (registeredUsers && !registeredUsers.some(user => user.id === account.id)) {
@@ -91,6 +109,7 @@ export function registerAuthRoutes(app, context) {
       return response.status(403).json({ error: 'Identitas Cloudflare Access tidak cocok dengan akun aplikasi.' });
     }
     loginAttempts.delete(address);
+    loginAttempts.delete(accountKey);
     const token = crypto.randomBytes(32).toString('base64url');
     const expiresAt = now + 12 * 60 * 60 * 1000;
     await execute(db, 'INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)', [

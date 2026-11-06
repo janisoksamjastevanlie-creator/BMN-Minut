@@ -25,6 +25,7 @@ import {
   isPoolQueueLimitError
 } from './server/observability.mjs';
 import { createAuditRetentionJob } from './server/auditRetention.mjs';
+import { createHealthHistoryRecorder } from './server/healthHistory.mjs';
 import { measureExternalService } from './server/serviceMetrics.mjs';
 import { currentMakassarDate } from './server/datetime.mjs';
 import {
@@ -143,6 +144,9 @@ const eventLoopThresholdMs = boundedInteger(process.env.EVENT_LOOP_LAG_THRESHOLD
 // keputusan instansi, bukan keputusan teknis. Nilai > 0 memindahkan entri tua ke
 // audit_log_archive (bukan membuangnya) agar payload sinkronisasi tidak terus membesar.
 const auditRetentionDays = boundedInteger(process.env.AUDIT_RETENTION_DAYS, 0, 0, 3650);
+const auditActiveLimit = boundedInteger(process.env.AUDIT_ACTIVE_LIMIT, 0, 0, 200000);
+const healthHistoryIntervalMs = boundedInteger(process.env.HEALTH_HISTORY_INTERVAL_MS, 300000, 0, 86400000);
+const healthHistoryRetentionDays = boundedInteger(process.env.HEALTH_HISTORY_RETENTION_DAYS, 7, 1, 90);
 const auditRetentionIntervalMs = boundedInteger(
   process.env.AUDIT_RETENTION_INTERVAL_MS,
   21600000,
@@ -331,6 +335,16 @@ const schema = [
     aktivitas VARCHAR(191) NULL,
     archived_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_audit_archive_tanggal (tanggal)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+  // Jejak beban runtime. Hosting terkelola tidak menyimpan keluaran proses yang sudah
+  // lewat, jadi riwayat singkat ini yang membuat gangguan semalam masih bisa dibaca.
+  `CREATE TABLE IF NOT EXISTS health_samples (
+    id VARCHAR(36) NOT NULL PRIMARY KEY,
+    captured_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    uptime_seconds INT NULL,
+    backend VARCHAR(20) NULL,
+    metrics_json TEXT NOT NULL,
+    INDEX idx_health_samples_captured_at (captured_at)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
 ];
 
@@ -411,8 +425,18 @@ const auditRetention = createAuditRetentionJob({
   db,
   dataBackend,
   retentionDays: auditRetentionDays,
+  activeLimit: auditActiveLimit,
   intervalMs: auditRetentionIntervalMs,
   refreshAfterRun: () => refreshCollections(db, { force: true })
+});
+
+// Riwayat beban runtime disimpan di database karena keluaran proses pada hosting
+// terkelola tidak bertahan; satu baris per interval dan dipangkas otomatis.
+const healthHistory = createHealthHistoryRecorder({
+  db,
+  intervalMs: healthHistoryIntervalMs,
+  retentionDays: healthHistoryRetentionDays,
+  snapshot: () => buildLoadSnapshot()
 });
 
 const { sendTwilioRequestEvent } = createTwilioRequestNotification({ db });
@@ -536,6 +560,7 @@ function buildDiagnostics() {
     ...buildLoadSnapshot(),
     slow_requests: slowRequests.stats(),
     audit_retention: auditRetention.stats(),
+    health_history: healthHistory.stats(),
     failures: {
       unhandled_rejections: crashCounters.unhandledRejections,
       uncaught_exceptions: crashCounters.uncaughtExceptions,
@@ -563,6 +588,7 @@ const context = {
   markCollectionsFresh,
   stateWriteLimiter,
   diagnostics: buildDiagnostics,
+  healthHistory,
   loadSnapshot: buildLoadSnapshot,
   getCollection,
   userHasPermission,
@@ -682,9 +708,11 @@ httpServer = app.listen(port, host, () => {
     `Runtime limits: db_connections=${dbConnectionLimit} db_queue=${dbQueueLimit} ` +
       `request_timeout_ms=${requestTimeoutMs} state_timeout_ms=${stateRequestTimeoutMs} ` +
       `state_write_concurrency=${stateWriteConcurrency} state_cache_ttl_ms=${stateCacheTtlMs} ` +
-      `audit_retention_days=${auditRetentionDays}`
+      `audit_retention_days=${auditRetentionDays} audit_active_limit=${auditActiveLimit} ` +
+      `health_history_interval_ms=${healthHistoryIntervalMs}`
   );
   auditRetention.start();
+  healthHistory.start();
 });
 
 // Timeout socket eksplisit: koneksi keep-alive yang macet dibersihkan lebih cepat
@@ -713,6 +741,7 @@ function shutdown(reason) {
       detachPoolErrorHandler();
       eventLoopMonitor.stop();
       auditRetention.stop();
+      healthHistory.stop();
       db.end().then(
         () => resolve(),
         () => resolve()
