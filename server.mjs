@@ -26,6 +26,7 @@ import {
 } from './server/observability.mjs';
 import { createAuditRetentionJob } from './server/auditRetention.mjs';
 import { createHealthHistoryRecorder } from './server/healthHistory.mjs';
+import { createGzipJsonMiddleware } from './server/gzipJson.mjs';
 import { measureExternalService } from './server/serviceMetrics.mjs';
 import { currentMakassarDate } from './server/datetime.mjs';
 import {
@@ -501,6 +502,13 @@ app.use(whatsapp.webhook);
 
 // Security headers dasar (setara subset helmet) - diterapkan sebelum parser body.
 app.use(securityHeaders);
+
+// Respons JSON API dimampatkan. State penuh pernah 6,85 MB per tarikan, dan
+// dengan sinkron otomatis jumlah tarikan bertambah, jadi ukuran jawaban adalah
+// beban bandwidth sekaligus waktu tunggu per tab.
+app.use(createGzipJsonMiddleware({
+  minimumBytes: boundedInteger(process.env.GZIP_MINIMUM_BYTES, 1024, 0, 1048576)
+}));
 
 // Batas waktu permintaan dan pencatatan permintaan lambat dipasang sebelum parser
 // body, sehingga permintaan yang macet saat pengiriman body juga terukur dan
