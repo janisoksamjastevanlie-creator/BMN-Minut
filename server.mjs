@@ -27,6 +27,7 @@ import {
 import { createAuditRetentionJob } from './server/auditRetention.mjs';
 import { createHealthHistoryRecorder } from './server/healthHistory.mjs';
 import { createGzipJsonMiddleware } from './server/gzipJson.mjs';
+import { registerStaticServing } from './server/staticServing.mjs';
 import { measureExternalService } from './server/serviceMetrics.mjs';
 import { currentMakassarDate } from './server/datetime.mjs';
 import {
@@ -641,8 +642,9 @@ if (process.env.NODE_ENV === 'production') {
   app.use('/api', (_request, response) =>
     response.status(404).json({ error: 'Endpoint API tidak ditemukan.' })
   );
-  app.use(express.static(dist));
-  app.get('*', (_request, response) => response.sendFile(path.join(dist, 'index.html')));
+  // Berkas ber-hash disimpan setahun, index.html selalu diverifikasi ulang, dan
+  // aset yang hilang dijawab 404. Alasannya dirinci di server/staticServing.mjs.
+  registerStaticServing(app, { dist, express });
 } else {
   const { createServer } = await import('vite');
   const vite = await createServer({
