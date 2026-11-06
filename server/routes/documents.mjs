@@ -134,7 +134,7 @@ export function registerDocumentRoutes(app, context) {
           revision: Number(revisionRow?.value || result.revision)
         });
       }
-      await refreshCollections();
+      await refreshCollections(db, { force: true });
       return response.status(201).json({
         document: result.document,
         auditLog: result.auditLog || auditLog,
@@ -342,7 +342,7 @@ export function registerDocumentRoutes(app, context) {
           console.error('Old nota attachment cleanup failed after replacement:', error?.code || 'STORAGE_ERROR');
         }
       }
-      await refreshCollections();
+      await refreshCollections(db, { force: true });
       return response.json({ success: true, document: updatedDocument, auditLog, revision });
     } catch (error) {
       if (newStorageKey && !transactionCommitted) {
@@ -502,7 +502,7 @@ export function registerDocumentRoutes(app, context) {
       }
       metadataDeleted = true;
       deletionResult = result;
-      await refreshCollections();
+      await refreshCollections(db, { force: true });
     } catch (error) {
       if (metadataDeleted) {
         console.error('Backend document cache refresh failed after metadata deletion:', error?.code || 'DATABASE_ERROR');

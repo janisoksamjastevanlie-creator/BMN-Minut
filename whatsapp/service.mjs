@@ -158,7 +158,7 @@ export async function createWhatsAppService({
         : 'Integrasi WhatsApp belum dikonfigurasi dengan benar pada environment backend.';
       return { success: false, sentCount: 0, failedCount: 0, error };
     }
-    await refreshCollections();
+    await refreshCollections(db, { force: true });
     const message = formatter.notification(title, lines, config.appBaseUrl);
     const accounts = await store.listAccounts();
     const resolution = resolveRequestRecipients({
@@ -212,7 +212,7 @@ export async function createWhatsAppService({
   async function processMessage({ messageId, phone, text, interactiveId, timestampMs }) {
     const startedAt = Date.now();
     try {
-      await refreshCollections();
+      await refreshCollections(db, { force: true });
       if (!isValidPhone(phone)) return;
       if (timestampMs && (startedAt - timestampMs > config.maxMessageAgeMs || timestampMs - startedAt > 5 * 60_000)) {
         await store.logMessage({ messageId, phone, direction: 'in', message: null, status: 'rejected' });
@@ -326,7 +326,7 @@ export async function createWhatsAppService({
   });
 
   async function handleUnsupported(message) {
-    await refreshCollections();
+    await refreshCollections(db, { force: true });
     if (!isValidPhone(message.phone) || !await store.claimMessage(message.messageId)) return;
     if (message.timestampMs && (Date.now() - message.timestampMs > config.maxMessageAgeMs || message.timestampMs - Date.now() > 5 * 60_000)) {
       await store.logMessage({ messageId: message.messageId, phone: message.phone, direction: 'in', message: null, status: 'rejected' });
@@ -405,7 +405,7 @@ export async function createWhatsAppService({
   async function notify({ eventKey, permissions, title, lines, excludeUserId }) {
     try {
       if (!config.validProvider || !config.outboundConfigured) return;
-      await refreshCollections();
+      await refreshCollections(db, { force: true });
       const message = formatter.notification(title, lines, config.appBaseUrl);
       for (const account of await store.listAccounts()) {
         if (!account.notify_enabled || account.user_id === excludeUserId) continue;
@@ -475,7 +475,7 @@ export async function createWhatsAppService({
   }
 
   async function sendDailyReminders() {
-    await refreshCollections();
+    await refreshCollections(db, { force: true });
     const { date, hour } = localDateAndHour();
     if (hour !== config.reminderHour || await store.getMeta('whatsapp_last_reminder') === date) return;
     await store.setMeta('whatsapp_last_reminder', date);

@@ -6,7 +6,23 @@ import dotenv from 'dotenv';
 import express from 'express';
 import { promisify } from 'node:util';
 const scryptAsync = promisify(crypto.scrypt);
-import { createDatabasePool, queryRows, queryOne, execute, withTransaction as withPoolTransaction } from './server/db.mjs';
+import {
+  createDatabasePool,
+  queryRows,
+  queryOne,
+  execute,
+  withTransaction as withPoolTransaction
+} from './server/db.mjs';
+import {
+  attachPoolErrorHandler,
+  createConcurrencyLimiter,
+  createEventLoopLagMonitor,
+  createRequestDeadlineMiddleware,
+  createSlowRequestRecorder,
+  getDatabasePoolStats,
+  installCrashGuards,
+  isPoolQueueLimitError
+} from './server/observability.mjs';
 import { measureExternalService } from './server/serviceMetrics.mjs';
 import { currentMakassarDate } from './server/datetime.mjs';
 import {
@@ -20,9 +36,7 @@ import {
 } from './server/middleware.mjs';
 import { permissionsByCollection, collections, createStateHelpers } from './server/collections.mjs';
 import { createHostDocumentPersistence } from './server/documentsPersistence.mjs';
-import {
-  createTwilioRequestNotification
-} from './server/whatsappRequestEvents.mjs';
+import { createTwilioRequestNotification } from './server/whatsappRequestEvents.mjs';
 import { registerAuthRoutes } from './server/routes/auth.mjs';
 import { registerMediaRoutes } from './server/routes/media.mjs';
 import { registerStateRoutes } from './server/routes/stateRoute.mjs';
@@ -49,7 +63,10 @@ if (!Number.isInteger(documentMaxFileSizeMb) || documentMaxFileSizeMb < 1 || doc
   throw new Error('DOCUMENT_MAX_FILE_SIZE_MB harus berupa bilangan bulat antara 1 dan 100.');
 }
 const documentMaxFileSize = documentMaxFileSizeMb * 1024 * 1024;
-const documentStorageDirectory = path.resolve(root, process.env.DOCUMENT_STORAGE_DIR || path.join(root, 'data', 'documents'));
+const documentStorageDirectory = path.resolve(
+  root,
+  process.env.DOCUMENT_STORAGE_DIR || path.join(root, 'data', 'documents')
+);
 const publicDirectories = [path.join(root, 'public'), path.join(root, 'dist')];
 function assertPrivateDocumentStorageDirectory(storageDirectory) {
   for (const publicDirectory of publicDirectories) {
@@ -57,7 +74,10 @@ function assertPrivateDocumentStorageDirectory(storageDirectory) {
       ? fs.realpathSync(publicDirectory)
       : path.resolve(publicDirectory);
     const relative = path.relative(resolvedPublicDirectory, storageDirectory);
-    if (relative === '' || (!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`))) {
+    if (
+      relative === '' ||
+      (!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`))
+    ) {
       throw new Error('DOCUMENT_STORAGE_DIR harus berada di luar folder public dan dist.');
     }
   }
@@ -89,25 +109,71 @@ const dbUser = process.env.DB_USER?.trim();
 const dbName = process.env.DB_NAME?.trim();
 const dbPort = Number(process.env.DB_PORT || 3306);
 const dbConnectionLimit = Number(process.env.DB_CONNECTION_LIMIT || 10);
-if (!dbHost || !dbUser || !dbName ||
-    (!process.env.DB_PASSWORD && process.env.NODE_ENV === 'production') ||
-    !Number.isInteger(dbPort) || dbPort < 1 || dbPort > 65535 ||
-    !Number.isInteger(dbConnectionLimit) || dbConnectionLimit < 1 || dbConnectionLimit > 100) {
-  throw new Error('Set DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, and valid DB_PORT/DB_CONNECTION_LIMIT values before starting the server.');
+function boundedInteger(value, fallback, min, max) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  const rounded = Math.round(parsed);
+  return Math.min(max, Math.max(min, rounded));
+}
+// Batas antrian koneksi: tanpa batas, permintaan hanya menggantung sampai browser
+// berhenti sendiri. Dengan batas, server menjawab 503 dan penyebabnya tercatat di log.
+const dbQueueLimit = boundedInteger(process.env.DB_QUEUE_LIMIT, 50, 1, 5000);
+const requestTimeoutMs = boundedInteger(process.env.REQUEST_TIMEOUT_MS, 30000, 1000, 600000);
+// Sinkronisasi state memakai timeout panjang (frontend mengirim 60s/120s), tetapi
+// tetap ada batasnya supaya permintaan tidak pernah menggantung tanpa jawaban.
+const stateRequestTimeoutMs = boundedInteger(
+  process.env.STATE_REQUEST_TIMEOUT_MS,
+  105000,
+  requestTimeoutMs,
+  600000
+);
+const httpServerRequestTimeoutMs = boundedInteger(
+  process.env.HTTP_REQUEST_TIMEOUT_MS,
+  stateRequestTimeoutMs + 15000,
+  5000,
+  900000
+);
+const stateWriteConcurrency = boundedInteger(process.env.STATE_WRITE_CONCURRENCY, 3, 1, dbConnectionLimit);
+const stateWriteQueueLimit = boundedInteger(process.env.STATE_WRITE_QUEUE_LIMIT, 20, 0, 500);
+const stateCacheTtlMs = boundedInteger(process.env.STATE_CACHE_TTL_MS, 2000, 0, 15000);
+const eventLoopThresholdMs = boundedInteger(process.env.EVENT_LOOP_LAG_THRESHOLD_MS, 300, 50, 10000);
+if (
+  !dbHost ||
+  !dbUser ||
+  !dbName ||
+  (!process.env.DB_PASSWORD && process.env.NODE_ENV === 'production') ||
+  !Number.isInteger(dbPort) ||
+  dbPort < 1 ||
+  dbPort > 65535 ||
+  !Number.isInteger(dbConnectionLimit) ||
+  dbConnectionLimit < 1 ||
+  dbConnectionLimit > 100
+) {
+  throw new Error(
+    'Set DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, and valid DB_PORT/DB_CONNECTION_LIMIT values before starting the server.'
+  );
 }
 
 // Opt-in eksplisit: mode legacy di produksi hanya jika ALLOW_LEGACY_PRODUCTION=true.
 const allowLegacyProduction = process.env.ALLOW_LEGACY_PRODUCTION?.trim().toLowerCase() === 'true';
 const dataBackend = configuredDataBackend || (process.env.NODE_ENV === 'production' ? '' : 'legacy');
-if (!['legacy', 'operational'].includes(dataBackend) ||
-    (process.env.NODE_ENV === 'production' && dataBackend !== 'operational' && !allowLegacyProduction)) {
-  throw new Error('Production requires DATA_BACKEND=operational; set ALLOW_LEGACY_PRODUCTION=true to run legacy app_data mode in production.');
+if (
+  !['legacy', 'operational'].includes(dataBackend) ||
+  (process.env.NODE_ENV === 'production' && dataBackend !== 'operational' && !allowLegacyProduction)
+) {
+  throw new Error(
+    'Production requires DATA_BACKEND=operational; set ALLOW_LEGACY_PRODUCTION=true to run legacy app_data mode in production.'
+  );
 }
 if (dataBackend === 'legacy' && (!adminNip || !adminPassword || adminPassword.length < 12)) {
-  throw new Error('Set ADMIN_NIP and an ADMIN_PASSWORD of at least 12 characters in .env before starting legacy mode.');
+  throw new Error(
+    'Set ADMIN_NIP and an ADMIN_PASSWORD of at least 12 characters in .env before starting legacy mode.'
+  );
 }
 if (dataBackend === 'legacy' && adminPassword.startsWith('REPLACE_WITH_')) {
-  throw new Error('Replace the example ADMIN_PASSWORD in .env with a private password before starting legacy mode.');
+  throw new Error(
+    'Replace the example ADMIN_PASSWORD in .env with a private password before starting legacy mode.'
+  );
 }
 
 // ACCESS_REQUIRED=false secara eksplisit menonaktifkan Cloudflare Access; default produksi tetap wajib.
@@ -118,7 +184,9 @@ const cloudflareAccessRequired = accessRequiredSetting
 const cloudflareAccessTeamDomain = process.env.CLOUDFLARE_ACCESS_TEAM_DOMAIN?.trim();
 const cloudflareAccessAudience = process.env.CLOUDFLARE_ACCESS_AUD?.trim();
 if (cloudflareAccessRequired && (!cloudflareAccessTeamDomain || !cloudflareAccessAudience)) {
-  throw new Error('Set CLOUDFLARE_ACCESS_TEAM_DOMAIN and CLOUDFLARE_ACCESS_AUD when Cloudflare Access is required.');
+  throw new Error(
+    'Set CLOUDFLARE_ACCESS_TEAM_DOMAIN and CLOUDFLARE_ACCESS_AUD when Cloudflare Access is required.'
+  );
 }
 const cloudflareAccessVerifier = cloudflareAccessRequired
   ? createCloudflareAccessVerifier({
@@ -139,9 +207,48 @@ const db = createDatabasePool({
   database: dbName,
   waitForConnections: true,
   connectionLimit: dbConnectionLimit,
-  queueLimit: 0,
+  queueLimit: dbQueueLimit,
   charset: 'utf8mb4',
   enableKeepAlive: true
+});
+
+const poolDiagnostics = { errors: 0, lastError: null, queueLimitRejections: 0 };
+const detachPoolErrorHandler = attachPoolErrorHandler(db, {
+  onEvent: (detail) => {
+    poolDiagnostics.errors += 1;
+    poolDiagnostics.lastError = { at: new Date().toISOString(), detail };
+  }
+});
+const eventLoopMonitor = createEventLoopLagMonitor({ intervalMs: 1000, thresholdMs: eventLoopThresholdMs });
+const slowRequests = createSlowRequestRecorder({
+  thresholdMs: Number(process.env.SLOW_REQUEST_LOG_MS || 2000),
+  keep: 20
+});
+const stateWriteLimiter = createConcurrencyLimiter({
+  name: 'state_write',
+  limit: stateWriteConcurrency,
+  maxPending: stateWriteQueueLimit
+});
+// Variabel shutdown dideklarasikan di sini karena jalur kegagalan saat startup
+// (database ditolak, konfigurasi salah) memanggilnya sebelum bagian modul yang
+// lebih bawah ternisialisasi.
+let serverListening = false;
+let httpServer = null;
+let shutdownPromise = null;
+
+// Sebelum port terbuka, kegagalan janji (mis. database ditolak) harus menghentikan
+// proses seperti sebelumnya; sesudah berjalan, permintaan biasa jangan dikorbankan
+// oleh janji yang tertinggal.
+const crashCounters = installCrashGuards({
+  shouldExitImmediately: () => !serverListening,
+  onFatal: () => {
+    console.error(
+      '[diagnostic] shutting down after uncaught exception; supervisor akan menyalakan ulang proses.'
+    );
+    const hardExit = setTimeout(() => process.exit(1), 5000);
+    hardExit.unref();
+    void shutdown('fatal').finally(() => process.exit(1));
+  }
 });
 
 const schema = [
@@ -218,7 +325,9 @@ try {
     await assertOperationalSchema(db);
     const [revisionRows] = await db.execute("SELECT value FROM app_meta WHERE `key` = 'revision'");
     if (!revisionRows.length || !Number.isInteger(Number(revisionRows[0].value))) {
-      throw new Error('Operational app_meta revision is missing or invalid; apply the approved manual staging migration.');
+      throw new Error(
+        'Operational app_meta revision is missing or invalid; apply the approved manual staging migration.'
+      );
     }
   }
 } catch (error) {
@@ -227,8 +336,7 @@ try {
   throw new Error('Could not connect to or validate the configured database.', { cause: error });
 }
 
-
-const withTransaction = callback => withPoolTransaction(db, callback);
+const withTransaction = (callback) => withPoolTransaction(db, callback);
 
 if (dataBackend === 'legacy') {
   const adminProfile = {
@@ -242,10 +350,20 @@ if (dataBackend === 'legacy') {
   };
   const adminSalt = crypto.randomBytes(16);
   const adminHash = await scryptAsync(adminPassword, adminSalt, 64);
-  await execute(db, `
+  await execute(
+    db,
+    `
     INSERT IGNORE INTO auth_users (id, nip, profile_json, salt, password_hash)
     VALUES (?, ?, ?, ?, ?)
-  `, [adminProfile.id, adminNip, JSON.stringify(adminProfile), adminSalt.toString('hex'), adminHash.toString('hex')]);
+  `,
+    [
+      adminProfile.id,
+      adminNip,
+      JSON.stringify(adminProfile),
+      adminSalt.toString('hex'),
+      adminHash.toString('hex')
+    ]
+  );
   await execute(db, 'DELETE FROM sessions WHERE expires_at <= ?', [Date.now()]);
 }
 
@@ -256,10 +374,12 @@ const {
   collectionCache,
   readCollections,
   refreshCollections,
+  markCollectionsFresh,
   getCollection,
   userHasPermission,
-  stateForUser
-} = createStateHelpers({ db, dataBackend });
+  stateForUser,
+  cacheStats
+} = createStateHelpers({ db, dataBackend, cacheTtlMs: stateCacheTtlMs });
 
 const { sendTwilioRequestEvent } = createTwilioRequestNotification({ db });
 
@@ -271,16 +391,13 @@ const { persistHostDocument, persistHostDocumentDeletion } = createHostDocumentP
   dataBackend
 });
 
-await refreshCollections();
+await refreshCollections(db, { force: true });
 
-const {
-  requireUser,
-  requireUserFromTransactionState,
-  bindRequestUserToState
-} = createAuthMiddleware({
+const { requireUser, requireUserFromTransactionState, bindRequestUserToState } = createAuthMiddleware({
   db,
   queryOne,
-  accessIdentityMatches: (user, claims, users) => accessIdentityMatches(user, claims, users, cloudflareAccessRequired),
+  accessIdentityMatches: (user, claims, users) =>
+    accessIdentityMatches(user, claims, users, cloudflareAccessRequired),
   refreshCollections,
   getCollection,
   requireCloudflareAccess,
@@ -309,8 +426,7 @@ app.use((request, response, next) => {
   const hostHeader = request.headers.host || '';
   const host = hostHeader.split(':')[0].toLowerCase();
 
-  const shouldRedirectToApex =
-    host === 'www.bmnbpsminut.online' || host.endsWith('.hostingersite.com');
+  const shouldRedirectToApex = host === 'www.bmnbpsminut.online' || host.endsWith('.hostingersite.com');
 
   if (shouldRedirectToApex) {
     // Paksa HTTPS untuk host kanonik.
@@ -328,7 +444,21 @@ app.use(whatsapp.webhook);
 // Security headers dasar (setara subset helmet) - diterapkan sebelum parser body.
 app.use(securityHeaders);
 
-app.use(express.json({ limit: '25mb' }));
+// Batas waktu permintaan dan pencatatan permintaan lambat dipasang sebelum parser
+// body, sehingga permintaan yang macet saat pengiriman body juga terukur dan
+// selalu mendapat jawaban (504) alih-alih menggantung tanpa respons.
+app.use(slowRequests.middleware);
+app.use(
+  createRequestDeadlineMiddleware({
+    defaultTimeoutMs: requestTimeoutMs,
+    overrides: [{ match: (request) => request.path === '/api/state', timeoutMs: stateRequestTimeoutMs }]
+  })
+);
+
+// Body besar hanya dipakai sinkronisasi state; endpoint lain memakai batas lebih
+// kecil supaya parsing JSON tidak menjadi beban utama server.
+app.use('/api/state', express.json({ limit: '25mb' }));
+app.use(express.json({ limit: '8mb' }));
 app.use(sameOrigin);
 app.use(whatsapp.api);
 
@@ -341,9 +471,42 @@ const webChat = createWebChat({
   config: webChatConfig,
   getCollection,
   userHasPermission,
-  getOwnedRequestIds: userId => whatsapp.store.listOwnedRequestIds(userId)
+  getOwnedRequestIds: (userId) => whatsapp.store.listOwnedRequestIds(userId)
 });
 const webChatHits = new Map();
+
+const startedProcessAt = Date.now();
+
+// Diagnostik untuk /api/health dan /api/health/detail: saat gangguan terjadi lagi,
+// log dan endpoint ini menunjukkan apakah penyebabnya database (pool habis/antri),
+// event loop macet, atau permintaan berat yang menumpuk.
+function buildLoadSnapshot() {
+  return {
+    uptime_seconds: Math.round((Date.now() - startedProcessAt) / 1000),
+    data_backend: dataBackend,
+    database: {
+      ...getDatabasePoolStats(db, { connectionLimit: dbConnectionLimit, queueLimit: dbQueueLimit }),
+      queue_limit_rejections: poolDiagnostics.queueLimitRejections,
+      pool_errors: poolDiagnostics.errors
+    },
+    event_loop: eventLoopMonitor.stats(),
+    state_cache: cacheStats(),
+    state_write: stateWriteLimiter.stats()
+  };
+}
+
+function buildDiagnostics() {
+  return {
+    ...buildLoadSnapshot(),
+    slow_requests: slowRequests.stats(),
+    failures: {
+      unhandled_rejections: crashCounters.unhandledRejections,
+      uncaught_exceptions: crashCounters.uncaughtExceptions,
+      last_pool_error: poolDiagnostics.lastError,
+      last_fatal: crashCounters.lastFatal
+    }
+  };
+}
 
 const context = {
   db,
@@ -360,6 +523,10 @@ const context = {
   currentMakassarDate,
   refreshCollections,
   readCollections,
+  markCollectionsFresh,
+  stateWriteLimiter,
+  diagnostics: buildDiagnostics,
+  loadSnapshot: buildLoadSnapshot,
   getCollection,
   userHasPermission,
   stateForUser,
@@ -399,7 +566,9 @@ registerWhatsAppEventRoutes(app, context);
 
 if (process.env.NODE_ENV === 'production') {
   const dist = path.join(root, 'dist');
-  app.use('/api', (_request, response) => response.status(404).json({ error: 'Endpoint API tidak ditemukan.' }));
+  app.use('/api', (_request, response) =>
+    response.status(404).json({ error: 'Endpoint API tidak ditemukan.' })
+  );
   app.use(express.static(dist));
   app.get('*', (_request, response) => response.sendFile(path.join(dist, 'index.html')));
 } else {
@@ -409,11 +578,16 @@ if (process.env.NODE_ENV === 'production') {
     server: { middlewareMode: true, hmr: false },
     appType: 'custom'
   });
-  app.use('/api', (_request, response) => response.status(404).json({ error: 'Endpoint API tidak ditemukan.' }));
+  app.use('/api', (_request, response) =>
+    response.status(404).json({ error: 'Endpoint API tidak ditemukan.' })
+  );
   app.use(vite.middlewares);
   app.get('*', async (request, response, next) => {
     try {
-      const html = await vite.transformIndexHtml(request.originalUrl, fs.readFileSync(path.join(root, 'index.html'), 'utf8'));
+      const html = await vite.transformIndexHtml(
+        request.originalUrl,
+        fs.readFileSync(path.join(root, 'index.html'), 'utf8')
+      );
       response.status(200).set({ 'Content-Type': 'text/html' }).end(html);
     } catch (error) {
       next(error);
@@ -421,37 +595,121 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-app.use((error, _request, response, _next) => {
+app.use((error, request, response, _next) => {
   if (response.headersSent) return;
   // Kesalahan body-parser (JSON rusak, body terkompresi tidak terbaca, terlalu besar) membawa
   // status 4xx dan bukan kesalahan server; jangan laporkan sebagai 500.
   if (error?.type === 'entity.too.large' || error?.status === 413) {
     return response.status(413).json({ error: 'Ukuran data yang dikirim melebihi batas server.' });
   }
-  if (error?.type === 'entity.parse.failed' || error?.type === 'encoding.unsupported' ||
-      error?.status === 400 || error?.status === 415) {
+  if (
+    error?.type === 'entity.parse.failed' ||
+    error?.type === 'encoding.unsupported' ||
+    error?.status === 400 ||
+    error?.status === 415
+  ) {
     return response.status(400).json({ error: UNREADABLE_REQUEST_BODY_MESSAGE });
+  }
+  // Kelelahan koneksi database (antrean penuh, koneksi mati, limit koneksi) bersifat
+  // sementara. Jawab 503 + Retry-After agar klien berhenti dan mengulang, bukan membiarkan
+  // permintaan menggantung sampai tampak seperti server tidak merespon.
+  const errorCode = typeof error?.code === 'string' ? error.code : 'UNKNOWN';
+  if (
+    isPoolQueueLimitError(error) ||
+    errorCode === 'DB_ACQUIRE_TIMEOUT' ||
+    errorCode === 'ER_CON_COUNT_ERROR' ||
+    errorCode === 'PROTOCOL_CONNECTION_LOST' ||
+    errorCode === 'ER_LOCK_WAIT_TIMEOUT' ||
+    errorCode === 'ETIMEDOUT'
+  ) {
+    if (isPoolQueueLimitError(error) || errorCode === 'DB_ACQUIRE_TIMEOUT') {
+      poolDiagnostics.queueLimitRejections += 1;
+    }
+    console.error(
+      `[diagnostic] database_unavailable endpoint=${request.method} ${request.path} code=${errorCode} message=${String(error?.message).slice(0, 200)}`
+    );
+    return response.status(503).set('Retry-After', '10').json({
+      error: 'Basis data sedang sibuk memproses permintaan lain. Silakan coba lagi beberapa saat.',
+      code: 'DATABASE_BUSY'
+    });
   }
   console.error(error);
   response.status(500).json({ error: 'Terjadi kesalahan pada server.' });
 });
 
-const server = app.listen(port, host, () => {
+httpServer = app.listen(port, host, () => {
+  serverListening = true;
   console.log(`SIMAN server listening on http://${host}:${port}`);
   console.log(`MySQL database connected: ${dbHost}:${dbPort}/${dbName}`);
+  console.log(
+    `Runtime limits: db_connections=${dbConnectionLimit} db_queue=${dbQueueLimit} ` +
+      `request_timeout_ms=${requestTimeoutMs} state_timeout_ms=${stateRequestTimeoutMs} ` +
+      `state_write_concurrency=${stateWriteConcurrency} state_cache_ttl_ms=${stateCacheTtlMs}`
+  );
 });
 
-server.on('error', error => {
+// Timeout socket eksplisit: koneksi keep-alive yang macet dibersihkan lebih cepat
+// daripada batas bawaan Node, dan permintaan yang melebihi batas dipotong di level socket.
+httpServer.keepAliveTimeout = boundedInteger(process.env.HTTP_KEEP_ALIVE_TIMEOUT_MS, 65000, 1000, 300000);
+httpServer.headersTimeout = boundedInteger(
+  process.env.HTTP_HEADERS_TIMEOUT_MS,
+  httpServer.keepAliveTimeout + 5000,
+  2000,
+  600000
+);
+httpServer.requestTimeout = httpServerRequestTimeoutMs;
+
+httpServer.on('error', (error) => {
   console.error('HTTP server failed to start:', error instanceof Error ? error.message : error);
-  void db.end().finally(() => { process.exitCode = 1; });
+  void db.end().finally(() => {
+    process.exitCode = 1;
+  });
 });
+
+function shutdown(reason) {
+  if (shutdownPromise) return shutdownPromise;
+  console.log(`[diagnostic] shutting_down reason=${reason}`);
+  shutdownPromise = new Promise((resolve) => {
+    const finish = () => {
+      detachPoolErrorHandler();
+      eventLoopMonitor.stop();
+      db.end().then(
+        () => resolve(),
+        () => resolve()
+      );
+    };
+    // Server belum pernah sempat mendengarkan port (kegagalan startup): cukup
+    // tutup koneksi database lalu keluar, tanpa menunggu httpServer.close.
+    if (!serverListening || !httpServer?.close) {
+      finish();
+      return;
+    }
+    const forceTimer = setTimeout(() => {
+      console.error('[diagnostic] shutdown_forced setelah 8 detik; koneksi aktif masih tersisa.');
+      finish();
+    }, 8000);
+    forceTimer.unref();
+    httpServer.close((error) => {
+      if (error) console.error(`[diagnostic] server_close_failed ${error.message}`);
+      clearTimeout(forceTimer);
+      finish();
+    });
+    // Koneksi yang sedang mengangguk ditutup segera agar close() tidak menunggu 65 detik.
+    if (typeof httpServer.closeIdleConnections === 'function') httpServer.closeIdleConnections();
+  });
+  return shutdownPromise;
+}
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.once(signal, () => {
-    server.close(() => {
-      void db.end().finally(() => { process.exit(0); });
+    const hardExit = setTimeout(() => {
+      console.error(`[diagnostic] ${signal} tidak selesai dalam 12 detik; proses dihentikan.`);
+      process.exit(1);
+    }, 12000);
+    hardExit.unref();
+    void shutdown(signal).then(() => {
+      clearTimeout(hardExit);
+      process.exit(0);
     });
   });
 }
-
-

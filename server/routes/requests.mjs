@@ -14,7 +14,7 @@ export function registerRequestRoutes(app, context) {
   const {
     dataBackend,
     collections,
-    collectionCache,
+    markCollectionsFresh,
     queryOne,
     execute,
     withTransaction,
@@ -110,7 +110,7 @@ export function registerRequestRoutes(app, context) {
       return { status: 200, revision: revision + 1 };
     });
     if (outcome.status !== 200) return response.status(outcome.status).json({ error: outcome.error });
-    if (nextState) Object.assign(collectionCache, nextState);
+    if (nextState) markCollectionsFresh(nextState);
     response.json({ success: true, revision: outcome.revision });
   }));
 
@@ -321,7 +321,7 @@ export function registerRequestRoutes(app, context) {
     if (outcome.alreadyConfirmed) {
       return response.json({ success: true, alreadyConfirmed: true, revision: outcome.revision });
     }
-    Object.assign(collectionCache, nextState);
+    markCollectionsFresh(nextState);
     response.json({ success: true, revision: nextRevision });
     whatsapp.onStateSaved(currentState, nextState, request.user.id, nextRevision);
   }));
@@ -406,7 +406,7 @@ export function registerRequestRoutes(app, context) {
       return { status: 200, unchanged: false };
     });
     if (outcome.status !== 200) return response.status(outcome.status).json({ error: outcome.error });
-    if (!outcome.unchanged) Object.assign(collectionCache, nextState);
+    if (!outcome.unchanged) markCollectionsFresh(nextState);
     response.json({ success: true, revision });
   }));
 
@@ -477,7 +477,7 @@ export function registerRequestRoutes(app, context) {
       return { status: 200 };
     });
     if (outcome.status !== 200) return response.status(outcome.status).json({ error: outcome.error });
-    Object.assign(collectionCache, nextState);
+    markCollectionsFresh(nextState);
     response.json({ success: true, revision });
   }));
 }

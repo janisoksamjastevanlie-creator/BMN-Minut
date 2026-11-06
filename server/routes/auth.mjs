@@ -11,6 +11,8 @@ export function registerAuthRoutes(app, context) {
     requireCloudflareAccess,
     requireUser,
     refreshCollections,
+    diagnostics,
+    loadSnapshot,
     getCollection,
     accessIdentityMatches,
     hashToken,
@@ -28,12 +30,23 @@ export function registerAuthRoutes(app, context) {
         console.error(`Health check database query returned unexpected ready=${String(ready)} (${typeof ready}).`);
         return response.status(503).json({ status: 'unavailable' });
       }
-      response.json({ status: 'ok' });
+      // Beban runtime disertakan supaya gangguan "server tidak merespon" bisa dikenali
+      // dari indikator pool dan event loop, tanpa membuka isi data maupun rahasia.
+      response.json({ status: 'ok', load: loadSnapshot() });
     } catch (error) {
       const code = typeof error?.code === 'string' ? error.code : 'UNKNOWN';
       console.error(`Health check database query failed (${code}):`, error);
       response.status(503).json({ status: 'unavailable' });
     }
+  }));
+
+  // Diagnostik lengkap hanya untuk Administrator: permintaan lambat, kegagalan fatal,
+  // dan riwayat error koneksi database.
+  app.get('/api/health/detail', requireUser, asyncRoute(async (request, response) => {
+    if (request.user?.role !== 'Administrator') {
+      return response.status(403).json({ error: 'Diagnostik hanya tersedia untuk Administrator.' });
+    }
+    response.json({ status: 'ok', diagnostics: diagnostics() });
   }));
 
   app.post('/api/auth/login', requireCloudflareAccess, asyncRoute(async (request, response) => {
@@ -53,7 +66,7 @@ export function registerAuthRoutes(app, context) {
     if (attempt && attempt.count >= 10 && now - attempt.startedAt < 15 * 60 * 1000) {
       return response.status(429).json({ error: 'Terlalu banyak percobaan. Coba lagi dalam 15 menit.' });
     }
-    await refreshCollections();
+    await refreshCollections(db, { force: true });
     const account = await queryOne(db, 'SELECT * FROM auth_users WHERE nip = ?', [nip]);
     const salt = account ? Buffer.from(account.salt, 'hex') : Buffer.alloc(16);
     const expected = account ? Buffer.from(account.password_hash, 'hex') : Buffer.alloc(64);

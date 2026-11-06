@@ -24,7 +24,8 @@ export function registerStateRoutes(app, context) {
     dataBackend,
     collections,
     permissionsByCollection,
-    collectionCache,
+    markCollectionsFresh,
+    stateWriteLimiter,
     queryRows,
     queryOne,
     execute,
@@ -90,7 +91,12 @@ export function registerStateRoutes(app, context) {
     });
   }));
 
-  app.put('/api/state', performanceTiming('PUT /api/state'), requireUserFromTransactionState, asyncRoute(async (request, response) => {
+  app.put(
+    '/api/state',
+    performanceTiming('PUT /api/state'),
+    requireUserFromTransactionState,
+    stateWriteLimiter,
+    asyncRoute(async (request, response) => {
     const submittedState = request.body?.state;
     if (!submittedState || typeof submittedState !== 'object' || Array.isArray(submittedState)) {
       return response.status(400).json({ error: 'Format data tidak valid.' });
@@ -408,7 +414,7 @@ export function registerStateRoutes(app, context) {
             revision: revision + 1
           })
         : [];
-      Object.assign(collectionCache, state);
+      markCollectionsFresh(state);
       response.json(outcome.body);
       whatsapp.onStateSaved(currentState, state, request.user.id, revision + 1);
       if (n8nEvents.length) {
