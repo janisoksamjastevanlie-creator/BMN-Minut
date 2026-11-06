@@ -8,6 +8,11 @@ import { createGzipJsonMiddleware } from '../server/gzipJson.mjs';
 
 function fakeResponse() {
   const state = { headers: {}, chunks: [], statusCode: 200, ended: false };
+  let tandaiSelesai = () => {};
+  // Hasil kompresi ditulis pada callback zlib yang bersifat async, jadi ujiannya
+  // menunggu sinyal "respons sudah selesai" dari response tiruan, bukan memutar
+  // setImmediate yang bisa habis sebelum thread pool sempat menjawab.
+  state.selesai = new Promise((resolve) => { tandaiSelesai = resolve; });
   const response = {
     get headersSent() { return false; },
     get writableEnded() { return state.ended; },
@@ -20,6 +25,7 @@ function fakeResponse() {
     end(chunk) {
       if (chunk) state.chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
       state.ended = true;
+      tandaiSelesai();
       return response;
     },
     json(payload) {
@@ -30,6 +36,7 @@ function fakeResponse() {
         state.serializationFailed = true;
       }
       state.ended = true;
+      tandaiSelesai();
       return response;
     }
   };
@@ -43,10 +50,13 @@ async function run(middleware, request, response) {
   });
   const returned = response.json(request.payload);
   if (returned && typeof returned.then === 'function') await returned;
-  // Penulisan hasil kompresi terjadi pada callback zlib; tunggu sampai selesai.
-  for (let i = 0; i < 100 && !response.state.ended; i += 1) {
-    await new Promise((resolve) => setImmediate(resolve));
-  }
+  // Penulisan hasil kompresi terjadi pada callback zlib; tunggu sinyal selesai
+  // dengan batas waktu supaya kegagalan menjadi jelas, bukan senyap.
+  const tepatWaktu = await Promise.race([
+    response.state.selesai.then(() => true),
+    new Promise((resolve) => setTimeout(() => resolve(false), 5_000))
+  ]);
+  assert.ok(tepatWaktu, 'respons selesai sebelum batas waktu uji');
   return response;
 }
 
