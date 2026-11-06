@@ -22,3 +22,6 @@ backup-*/
 
 # Placeholder dump database tidak boleh ikut ke repository
 backup_db_*.sql
+
+# State runtime alat bantu (riwayat pemantau kesehatan, berkas sementara)
+var/
