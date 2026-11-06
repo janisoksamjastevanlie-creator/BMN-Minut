@@ -36,7 +36,7 @@ const GALAT_WIN32 = {
   0x00000001: 'fungsi salah',
   0x00000002: 'berkas peluncur tidak ditemukan',
   0x00000005: 'akses ditolak (jalankan pemasangan jadwal ini sekali sebagai Administrator)',
-  0x000010e0: 'jalannya ditolak — ada instance sebelumnya yang masih dianggap berjalan; hentikan dengan schtasks /End lalu pasang ulang jadwalnya',
+  0x000010e0: 'jalannya ditolak — ada instance sebelumnya yang masih dianggap berjalan; sembuhkan dengan node scripts/install-watchdog-task.mjs --verify',
   0x00000413: 'kredensial untuk tugas ini salah atau kedaluwarsa — pasang ulang jadwalnya',
   0x00000520: 'sesi logon tidak ada — mode logon jadwalnya rusak, pasang ulang dengan node scripts/install-watchdog-task.mjs'
 };
@@ -93,9 +93,12 @@ export function jelaskanHasilTugas(nilai) {
     const rendah = kode & 0xffff;
     return `${GALAT_WIN32[rendah] || `galat Windows ${rendah}`} (0x${kode.toString(16)})`;
   }
-  // Kode kecil berasal dari process.exitCode health-watchdog.mjs.
+  // Kode kecil berasal dari process.exitCode health-watchdog.mjs — tapi 1 dipakai
+  // juga oleh wscript saat skrip peluncurnya sendiri gagal, jadi jangan dibaca
+  // sebagai "pemeriksaan berjalan dan menemukan gangguan" tanpa melihat log.
+  if (kode === 1) return 'kode 1 — gangguan ditemukan ATAU peluncur gagal sebelum node jalan (lihat baris log)';
   if (kode >= 1 && kode <= 255) {
-    const arti = { 1: 'ditemukan gangguan pada aplikasi', 2: 'server tidak dapat dihubungi' }[kode];
+    const arti = { 2: 'server tidak dapat dihubungi' }[kode];
     return `pemeriksaan berakhir dengan kode ${kode}${arti ? ` — ${arti}` : ''}`;
   }
   return `kode 0x${kode.toString(16)} (${kode})`;

@@ -12,12 +12,13 @@ import {
   DEFAULT_COOLDOWN_MS,
   buildAlertMessage,
   decideAlert,
+  nilaiRestart,
   readAlertState,
   signatureOf,
   writeAlertState
 } from '../scripts/healthAlerts.mjs';
 import { daftarTujuan, jelaskanKesalahan, kirimPeringatan, siapkanPeringatan } from '../scripts/healthNotify.mjs';
-import { susunPeluncur } from '../scripts/watchdogLauncher.mjs';
+import { susunPeluncur, trPeluncur } from '../scripts/watchdogLauncher.mjs';
 
 const MENIT = 60_000;
 
@@ -202,10 +203,60 @@ test('peluncur senyap menuliskan jalur ber-spasi dengan kutip yang benar', () =>
   });
   const baris = isi.split('\r\n');
   assert.equal(baris[0].startsWith("'"), true, 'baris pertama harus komentar VB');
-  assert.match(baris[1], /CreateObject\("WScript\.Shell"\)/);
-  assert.match(baris[2], /shell\.CurrentDirectory = "C:\\xampp\\htdocs\\BMNBPSMINUT"/);
-  assert.match(baris[3], /^shell\.Run """C:\\Program Files\\nodejs\\node\.exe"" --env-file-if-exists/);
-  assert.match(baris[3], /--env-file-if-exists=\.env/);
-  assert.match(baris[3], /--notify/);
-  assert.match(baris[3], /--log=C:\\xampp\\htdocs\\BMNBPSMINUT\\var\\watch\\watchdog\.log", 0, False$/);
+  assert.match(baris.find((teks) => teks.includes('WScript.Shell')), /Set shell = CreateObject\("WScript\.Shell"\)/);
+  assert.match(baris.find((teks) => teks.includes('CurrentDirectory')), /C:\\xampp\\htdocs\\BMNBPSMINUT/);
+  const jalankan = baris.find((teks) => teks.startsWith('kode = '));
+  assert.match(jalankan, /^kode = shell\.Run\("""C:\\Program Files\\nodejs\\node\.exe"" --env-file-if-exists/);
+  assert.match(jalankan, /--env-file-if-exists=\.env/);
+  assert.match(jalankan, /--notify/);
+  // wscript.exe harus menunggu node selesai; kalau tidak, Task Scheduler merasa
+  // instansinya masih berjalan dan menolak semua tick berikutnya.
+  assert.match(jalankan, /--log=C:\\xampp\\htdocs\\BMNBPSMINUT\\var\\watch\\watchdog\.log", 0, True\)$/);
+
+  // Penugasan dari panggilan VBScript WAJIB berkurung. Tanpa kurung skripnya
+  // gagal dikompilasi, //B menyembunyikan pesannya, dan yang tertinggal hanya
+  // kode keluar 1 — cukup meyakinkan untuk dikira pemantauan yang berhasil.
+  assert.doesNotMatch(isi, /^kode = shell\.Run "/m);
+
+  // Berkas log tidak boleh dipegang selama node berjalan (FSO mengunci berkas),
+  // dan tiap berkas yang dibuka harus ditutup lagi.
+  const buka = baris.filter((teks) => teks.startsWith('Set aliran =')).length;
+  const tutup = baris.filter((teks) => teks === 'aliran.Close').length;
+  assert.equal(buka, 2);
+  assert.equal(tutup, buka);
+  assert.ok(!/Set \w+ = CreateObject\([^)]*\)\./.test(isi), 'metode tidak boleh dirantai langsung dari CreateObject');
+  assert.match(isi, /PELUNCUR mulai/);
+  assert.match(isi, /PELUNCUR selesai kode=" & kode/);
+});
+
+test('aksi jadwal memakai executable, bukan jalur skrip telanjang', () => {
+  const tr = trPeluncur('C:\\xampp\\htdocs\\BMNBPSMINUT\\var\\watch\\watchdog-launch.vbs');
+  assert.equal(tr, 'wscript.exe //B "C:\\xampp\\htdocs\\BMNBPSMINUT\\var\\watch\\watchdog-launch.vbs"');
+  assert.match(tr, /^wscript\.exe \/\/B ".+\.vbs"$/);
+  assert.ok(!tr.startsWith('"'), 'jalur .vbs tidak boleh menjadi Command');
+});
+
+test('restart tunggal dibaca sebagai deploy, crash-loop dibaca sebagai gangguan', () => {
+  const nowMs = Date.parse('2026-11-07T01:00:00.000Z');
+  const intervalMs = 300_000;
+  const segar = '2026-11-07T00:55:00.000Z';
+  const nilai = (previous, uptime = 60) => nilaiRestart({ uptime, previous, nowMs, intervalMs });
+
+  assert.equal(nilai({ uptime_seconds: 900, at: segar }, 1000).restart, false, 'uptime naik = tidak ada restart');
+  assert.equal(nilai(null).restart, false, 'sampel pertama tidak boleh menuduh apa pun');
+
+  const deploy = nilai({ uptime_seconds: 900, at: segar });
+  assert.equal(deploy.restart, true);
+  assert.equal(deploy.layakDilaporkan, false, 'deploy tunggal bukan alasan mengirim WhatsApp');
+
+  const crash = nilai({ uptime_seconds: 900, at: segar, restart_seen: true });
+  assert.equal(crash.layakDilaporkan, true, 'restart dua kali berturut-turut = crash-loop');
+  assert.match(crash.catatan, /uptime 60s setelah 900s/);
+
+  const basi = nilai({ uptime_seconds: 900, at: '2026-11-06T16:00:00.000Z', restart_seen: true });
+  assert.equal(basi.layakDilaporkan, false, 'sampel basi berarti pemantau yang absen, bukan aplikasinya');
+  assert.match(basi.catatan, /540 menit sejak sampel terakhir/);
+
+  assert.equal(nilai({ uptime_seconds: 900 }).layakDilaporkan, false, 'sampel tanpa waktu tidak dianggap segar');
+  assert.equal(nilai({ uptime_seconds: 'tidak tentu', at: segar }).restart, false);
 });

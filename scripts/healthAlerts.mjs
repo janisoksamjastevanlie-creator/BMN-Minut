@@ -126,3 +126,29 @@ export function writeAlertState(file, state) {
   fs.writeFileSync(sementara, isi);
   fs.renameSync(sementara, file);
 }
+
+// Restart tunggal nyaris selalu berarti deploy yang memang direncanakan, dan
+// mengirim WhatsApp untuk setiap deploy hanya melatih orang mengabaikan
+// peringatan. Yang layak dibunyikan adalah restart berturut-turut: proses mati
+// lagi sebelum sampel berikutnya, pola crash-loop. Restart yang mengikuti
+// sampel basi juga tidak membuktikan apa pun — yang absen waktu itu pemantau,
+// bukan aplikasinya.
+export function nilaiRestart({ uptime, previous, nowMs, intervalMs = 300_000 }) {
+  const sebelum = Number(previous?.uptime_seconds);
+  const kini = Number(uptime);
+  if (!Number.isFinite(kini) || !Number.isFinite(sebelum) || kini >= sebelum) {
+    return { restart: false, layakDilaporkan: false, catatan: '' };
+  }
+  const umurSampelMs = nowMs - Date.parse(previous?.at || '');
+  if (!Number.isFinite(umurSampelMs)) {
+    return { restart: true, layakDilaporkan: false, catatan: `uptime ${kini}s setelah ${sebelum}s (sampel terakhir tanpa waktu)` };
+  }
+  const segar = umurSampelMs <= intervalMs * 1.5;
+  const menit = Math.max(0, Math.round(umurSampelMs / 60_000));
+  const catatan = `uptime ${kini}s setelah ${sebelum}s, ${menit} menit sejak sampel terakhir`;
+  return {
+    restart: true,
+    layakDilaporkan: segar && previous?.restart_seen === true,
+    catatan
+  };
+}

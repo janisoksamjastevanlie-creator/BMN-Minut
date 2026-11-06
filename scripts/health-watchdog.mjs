@@ -18,6 +18,7 @@ import {
   DEFAULT_STATE_FILE,
   buildAlertMessage,
   decideAlert,
+  nilaiRestart,
   readAlertState,
   signatureOf,
   writeAlertState
@@ -102,15 +103,8 @@ function evaluate(probeResult, previous) {
   if (probeResult.latencyMs > maxLatencyMs) {
     issues.push(`latency ${probeResult.latencyMs}ms melebihi ${maxLatencyMs}ms`);
   }
-  const uptime = Number(load.uptime_seconds);
-  if (previous && Number.isFinite(uptime)) {
-    const previousUptime = Number(previous.uptime_seconds);
-    // Uptime yang turun berarti proses baru; restart berulang adalah tanda gangguan.
-    if (Number.isFinite(previousUptime) && uptime < previousUptime) {
-      const gapMinutes = Math.round((Date.now() - new Date(previous.at).getTime()) / 60000);
-      issues.push(`restart terdeteksi (${gapMinutes} menit sejak sampel terakhir, uptime ${uptime}s)`);
-    }
-  }
+  // Restart sengaja tidak dinilai di sini: itu pekerjaan nilaiRestart(), yang
+  // membedakan deploy yang direncanakan dari crash-loop.
   // Pembilang di bawah ini kumulatif sejak proses hidup. Tanpa selisih terhadap
   // sampel sebelumnya, satu kejadian lama membuat setiap pemeriksaan berikutnya
   // berpendapat sama sehingga peringatan tidak lagi menandai kejadian baru.
@@ -186,8 +180,19 @@ if (result) {
     history_last_write_at: result.body?.load?.health_history?.last_write_at,
     history_error: result.body?.load?.health_history?.has_error
   };
+  // Tanda restart ditulis sebelum sampel disimpan supaya pemeriksaan berikutnya
+  // tahu apakah proses berganti lagi atau ini hanya satu deploy yang direncanakan.
+  const restart = nilaiRestart({
+    uptime: sample.uptime_seconds,
+    previous,
+    nowMs: Date.now(),
+    intervalMs: Number(argv.get('sample-interval-ms') || 300_000)
+  });
+  sample.restart_seen = restart.restart;
   appendSample(sample);
   issues.push(...evaluate(result, previous));
+  if (restart.layakDilaporkan) issues.push(`restart berulang — ${restart.catatan}`);
+  else if (restart.restart) console.log(`catatan: proses berganti (kemungkinan deploy) — ${restart.catatan}`);
 }
 
 if (unreachableError) process.exitCode = 2;

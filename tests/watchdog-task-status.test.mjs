@@ -34,7 +34,7 @@ test('kode hasil tugas dijelaskan tanpa memaksa pembaca menghafal angka', () => 
   assert.equal(jelaskanHasilTugas(null), 'belum ada catatan');
   assert.equal(jelaskanHasilTugas(267009), 'sedang berjalan (267009)');
   assert.equal(jelaskanHasilTugas(267011), 'belum pernah dijalankan (267011)');
-  assert.equal(jelaskanHasilTugas(1), 'pemeriksaan berakhir dengan kode 1 — ditemukan gangguan pada aplikasi');
+  assert.equal(jelaskanHasilTugas(1), 'kode 1 — gangguan ditemukan ATAU peluncur gagal sebelum node jalan (lihat baris log)');
   assert.equal(jelaskanHasilTugas(2), 'pemeriksaan berakhir dengan kode 2 — server tidak dapat dihubungi');
   assert.equal(jelaskanHasilTugas(4), 'pemeriksaan berakhir dengan kode 4');
   assert.match(jelaskanHasilTugas(2147946720), /instance sebelumnya/);
