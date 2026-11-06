@@ -90,41 +90,51 @@ function evaluate(probeResult, previous) {
 }
 
 const previous = readPreviousSample();
-let result;
+// Kode keluar ditetapkan, bukan process.exit(): di Windows, keluar paksa ketika
+// koneksi HTTPS masih dalam proses penutupan memicu assertion libuv sehingga kode
+// keluar yang dilihat penjadwal cron menjadi acak.
+let result = null;
+let unreachableError = null;
+const issues = [];
 try {
   result = await probe();
 } catch (error) {
+  unreachableError = error;
   console.error(`MAUN: ${url} tidak dapat dijangkau — ${error.message}`);
   appendSample({ at: new Date().toISOString(), unreachable: true, error: error.message });
-  process.exit(2);
 }
 
-const sample = {
-  at: new Date().toISOString(),
-  latency_ms: result.latencyMs,
-  status: result.body?.status,
-  uptime_seconds: result.body?.load?.uptime_seconds,
-  backend: result.body?.load?.data_backend,
-  pool_errors: result.body?.load?.database?.pool_errors,
-  rejections: result.body?.load?.database?.queue_limit_rejections,
-  lag_breaches: result.body?.load?.event_loop?.breaches,
-  write_rejected: result.body?.load?.state_write?.rejected,
-  cache_refreshes: result.body?.load?.state_cache?.refreshes,
-  cache_ttl_skips: result.body?.load?.state_cache?.ttl_skips,
-  rss_mb: result.body?.load?.memory?.rss_mb,
-  limit_ratio: result.body?.load?.memory?.limit_ratio,
-  retention_archived: result.body?.load?.audit_retention?.archived_total,
-  retention_error: result.body?.load?.audit_retention?.has_error
-};
-appendSample(sample);
+let sample = null;
+if (result) {
+  sample = {
+    at: new Date().toISOString(),
+    latency_ms: result.latencyMs,
+    status: result.body?.status,
+    uptime_seconds: result.body?.load?.uptime_seconds,
+    backend: result.body?.load?.data_backend,
+    pool_errors: result.body?.load?.database?.pool_errors,
+    rejections: result.body?.load?.database?.queue_limit_rejections,
+    lag_breaches: result.body?.load?.event_loop?.breaches,
+    write_rejected: result.body?.load?.state_write?.rejected,
+    cache_refreshes: result.body?.load?.state_cache?.refreshes,
+    cache_ttl_skips: result.body?.load?.state_cache?.ttl_skips,
+    rss_mb: result.body?.load?.memory?.rss_mb,
+    limit_ratio: result.body?.load?.memory?.limit_ratio,
+    retention_archived: result.body?.load?.audit_retention?.archived_total,
+    retention_error: result.body?.load?.audit_retention?.has_error
+  };
+  appendSample(sample);
+  issues.push(...evaluate(result, previous));
+}
 
-const issues = evaluate(result, previous);
-if (issues.length) {
+if (unreachableError) process.exitCode = 2;
+else if (issues.length) {
   console.error(`PERHATIAN ${url}: ${issues.join('; ')}`);
   console.error(`sampel: ${JSON.stringify(sample)}`);
-  process.exit(1);
+  process.exitCode = 1;
+} else {
+  console.log(
+    `SEHAT ${url} latency=${result.latencyMs}ms uptime=${sample.uptime_seconds}s ` +
+      `backend=${sample.backend} rss=${sample.rss_mb}MB retention=${sample.retention_archived}`
+  );
 }
-console.log(
-  `SEHAT ${url} latency=${result.latencyMs}ms uptime=${sample.uptime_seconds}s ` +
-    `backend=${sample.backend} rss=${sample.rss_mb}MB cache_skips=${sample.cache_ttl_skips}`
-);
