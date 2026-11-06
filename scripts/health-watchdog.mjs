@@ -270,9 +270,35 @@ if (notifyRequested) {
     cooldownMs: Number.isFinite(cooldownMs) && cooldownMs > 0 ? cooldownMs : DEFAULT_COOLDOWN_MS
   });
 
+  const kabariLokal = async ({ judul, isi, keputLokal }) => {
+    if (!notifikasiLokal) {
+      console.error('notifikasi lokal dimatikan (--no-local-notify)');
+      return;
+    }
+    if (!keputLokal.kirim) {
+      console.log(`notifikasi lokal: ${keputLokal.alasan}`);
+      return;
+    }
+    const lokal = await tampilkanToast({ judul: `${judul} — ${url}`, pesan: String(isi).replace(/\n/g, ' · ') });
+    catat(`LOKAL ${keputLokal.alasan} ${lokal.berhasil ? 'tampil' : 'gagal'}${lokal.catatan ? ` — ${lokal.catatan}` : ''}`);
+    console.log(`notifikasi lokal (${keputLokal.alasan}): ${lokal.catatan}`);
+    if (lokal.berhasil) writeAlertState(stateFile, { ...readAlertState(stateFile), lokal: keputLokal.nextState });
+  };
+
   if (keputusan.action === 'none' || keputusan.action === 'skip') {
     console.log(`peringatan: ${keputusan.reason}`);
     if (keputusan.action === 'skip') writeAlertState(stateFile, keputusan.nextState);
+    // "Pulih" versi WhatsApp tidak akan pernah terdengar kalau jalur WhatsApp-nya
+    // mati: keputusan hanya berubah ke recover setelah state peringatan sempat
+    // ditulis, dan itu hanya terjadi bila ada pesan yang benar-benar terkirim.
+    // Karena itu pemulihan diumumkan dari keadaan lokalnya sendiri.
+    if (keputusan.action === 'none' && stateSemula?.lokal?.status === 'problem') {
+      await kabariLokal({
+        judul: 'SIMAN pulih',
+        isi: `[SIMAN PULIH] ${url}\nStatus: sehat kembali.\nTidak perlu tindakan.`,
+        keputLokal: perluLokal({ previous: stateSemula, signature: '', nowMs: sekarang, cooldownMs: cooldownLokalMs })
+      });
+    }
   } else {
     const pesan = buildAlertMessage({
       url,
@@ -302,7 +328,14 @@ if (notifyRequested) {
       catat(`KIRIM ${keputusan.reason} ${hasil.rangkuman()}`);
 
       if (hasil.terkirim > 0) {
-        writeAlertState(stateFile, { ...keputusan.nextState, lokal: stateSemula?.lokal ?? null });
+        writeAlertState(stateFile, {
+          ...keputusan.nextState,
+          // Pemulihan yang sampai lewat WhatsApp sekaligus menutup keadaan lokal:
+          // tanpa ini, laptop yang tidur saat gangguan berlangsung akan bangun
+          // dan membunyikan "pulih" untuk kejadian yang sudah diberitahukan.
+          lokal: keputusan.action === 'recover' ? { status: 'ok', notified_at: new Date(sekarang).toISOString() }
+            : stateSemula?.lokal ?? null
+        });
       } else {
         if (hasil.kanal) {
           const baris = `KANAL ${hasil.kanal.status} — ${hasil.kanal.catatan}`;
@@ -311,27 +344,16 @@ if (notifyRequested) {
         }
         // Saluran utama bisu: bunyikan saluran lokal dengan jedanya sendiri,
         // supaya gangguan tetap terlihat tanpa mengirim WhatsApp tiap lima menit.
-        const keputLokal = perluLokal({
-          previous: stateSemula,
-          signature: keputusan.action === 'recover' ? '' : signature,
-          nowMs: sekarang,
-          cooldownMs: cooldownLokalMs
+        await kabariLokal({
+          judul: judulLokal,
+          isi: pesan,
+          keputLokal: perluLokal({
+            previous: stateSemula,
+            signature: keputusan.action === 'recover' ? '' : signature,
+            nowMs: sekarang,
+            cooldownMs: cooldownLokalMs
+          })
         });
-        if (!notifikasiLokal) {
-          console.error('peringatan tidak terkirim dan notifikasi lokal dimatikan (--no-local-notify)');
-        } else if (!keputLokal.kirim) {
-          console.log(`notifikasi lokal: ${keputLokal.alasan}`);
-        } else {
-          const lokal = await tampilkanToast({
-            judul: `${judulLokal} — ${url}`,
-            pesan: pesan.replace(/\n/g, ' · ')
-          });
-          catat(`LOKAL ${keputLokal.alasan} ${lokal.berhasil ? 'tampil' : 'gagal'}${lokal.catatan ? ` — ${lokal.catatan}` : ''}`);
-          console.log(`notifikasi lokal (${keputLokal.alasan}): ${lokal.catatan}`);
-          if (lokal.berhasil) {
-            writeAlertState(stateFile, { ...stateSemula, lokal: keputLokal.nextState });
-          }
-        }
         if (!hasil.dilewati) {
           console.error('peringatan WhatsApp tidak terkirim; state WhatsApp tidak diubah sehingga dicoba lagi pada pemeriksaan berikutnya');
         }
