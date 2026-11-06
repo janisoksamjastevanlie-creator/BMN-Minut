@@ -14,6 +14,7 @@ import { getHomeView } from '../utils/rbac';
 import { getPathForView } from '../utils/viewRoutes';
 import { mergeStateAfterConflict } from '../../stateConflict.mjs';
 import { ApiResponseError, apiFailureMessage, fetchWithTimeout, isTransientApiFailure, readApiResponse, sendJson } from '../utils/serverRequest';
+import { decideRemoteSync } from '../utils/remoteSync';
 
 import {
   applyRequestNumberAssignments,
@@ -46,6 +47,9 @@ const RECOVERY_BASE_DELAY_MS = 5_000;
 const RECOVERY_MAX_DELAY_MS = 60_000;
 const HEARTBEAT_ONLINE_MS = 30_000;
 const HEARTBEAT_OFFLINE_MS = 10_000;
+// Seberapa sering ditanyakan "ada perubahan data?" ke server. Satu permintaan ini
+// hanya membaca satu baris, jadi boleh lebih sering daripada heartbeat.
+const REVISION_POLL_MS = 12_000;
 
 interface AppContextType {
   currentUser: User | null;
@@ -56,6 +60,8 @@ interface AppContextType {
   isSyncRecoverable: boolean;
   syncRecoveryAttempt: number;
   connectionStatus: ConnectionStatus;
+  // Waktu data server terakhir yang ditarik otomatis; null sebelum tarikan pertama.
+  lastRemoteSyncAt: string | null;
   isReloadingServerData: boolean;
   reloadServerData: () => Promise<boolean>;
   requestPageRefresh: () => void;
@@ -218,6 +224,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     local: Record<string, unknown>;
   } | null>(null);
   const revisionRef = useRef(0);
+  // Waktu tarik data otomatis terakhir; dipakai untuk memastikan sinkron berjalan
+  // tanpa perlu menampilkan notifikasi yang mengganggu.
+  const [lastRemoteSyncAt, setLastRemoteSyncAt] = useState<string | null>(null);
   const lastSyncedStateRef = useRef<Record<string, unknown> | null>(null);
   const syncBlockedRef = useRef(false);
   const syncQueueRef = useRef<Promise<void>>(Promise.resolve());
@@ -358,7 +367,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [pageRefreshVersion, currentUser, dataReady, syncError, sharedState]);
 
   const applySharedState = (state: Record<string, unknown>) => {
-    latestSharedStateRef.current = { ...latestSharedStateRef.current, ...state };
+    // Notifikasi dinormalisasi sekali di sini. Bila nilai mentah dari server ikut
+    // disimpan sebagai dasar perbandingan, hasil render selalu dianggap "berubah"
+    // dan peramban langsung menulis ulang state — satu simpananextra untuk setiap
+    // tarik data, yang dengan sinkron otomatis berubah menjadi badai tulisan.
+    const notifications = Array.isArray(state.notifications)
+      ? normalizeNotificationIds(state.notifications as import('../types').NotificationItem[])
+      : state.notifications;
+    latestSharedStateRef.current = notifications === undefined
+      ? { ...latestSharedStateRef.current, ...state }
+      : { ...latestSharedStateRef.current, ...state, notifications };
     if (Array.isArray(state.rooms)) collections.setRooms(state.rooms as OfficeRoom[]);
     if (Array.isArray(state.assets)) collections.setAssets(state.assets as BmnAsset[]);
     if (Array.isArray(state.inventoryItems)) collections.setInventoryItems(state.inventoryItems as InventoryItem[]);
@@ -372,7 +390,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (Array.isArray(state.documents)) collections.setDocuments(state.documents as DocumentItem[]);
     if (Array.isArray(state.auditLogs)) setAuditLogs(state.auditLogs as import('../types').AuditLog[]);
     if (Array.isArray(state.notifications)) {
-      setNotifications(normalizeNotificationIds(state.notifications as import('../types').NotificationItem[]));
+      setNotifications(notifications as import('../types').NotificationItem[]);
     }
     if (Array.isArray(state.users)) collections.setUsers(state.users as User[]);
     if (Array.isArray(state.roles)) collections.setRoles(state.roles as import('../types').RoleDefinition[]);
@@ -405,11 +423,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }>(saveResponse, '/api/state');
       const savedState = applyRequestNumberAssignments(initialState, saveResult.requestNumbers);
       revisionRef.current = saveResult.revision;
-      lastSyncedStateRef.current = cloneSharedState(savedState);
       applySharedState(savedState);
+      lastSyncedStateRef.current = cloneSharedState(latestSharedStateRef.current);
     } else {
-      lastSyncedStateRef.current = cloneSharedState(result.state);
+      // Terapkan lebih dulu, lalu jadikan hasil yang benar-benar dirender sebagai
+      // dasar perbandingan. Urutan ini penting: notifikasi dinormalisasi saat
+      // diterapkan, sehingga salinan mentah server tidak pernah dianggap perubahan.
       applySharedState(result.state);
+      lastSyncedStateRef.current = cloneSharedState(latestSharedStateRef.current);
       const storedUser = (result.state.users as User[] | null)?.find(user => user.id === authenticatedUser.id);
       if (storedUser) setCurrentUser(storedUser);
     }
@@ -858,6 +879,86 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const recoverServerSyncRef = useRef(recoverServerSync);
   recoverServerSyncRef.current = recoverServerSync;
 
+  // Sinkron otomatis: perubahan orang lain tampil sendiri, tanpa memuat ulang halaman.
+  // Pertanyaan "ada yang berubah?" hanya mengirim satu angka (revision) supaya tidak
+  // menarik seluruh koleksi setiap beberapa detik; state penuh baru diambil ketika
+  // angkanya naik DAN perangkat ini sedang bersih (tidak ada simpanan yang berjalan).
+  const remoteSyncInFlightRef = useRef(false);
+  const syncRemoteChanges = async (): Promise<boolean> => {
+    if (!currentUser || !dataReady || remoteSyncInFlightRef.current) return false;
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return false;
+    if (!lastSyncedStateRef.current) return false;
+    let needsPull = false;
+    remoteSyncInFlightRef.current = true;
+    try {
+      const probe = await fetchWithTimeout('/api/state/revision', {}, { timeoutMs: 8_000, retryDelayMs: 400 });
+      if (!probe.ok) return false;
+      const probeData = await readApiResponse<{ revision: number }>(probe, '/api/state/revision');
+      const base = lastSyncedStateRef.current;
+      const decision = decideRemoteSync({
+        revisionFromServer: probeData?.revision,
+        localRevision: revisionRef.current,
+        hasUnsavedChanges: !sameSharedState(latestSharedStateRef.current, base),
+        pendingServerActions: pendingServerActionsRef.current,
+        persistenceWaiters: requestPersistenceWaitersRef.current.size,
+        isSyncBlocked: syncBlockedRef.current,
+        isRecovering: reloadInFlightRef.current
+      });
+      needsPull = decision.action === 'pull';
+    } catch {
+      // Gangguan jaringan saat pemeriksaan diam-diam bukan error untuk pengguna;
+      // heartbeat dan pemulihan otomatis menangani kondisi offline.
+      return false;
+    } finally {
+      if (!needsPull) remoteSyncInFlightRef.current = false;
+    }
+    if (!needsPull) return false;
+    try {
+      // Penarikan state penuh memakai jalur pemulihan yang sudah teruji: ia
+      // mencocokkan basis, menggabungkan perubahan dua arah, dan memperbarui
+      // profil pengguna bila peran atau haknya berubah di server.
+      const recovered = await recoverServerSyncRef.current();
+      if (recovered) {
+        // Dasar perbandingan untuk simpanan berikutnya adalah apa yang baru saja
+        // diterapkan, bukan salinan mentah server; tanpa ini tab yang baru menarik
+        // data akan menganggap dirinya punya perubahan dan menulis ulang state.
+        lastSyncedStateRef.current = cloneSharedState(latestSharedStateRef.current);
+        setLastRemoteSyncAt(new Date().toISOString());
+      }
+      return recovered;
+    } finally {
+      remoteSyncInFlightRef.current = false;
+    }
+  };
+  const syncRemoteChangesRef = useRef(syncRemoteChanges);
+  syncRemoteChangesRef.current = syncRemoteChanges;
+
+  useEffect(() => {
+    if (!currentUser || !dataReady) return;
+    let cancelled = false;
+    const tick = () => {
+      if (cancelled) return;
+      void syncRemoteChangesRef.current();
+    };
+    let intervalTimer = 0;
+    // Awal acak supaya semua tab yang dibuka serentak tidak menarik data di detik yang sama.
+    const startDelay = 2_000 + Math.floor(Math.random() * 3_000);
+    const startTimer = window.setTimeout(() => {
+      tick();
+      intervalTimer = window.setInterval(tick, REVISION_POLL_MS);
+    }, startDelay);
+    const handleVisible = () => {
+      if (document.visibilityState === 'visible') tick();
+    };
+    document.addEventListener('visibilitychange', handleVisible);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(startTimer);
+      if (intervalTimer) window.clearInterval(intervalTimer);
+      document.removeEventListener('visibilitychange', handleVisible);
+    };
+  }, [currentUser, dataReady]);
+
   // Jadwal coba-ulang otomatis dengan backoff selama kegagalannya bersifat sementara.
   useEffect(() => {
     if (!syncError || !isSyncRecoverable) {
@@ -1037,6 +1138,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         isSyncRecoverable,
         syncRecoveryAttempt,
         connectionStatus,
+        lastRemoteSyncAt,
         isReloadingServerData,
         reloadServerData,
         requestPageRefresh,

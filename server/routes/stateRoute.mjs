@@ -63,6 +63,18 @@ export function registerStateRoutes(app, context) {
     response.json({ state, initialized: state.users !== null, revision: snapshot.revision, dataBackend });
   }));
 
+  // Harga murah untuk "apakah data berubah?": satu baris app_meta, tanpa membaca
+  // koleksi dan tanpa memuat ulang state. Peramban memakai ini untuk mengetahui
+  // kapan perlu menarik /api/state, sehingga perubahan pengguna lain tampil sendiri.
+  app.get('/api/state/revision', requireUserFromTransactionState, asyncRoute(async (request, response) => {
+    const revisionRow = await queryOne(db, "SELECT value FROM app_meta WHERE `key` = 'revision'");
+    const revision = Number(revisionRow?.value || 0);
+    response.json({
+      revision: Number.isInteger(revision) ? revision : 0,
+      dataBackend
+    });
+  }));
+
   app.get('/api/inventory/:id/stock-card', requireUser, asyncRoute(async (request, response) => {
     if (!userHasPermission(request.user, 'viewInventory') && !userHasPermission(request.user, 'manageInventory')) {
       return response.status(403).json({ error: 'Tidak memiliki izin melihat kartu stok.' });
