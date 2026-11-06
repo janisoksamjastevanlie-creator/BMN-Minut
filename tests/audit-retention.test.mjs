@@ -6,6 +6,7 @@ import test from 'node:test';
 import {
   createAuditRetentionJob,
   retentionCutoffDate,
+  splitAuditLogsByLimit,
   splitAuditLogsByRetention
 } from '../server/auditRetention.mjs';
 import { currentMakassarDate } from '../server/datetime.mjs';
@@ -73,6 +74,38 @@ function fakeDatabase({ auditLogs, rawAuditLogs, failOn, operationalArchiveMissi
   };
   return { db, calls, state, getRevision: () => revision };
 }
+
+test('batas jumlah menahan entri terbaru dan mengarsipkan sisanya', () => {
+  const logs = [
+    { id: 'a', tanggal: '2026-10-01' },
+    { id: 'b', tanggal: '2026-10-02' },
+    { id: 'c', tanggal: '2026-10-03' },
+    { id: 'tanpa-tanggal' }
+  ];
+  const { keep, overflow } = splitAuditLogsByLimit(logs, 2);
+  assert.deepEqual(overflow.map((entry) => entry.id), ['a'], 'yang digeser adalah yang paling lama');
+  assert.deepEqual(keep.map((entry) => entry.id), ['b', 'c', 'tanpa-tanggal'], 'urutan aktif dipertahankan');
+  assert.deepEqual(splitAuditLogsByLimit(logs, 0).overflow, [], '0 berarti tidak dibatasi');
+  assert.deepEqual(splitAuditLogsByLimit(logs, 99).overflow, [], 'di bawah batas tidak ada yang digeser');
+});
+
+test('job hanya dengan batas jumlah tetap bekerja tanpa batas umur', async () => {
+  const fake = fakeDatabase({
+    auditLogs: [
+      { id: 'paling-lama', tanggal: '2020-01-01' },
+      { id: 'tengah', tanggal: '2026-06-01' },
+      { id: 'terbaru', tanggal: currentMakassarDate() }
+    ]
+  });
+  const job = createAuditRetentionJob({ db: fake.db, dataBackend: 'legacy', activeLimit: 2 });
+  const result = await job.runOnce();
+  assert.deepEqual(result, { archived: 1, remaining: 2 });
+  assert.deepEqual(fake.state.appDataWrites[0].map((entry) => entry.id), ['tengah', 'terbaru']);
+  assert.equal(job.stats().enabled, true, 'batas jumlah saja sudah mengaktifkan penataan');
+  assert.equal(job.stats().retention_days, 0);
+  assert.equal(job.stats().active_limit, 2);
+  assert.equal(fake.getRevision(), '8');
+});
 
 test('cutoff hanya ada bila retensi diaktifkan', () => {
   assert.equal(retentionCutoffDate(0), null);

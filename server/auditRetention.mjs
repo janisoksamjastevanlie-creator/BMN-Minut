@@ -46,6 +46,32 @@ export function splitAuditLogsByRetention(logs, cutoffDate) {
   return { keep, archive };
 }
 
+// Batas kedua selain umur: berapa banyak catatan yang boleh ikut dalam state aktif.
+// Produksi pernah mencapai 11.161 entri (3,6 MB) karena satu bulan impor data, dan
+// payload itu dibaca ulang pada setiap login serta ditulis ulang pada setiap simpanan.
+// Entri tanpa tanggal terbaca tidak pernah digeser, supaya tidak ada catatan yang
+// hilang karena format lama.
+export function splitAuditLogsByLimit(logs, activeLimit) {
+  const entries = Array.isArray(logs) ? logs : [];
+  const limit = Math.round(Number(activeLimit));
+  const dated = entries.filter((entry) => ISO_DATE.test(String(entry?.tanggal || '')));
+  if (!Number.isFinite(limit) || limit <= 0 || dated.length <= limit) {
+    return { keep: [...entries], overflow: [] };
+  }
+  const newestDates = dated
+    .slice()
+    .sort((a, b) => String(b.tanggal).localeCompare(String(a.tanggal)))
+    .slice(0, limit);
+  const retained = new Set(newestDates);
+  const keep = [];
+  const overflow = [];
+  for (const entry of entries) {
+    if (!ISO_DATE.test(String(entry?.tanggal || '')) || retained.has(entry)) keep.push(entry);
+    else overflow.push(entry);
+  }
+  return { keep, overflow };
+}
+
 async function insertArchiveChunk(connection, entries) {
   const placeholders = entries.map(() => '(?, ?, ?, ?, ?)').join(', ');
   const params = entries.flatMap((entry) => [
@@ -62,7 +88,7 @@ async function insertArchiveChunk(connection, entries) {
   `, params);
 }
 
-async function runLegacyRetention(connection, cutoffDate) {
+async function runLegacyRetention(connection, cutoffDate, activeLimit) {
   const [rows] = await connection.execute("SELECT value_json FROM app_data WHERE `key` = 'auditLogs'");
   if (!rows.length) return { archived: 0, remaining: 0 };
   let logs;
@@ -72,8 +98,9 @@ async function runLegacyRetention(connection, cutoffDate) {
     // Blob yang rusak bukan urusan retensi; jangan pernah menulis ulang.
     return { archived: 0, remaining: 0, skipped: 'auditLogs tidak dapat dibaca' };
   }
-  const { keep, archive } = splitAuditLogsByRetention(logs, cutoffDate);
-  const batch = archive.slice(0, MAX_ENTRIES_PER_RUN);
+  const { keep: withinAge, archive } = splitAuditLogsByRetention(logs, cutoffDate);
+  const { keep, overflow } = splitAuditLogsByLimit(withinAge, activeLimit);
+  const batch = [...archive, ...overflow].slice(0, MAX_ENTRIES_PER_RUN);
   if (!batch.length) return { archived: 0, remaining: keep.length };
   const archivedIds = new Set(batch.map((entry) => String(entry.id || '')));
   for (let index = 0; index < batch.length; index += INSERT_CHUNK) {
@@ -88,13 +115,31 @@ async function runLegacyRetention(connection, cutoffDate) {
   return { archived: batch.length, remaining: logs.length - batch.length };
 }
 
-async function runOperationalRetention(connection, cutoffDate) {
-  const [candidates] = await connection.execute(
-    'SELECT id FROM audit_logs WHERE tanggal IS NOT NULL AND tanggal < ? ORDER BY tanggal LIMIT ?',
-    [cutoffDate, MAX_ENTRIES_PER_RUN]
-  );
-  if (!candidates.length) return { archived: 0, remaining: 0 };
-  const ids = candidates.map((row) => row.id);
+async function runOperationalRetention(connection, cutoffDate, activeLimit) {
+  const candidates = new Map();
+  if (cutoffDate) {
+    const [rows] = await connection.execute(
+      'SELECT id FROM audit_logs WHERE tanggal IS NOT NULL AND tanggal < ? ORDER BY tanggal LIMIT ?',
+      [cutoffDate, MAX_ENTRIES_PER_RUN]
+    );
+    for (const row of rows) candidates.set(String(row.id), row);
+  }
+  const limit = Math.round(Number(activeLimit));
+  if (Number.isFinite(limit) && limit > 0) {
+    const [tally] = await connection.execute(
+      'SELECT COUNT(*) AS total FROM audit_logs WHERE tanggal IS NOT NULL'
+    );
+    const excess = Number(tally[0]?.total || 0) - limit;
+    if (excess > 0) {
+      const [rows] = await connection.execute(
+        'SELECT id FROM audit_logs WHERE tanggal IS NOT NULL ORDER BY tanggal LIMIT ?',
+        [Math.min(excess, MAX_ENTRIES_PER_RUN)]
+      );
+      for (const row of rows) candidates.set(String(row.id), row);
+    }
+  }
+  const ids = [...candidates.keys()].slice(0, MAX_ENTRIES_PER_RUN);
+  if (!ids.length) return { archived: 0, remaining: 0 };
   const markers = ids.map(() => '?').join(',');
   await execute(connection, `
     INSERT IGNORE INTO audit_log_archive
@@ -153,16 +198,19 @@ export function createAuditRetentionJob({
   db,
   dataBackend,
   retentionDays,
+  activeLimit,
   intervalMs,
   runAfterMs,
   refreshAfterRun
 } = {}) {
   const days = Number.isFinite(Number(retentionDays)) ? Math.max(0, Math.round(Number(retentionDays))) : 0;
+  const limit = Number.isFinite(Number(activeLimit)) ? Math.max(0, Math.round(Number(activeLimit))) : 0;
   const pollMs = positiveInteger(intervalMs, 6 * 60 * 60 * 1000);
   const firstDelayMs = positiveInteger(runAfterMs, 45 * 1000);
   const stats = {
-    enabled: days > 0,
+    enabled: days > 0 || limit > 0,
     retention_days: days,
+    active_limit: limit,
     interval_ms: pollMs,
     backend: dataBackend === 'operational' ? 'operational' : 'legacy',
     runs: 0,
@@ -174,11 +222,13 @@ export function createAuditRetentionJob({
   const timers = [];
 
   async function runOnce() {
-    if (!stats.enabled) return { skipped: 'retensi dimatikan (AUDIT_RETENTION_DAYS=0)' };
+    if (!stats.enabled) {
+      return { skipped: 'retensi dimatikan (AUDIT_RETENTION_DAYS=0 dan AUDIT_ACTIVE_LIMIT=0)' };
+    }
     const cutoffDate = retentionCutoffDate(days);
     stats.runs += 1;
     stats.last_run_at = new Date().toISOString();
-    if (!cutoffDate) return { skipped: 'tanggal hari ini tidak terbaca' };
+    if (!cutoffDate && !limit) return { skipped: 'tanggal hari ini tidak terbaca' };
     if (stats.backend === 'operational' && !(await archiveTableExists(db))) {
       // Mode operasional tidak menjalankan DDL saat startup, jadi arsip harus disiapkan
       // lewat migrasi lebih dulu. Kondisi ini bukan error runtime, hanya belum aktif.
@@ -189,8 +239,8 @@ export function createAuditRetentionJob({
     try {
       const result = await withRevisionLock(db, (connection) =>
         stats.backend === 'operational'
-          ? runOperationalRetention(connection, cutoffDate)
-          : runLegacyRetention(connection, cutoffDate)
+          ? runOperationalRetention(connection, cutoffDate, limit)
+          : runLegacyRetention(connection, cutoffDate, limit)
       );
       stats.last_archived = result?.archived || 0;
       stats.archived_total += stats.last_archived;
@@ -232,6 +282,7 @@ export function createAuditRetentionJob({
     return {
       enabled: stats.enabled,
       retention_days: stats.retention_days,
+      active_limit: stats.active_limit,
       runs: stats.runs,
       archived_total: stats.archived_total,
       last_run_at: stats.last_run_at,

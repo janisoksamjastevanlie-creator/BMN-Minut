@@ -18,6 +18,7 @@
     "deploy:check": "node scripts/check-deploy.mjs",
     "watch:health": "node scripts/health-watchdog.mjs",
     "repair:meta": "node scripts/repair-legacy-meta.mjs",
+    "audit:trim": "node scripts/audit-trim.mjs",
     "format": "prettier --write \"src/**/*.{ts,tsx}\" \"*.mjs\"",
     "test": "node --import tsx --test"
   },
