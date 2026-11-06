@@ -29,7 +29,7 @@ import {
   signatureOf,
   writeAlertState
 } from './healthAlerts.mjs';
-import { evaluate } from './watchdogEvaluate.mjs';
+import { evaluate, sebabKegagalan } from './watchdogEvaluate.mjs';
 import { tampilkanToast } from './notifyLocal.mjs';
 
 const argv = new Map(
@@ -66,6 +66,11 @@ const jedaProbeMs = Math.max(0, Number(argv.get('probe-delay-ms') ?? 4000));
 // Fonnte yang terputus. Bisa dimatikan dengan --no-local-notify.
 const notifikasiLokal = !argv.get('no-local-notify');
 const cooldownLokalMs = Math.max(60_000, Number(argv.get('local-cooldown-ms') || DEFAULT_LOKAL_COOLDOWN_MS));
+// Rujukan untuk memeriksa apakah laptop sendiri masih punya jalur ke luar ketika
+// server tidak menjawab. Hostinger selalu hidup untuk endpoint ini dan tidak
+// perlu token; kosongkan dengan --reference-url= untuk mematikan pemeriksaan.
+const referenceUrl = String(argv.get('reference-url') ?? 'https://api.fonnte.com/');
+const referenceTimeoutMs = Math.max(2000, Number(argv.get('reference-timeout-ms') || 8000));
 
 function catat(text) {
   const baris = `[${new Date().toISOString()}] ${text}`;
@@ -149,19 +154,43 @@ async function probeBerulang({ percobaan = 2, jedaMs = 4000 } = {}) {
   return terakhir.hasil;
 }
 
+async function probeRujukan() {
+  if (!referenceUrl) return null;
+  try {
+    const response = await fetch(referenceUrl, {
+      signal: AbortSignal.timeout(referenceTimeoutMs),
+      cache: 'no-store'
+    });
+    return response.ok ? null : new Error(`rujukan menjawab HTTP ${response.status}`);
+  } catch (error) {
+    return error;
+  }
+}
+
 const previous = readPreviousSample();
 // Kode keluar ditetapkan, bukan process.exit(): di Windows, keluar paksa ketika
 // koneksi HTTPS masih dalam proses penutupan memicu assertion libuv sehingga kode
 // keluar yang dilihat penjadwal cron menjadi acak.
 let result = null;
 let unreachableError = null;
+let kegagalan = null;
 const issues = [];
 try {
   result = await probeBerulang({ percobaan: percobaanProbe, jedaMs: jedaProbeMs });
 } catch (error) {
   unreachableError = error;
-  console.error(`MATI: ${url} tidak dapat dijangkau setelah ${percobaanProbe} percobaan — ${error.message}`);
-  appendSample({ at: new Date().toISOString(), unreachable: true, error: error.message });
+  // Laptop pernah kehilangan Wi-Fi selama ±20 menit dan setiap tick ketika itu
+  // melaporkan "server MATI". Satu permintaan rujukan memisahkan keduanya, jadi
+  // yang dibunyikan adalah gangguan yang sebenarnya.
+  const rujukanError = await probeRujukan();
+  kegagalan = sebabKegagalan({ error, rujukanError, rujukanUrl: referenceUrl });
+  console.error(`${kegagalan.lokal ? 'SINYAL' : 'MATI'}: ${kegagalan.label}`);
+  appendSample({
+    at: new Date().toISOString(),
+    unreachable: true,
+    local_offline: kegagalan.lokal,
+    error: kegagalan.pesan
+  });
 }
 
 let sample = null;
@@ -219,7 +248,7 @@ else if (issues.length) {
 
 catat(
   unreachableError
-    ? `MATI ${url} — ${unreachableError.message}`
+    ? `${kegagalan.lokal ? 'SINYAL' : 'MATI'} ${url} — ${kegagalan.label}`
     : issues.length
       ? `PERHATIAN ${url} — ${issues.join('; ')}`
       : `SEHAT ${url} latency=${result.latencyMs}ms uptime=${sample.uptime_seconds}s rss=${sample.rss_mb}MB`
@@ -229,9 +258,7 @@ catat(
 // hanya setelah pesan benar-benar diterima provider; kegagalan kirim tidak boleh
 // menandai "sudah diberi tahu" karena akan membungkam peringatan berikutnya.
 if (notifyRequested) {
-  const peringatan = unreachableError
-    ? [`server tidak dapat dijangkau (${unreachableError.message})`]
-    : issues;
+  const peringatan = unreachableError ? [kegagalan.label] : issues;
   const signature = peringatan.length ? signatureOf(peringatan) : '';
   const stateSemula = readAlertState(stateFile);
   const sekarang = Date.now();
@@ -252,8 +279,10 @@ if (notifyRequested) {
       decision: keputusan,
       issues: peringatan,
       sample,
-      nowMs: sekarang,
-      unreachable: unreachableError?.message
+      nowMs: sekarang
+      // Sebab kegagalan sudah ada di daftar issues (label sebabKegagalan), jadi
+      // baris "unreachable" tidak dipakai lagi: kalimatnya selalu menyebut
+      // server, padahal yang bisa mati adalah jaringan laptop sendiri.
     });
     const judulLokal = keputusan.action === 'recover' ? 'SIMAN pulih' : 'SIMAN gangguan';
 

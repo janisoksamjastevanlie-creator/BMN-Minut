@@ -8,11 +8,11 @@
 // bisu justru saat paling dibutuhkan.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { perluLokal } from '../scripts/healthAlerts.mjs';
+import { perluLokal, signatureOf } from '../scripts/healthAlerts.mjs';
 import { jelaskanKesalahan, kirimPeringatan } from '../scripts/healthNotify.mjs';
 import { nilaiKanal, urlStatusDevice } from '../scripts/fonnteChannel.mjs';
 import { kutipPowerShell, susunPerintahToast } from '../scripts/notifyLocal.mjs';
-import { evaluate, sedangBoot } from '../scripts/watchdogEvaluate.mjs';
+import { evaluate, sebabKegagalan, sedangBoot } from '../scripts/watchdogEvaluate.mjs';
 
 const KONFIG = {
   provider: 'fonnte',
@@ -69,7 +69,10 @@ test('kanal diperiksa hanya ketika semua pengiriman gagal', async () => {
       });
     },
     periksaKanal: async ({ config }) => {
-      dipanggil.push(config.fonnte.apiUrl);
+      // Bentuk yang diterima harus sama dengan yang dipakai periksaKanalFonnte
+      // sungguhan: token + apiUrl, bukan konfigurasi WhatsApp utuh.
+      assert.equal(config.token, 'token-uji');
+      dipanggil.push(config.apiUrl);
       return { siap: false, status: 'terputus', catatan: 'perangkat Fonnte terputus' };
     },
     muatEnv: async () => {},
@@ -191,4 +194,26 @@ test('penilaian lain tetap berjalan setelah pemindahan modul', () => {
 
   const ditolak = evaluate({ latencyMs: 100, status: 502, body: null }, null);
   assert.match(ditolak[0], /health menolak \(HTTP 502/);
+});
+
+test('server mati dan laptop mati sinyal tidak lagi dilaporkan sama', () => {
+  const galat = new Error('fetch failed');
+  const rujukan = 'https://api.fonnte.com/';
+
+  const server = sebabKegagalan({ error: galat, rujukanError: null, rujukanUrl: rujukan });
+  assert.equal(server.lokal, false);
+  assert.match(server.label, /^server tidak dapat dijangkau \(fetch failed\)/);
+
+  const laptop = sebabKegagalan({ error: galat, rujukanError: new Error('timeout'), rujukanUrl: rujukan });
+  assert.equal(laptop.lokal, true);
+  assert.match(laptop.label, /koneksi laptop terputus/);
+  assert.match(laptop.label, /api\.fonnte\.com/, 'rujukan disebut supaya sebabnya terbaca');
+
+  // Tanda tangan berbeda: peringatan "laptop tanpa jaringan" tidak boleh
+  // dianggap kejadian yang sama dengan gangguan server saat menentukan jeda.
+  assert.notEqual(signatureOf([server.label]), signatureOf([laptop.label]));
+
+  const tanpaRujukan = sebabKegagalan({ error: galat, rujukanError: new Error('x'), rujukanUrl: '' });
+  assert.match(tanpaRujukan.label, /rujukan juga tidak dapat dijangkau/);
+  assert.equal(sebabKegagalan({}).lokal, false, 'galat tanpa informasi apa pun tetap dianggap gangguan server');
 });

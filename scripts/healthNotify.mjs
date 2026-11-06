@@ -133,7 +133,10 @@ export async function kirimPeringatan({
     // Hanya dipanggil pada jalur gagal supaya pemeriksaan rutin tidak menambah
     // permintaan ke Fonnte.
     try {
-      kanal = await periksaKanal({ config });
+      // Diperiksa dengan objek Fonnte yang sama seperti pengiriman (token +
+      // apiUrl), bukan konfigurasi WhatsApp utuh: konfigurasi utuh tidak punya
+      // field itu sehingga jawabannya selalu "tidak lengkap".
+      kanal = await periksaKanal({ config: config.fonnte });
     } catch {
       kanal = { siap: false, status: 'tidak_terkenal', catatan: 'status perangkat tidak dapat dibaca' };
     }

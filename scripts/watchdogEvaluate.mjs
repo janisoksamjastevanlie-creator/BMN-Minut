@@ -5,7 +5,7 @@
 // dites lewat naskah end-to-end. Fungsi murni menerima hasil probe dan sampel
 // sebelumnya, tanpa menyentuh jaringan maupun berkas.
 //
-// Dua aturan yang lahir dari log produksi:
+// Tiga aturan yang lahir dari log produksi:
 //   1. Selisih, bukan angka mentah. Pembilang pool_errors dan kawan-kawannya
 //      kumulatif sejak proses hidup, jadi tanpa selisih terhadap sampel
 //      sebelumnya satu kejadian lama membuat tiap pemeriksaan berikutnya
@@ -14,6 +14,33 @@
 //      baru hidup, jadi table_ready=false pada menit-menit pertama hanyalah tanda
 //      aplikasi sedang menyala — laporan ini terbukti salah pada sampel
 //      2026-11-06T17:04Z yang mengambilnya saat uptime 0 detik.
+//   3. Kegagalan laptop bukan kegagalan server. sebabKegagalan() di bawah
+//      memisahkan keduanya lewat satu permintaan rujukan.
+
+// Dipisahkan supaya bisa dinilai apa adanya: pada 2026-11-07 laptop pemantau
+// kehilangan Wi-Fi selama ±20 menit dan tiap tick melaporkan "server MATI",
+// padahal yang mati adalah jalur ke luar laptopnya sendiri. Rujukan (host lain
+// yang selalu hidup) membedakan keduanya dengan satu permintaan tambahan,
+// hanya ketika probe utama gagal.
+export function sebabKegagalan({ error, rujukanError, rujukanUrl = '' }) {
+  const pesan = String(error?.message || error || 'galat tidak dikenal').slice(0, 160);
+  if (rujukanError) {
+    return {
+      lokal: true,
+      label: `koneksi laptop terputus — ${hostRujukan(rujukanUrl)} juga tidak dapat dijangkau (${pesan})`,
+      pesan
+    };
+  }
+  return { lokal: false, label: `server tidak dapat dijangkau (${pesan})`, pesan };
+}
+
+function hostRujukan(nilai) {
+  try {
+    return new URL(String(nilai)).host;
+  } catch {
+    return 'rujukan';
+  }
+}
 
 export const DEFAULT_INTERVAL_MS = 300_000;
 export const BOOT_GRACE_MS = 120_000;
