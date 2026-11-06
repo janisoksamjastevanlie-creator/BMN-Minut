@@ -50,6 +50,7 @@ export function createHealthHistoryRecorder({
     last_error: null
   };
   const timers = [];
+  let stopped = false;
 
   async function ensureTable() {
     // SHOW TABLES dan LIMIT dibaca lewat koneksi tanpa prepared statement supaya
@@ -117,7 +118,9 @@ export function createHealthHistoryRecorder({
 
   function start() {
     if (!stats.enabled || timers.length) return;
+    stopped = false;
     const schedule = () => {
+      if (stopped) return;
       const timer = setTimeout(() => {
         void record().finally(schedule);
       }, pollMs);
@@ -133,9 +136,26 @@ export function createHealthHistoryRecorder({
   }
 
   function stop() {
+    // Sampah penjaga: record() yang masih berjalan memanggil schedule() pada
+    // finally, jadi tanpa bendera ini pencatat bisa bangun lagi sesudah shutdown.
+    stopped = true;
     for (const timer of timers) clearTimeout(timer);
     timers.length = 0;
   }
 
-  return { stats: () => ({ ...stats }), record, recent, start, stop };
+  // Ringkasan tanpa isi pesan error: cukup untuk /api/health publik bahwa
+  // pencatatan riwayat benar-benar aktif, detail lengkap tetap untuk Administrator.
+  function summary() {
+    return {
+      enabled: stats.enabled,
+      interval_ms: stats.interval_ms,
+      table_ready: stats.table_ready,
+      writes: stats.writes,
+      pruned: stats.pruned,
+      last_write_at: stats.last_write_at,
+      has_error: Boolean(stats.last_error)
+    };
+  }
+
+  return { stats: () => ({ ...stats }), summary, record, recent, start, stop };
 }

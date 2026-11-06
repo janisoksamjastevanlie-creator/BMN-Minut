@@ -77,15 +77,40 @@ function evaluate(probeResult, previous) {
       issues.push(`restart terdeteksi (${gapMinutes} menit sejak sampel terakhir, uptime ${uptime}s)`);
     }
   }
-  if (load.database?.pool_errors) issues.push(`pool_errors=${load.database.pool_errors}`);
-  if (load.database?.queue_limit_rejections)
-    issues.push(`antrean_database_penuh=${load.database.queue_limit_rejections}`);
-  if (load.event_loop?.breaches) issues.push(`event_loop_lag=${load.event_loop.breaches}x`);
-  if (load.state_write?.rejected) issues.push(`tulis_ditolak=${load.state_write.rejected}`);
+  // Pembilang di bawah ini kumulatif sejak proses hidup. Tanpa selisih terhadap
+  // sampel sebelumnya, satu kejadian lama membuat setiap pemeriksaan berikutnya
+  // berpendapat sama sehingga peringatan tidak lagi menandai kejadian baru.
+  const delta = (value, before) => {
+    const now = Number(value) || 0;
+    if (now === 0) return 0;
+    const old = Number(before);
+    if (!Number.isFinite(old)) return now;
+    return Math.max(0, now - old);
+  };
+  const newPoolErrors = delta(load.database?.pool_errors, previous?.pool_errors);
+  const newRejections = delta(load.database?.queue_limit_rejections, previous?.rejections);
+  const newLag = delta(load.event_loop?.breaches, previous?.lag_breaches);
+  const newWriteRejects = delta(load.state_write?.rejected, previous?.write_rejected);
+  if (newPoolErrors) issues.push(`pool_errors_baru=${newPoolErrors}`);
+  if (newRejections) issues.push(`antrean_database_penuh_baru=${newRejections}`);
+  if (newLag) issues.push(`event_loop_lag_baru=${newLag}x`);
+  if (newWriteRejects) issues.push(`tulis_ditolak_baru=${newWriteRejects}`);
   if (load.memory?.limit_ratio != null && load.memory.limit_ratio > maxMemoryRatio) {
     issues.push(`memori ${Math.round(load.memory.limit_ratio * 100)}% dari batas`);
   }
   if (load.audit_retention?.has_error) issues.push('penataan audit gagal (lihat /api/health/detail)');
+  const history = load.health_history || {};
+  if (history.enabled && history.has_error) issues.push('riwayat kesehatan gagal ditulis');
+  if (history.enabled && history.table_ready === false) {
+    issues.push('riwayat kesehatan aktif tetapi tabel health_samples belum ada');
+  }
+  if (history.enabled && history.table_ready && history.last_write_at) {
+    const ageMinutes = (Date.now() - new Date(history.last_write_at).getTime()) / 60000;
+    const allowedMinutes = Math.max(15, ((Number(history.interval_ms) || 300000) / 60000) * 3);
+    if (Number.isFinite(ageMinutes) && ageMinutes > allowedMinutes) {
+      issues.push(`riwayat kesehatan macet (${Math.round(ageMinutes)} menit sejak sampel terakhir)`);
+    }
+  }
   return issues;
 }
 
@@ -121,7 +146,11 @@ if (result) {
     rss_mb: result.body?.load?.memory?.rss_mb,
     limit_ratio: result.body?.load?.memory?.limit_ratio,
     retention_archived: result.body?.load?.audit_retention?.archived_total,
-    retention_error: result.body?.load?.audit_retention?.has_error
+    retention_error: result.body?.load?.audit_retention?.has_error,
+    history_writes: result.body?.load?.health_history?.writes,
+    history_table_ready: result.body?.load?.health_history?.table_ready,
+    history_last_write_at: result.body?.load?.health_history?.last_write_at,
+    history_error: result.body?.load?.health_history?.has_error
   };
   appendSample(sample);
   issues.push(...evaluate(result, previous));

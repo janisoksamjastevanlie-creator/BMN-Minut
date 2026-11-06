@@ -89,6 +89,52 @@ test('riwayat terakhir terbaca untuk diagnostik', async () => {
   assert.equal(recorder.stats().table_ready, true);
 });
 
+test('ringkasan publik menyembunyikan pesan error asli', async () => {
+  const { recorder } = fakeDatabase({ failOn: 'INSERT INTO health_samples' });
+  await recorder.record();
+  const summary = recorder.summary();
+  assert.equal(summary.enabled, true);
+  assert.equal(summary.interval_ms, 60000);
+  assert.equal(summary.has_error, true, 'keberadaan error tetap terlihat');
+  assert.equal(summary.last_error, undefined, 'isi error hanya lewat stats() untuk Administrator');
+  assert.equal(summary.table_ready, true);
+});
+
+test('riwayat kesehatan ikut pada ringkasan beban', async () => {
+  const { recorder } = fakeDatabase({});
+  const summary = recorder.summary();
+  assert.equal(summary.table_ready, false, 'tabel belum diperiksa sampai ada permintaan');
+  await recorder.record();
+  assert.equal(recorder.summary().writes, 1);
+  assert.ok(recorder.summary().last_write_at, 'waktu tulisan terakhir tercatat');
+});
+
+test('setelah stop pencatatan tidak bangkit sendiri, dan start mengaktifkannya lagi', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const flush = () => new Promise((resolve) => setImmediate(resolve));
+  const { calls, recorder } = fakeDatabase({});
+
+  recorder.start();
+  t.mock.timers.tick(20000);
+  await flush();
+  const writtenAfterFirst = calls.filter((call) => call.sql.includes('INSERT INTO health_samples')).length;
+  assert.equal(writtenAfterFirst, 1, 'sampel pertama tertulis');
+
+  recorder.stop();
+  t.mock.timers.tick(10 * 60 * 1000);
+  await flush();
+  assert.equal(
+    calls.filter((call) => call.sql.includes('INSERT INTO health_samples')).length,
+    1,
+    'record() yang tertunda tidak boleh menjadwalkan ulang sesudah stop'
+  );
+
+  recorder.start();
+  t.mock.timers.tick(20000);
+  await flush();
+  assert.equal(calls.filter((call) => call.sql.includes('INSERT INTO health_samples')).length, 2);
+});
+
 test('nama tabel asing tidak pernah disisipkan apa adanya', async () => {
   const calls = [];
   const recorder = createHealthHistoryRecorder({

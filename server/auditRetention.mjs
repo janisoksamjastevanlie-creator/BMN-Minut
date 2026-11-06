@@ -220,6 +220,7 @@ export function createAuditRetentionJob({
     last_error: null
   };
   const timers = [];
+  let stopped = false;
 
   async function runOnce() {
     if (!stats.enabled) {
@@ -261,7 +262,9 @@ export function createAuditRetentionJob({
 
   function start() {
     if (!stats.enabled || timers.length) return;
+    stopped = false;
     const schedule = () => {
+      if (stopped) return;
       const timer = setTimeout(() => {
         void runOnce().finally(schedule);
       }, pollMs);
@@ -291,6 +294,9 @@ export function createAuditRetentionJob({
   }
 
   function stop() {
+    // runOnce() yang masih berjalan memanggil schedule() pada finally; tanpa
+    // bendera ini job bisa bangun lagi sesudah proses menutup diri.
+    stopped = true;
     for (const timer of timers) clearTimeout(timer);
     timers.length = 0;
   }

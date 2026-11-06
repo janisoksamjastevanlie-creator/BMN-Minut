@@ -551,7 +551,8 @@ function buildLoadSnapshot() {
     memory: getMemorySnapshot(),
     state_cache: cacheStats(),
     state_write: stateWriteLimiter.stats(),
-    audit_retention: auditRetention.summary()
+    audit_retention: auditRetention.summary(),
+    health_history: healthHistory.summary()
   };
 }
 
