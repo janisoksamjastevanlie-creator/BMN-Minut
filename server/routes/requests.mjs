@@ -219,7 +219,7 @@ export function registerRequestRoutes(app, context) {
       nextState = JSON.parse(JSON.stringify(currentState));
       const nextRequest = nextState.requests.find(item => item.id === target.id);
       const mutationIds = [];
-      for (const { item, quantity } of issuedItems.entries()) {
+      for (const { item, quantity } of issuedItems) {
         const mutableItem = nextState.inventoryItems.find(candidate => candidate.id === item.id);
         mutableItem.stokSaatIni -= quantity;
         mutableItem.totalNilai = mutableItem.stokSaatIni * Number(mutableItem.hargaSatuan || 0);
