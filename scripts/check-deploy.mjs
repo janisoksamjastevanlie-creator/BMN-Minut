@@ -110,14 +110,21 @@ for (;;) {
     const concerns = [];
     if (summary.pool_errors) concerns.push(`pool_errors=${summary.pool_errors}`);
     if (summary.queue_rejections) concerns.push(`queue_rejections=${summary.queue_rejections}`);
-    if (summary.lag_breaches) concerns.push(`event_loop_lag=${summary.lag_breaches}x`);
     if (summary.write_rejected) concerns.push(`state_write_rejected=${summary.write_rejected}`);
     if (concerns.length) {
       console.error(`Deploy aktif tetapi ada catatan: ${concerns.join(', ')}`);
-      process.exit(1);
+      process.exitCode = 1;
+      break;
+    }
+    // Lonjakan event loop dihitung sejak proses hidup dan tidak pernah dinolkan,
+    // jadi angka kecil pada proses yang sudah lama berjalan bukan tanda deploy buruk.
+    // Pemantau terpisah (health-watchdog) yang menilai tren ini.
+    if (summary.lag_breaches) {
+      console.log(`Catatan: event_loop_lag=${summary.lag_breaches}x sejak proses hidup (uptime ${summary.uptime_seconds}s).`);
     }
     console.log('Deploy terverifikasi: commit cocok, health ok, tanpa tanda gangguan.');
-    process.exit(0);
+    process.exitCode = 0;
+    break;
   }
 
   if (remote === undefined) {
@@ -127,7 +134,8 @@ for (;;) {
     console.error(
       `Deploy belum cocok/sehat (server=${remote ?? 'dilewati'}, expected=${expected}, health=${summary.status})`
     );
-    process.exit(1);
+    process.exitCode = 1;
+    break;
   }
   await new Promise((resolve) => setTimeout(resolve, 10000));
 }
