@@ -25,6 +25,7 @@ import {
   isPoolQueueLimitError
 } from './server/observability.mjs';
 import { createAuditRetentionJob } from './server/auditRetention.mjs';
+import { createAuditReplayGuard } from './server/auditReplayGuard.mjs';
 import { createHealthHistoryRecorder } from './server/healthHistory.mjs';
 import { createGzipJsonMiddleware } from './server/gzipJson.mjs';
 import { registerStaticServing } from './server/staticServing.mjs';
@@ -155,6 +156,10 @@ const auditRetentionIntervalMs = boundedInteger(
   600000,
   86400000
 );
+// Run pertama ditunda supaya proses sempat selesai boot dan tabel arsip tersedia;
+// batas bawah 5 detik dipakai oleh uji end-to-end, bukan untuk memangkas penundaan
+// produksi.
+const auditRetentionRunAfterMs = boundedInteger(process.env.AUDIT_RETENTION_RUN_AFTER_MS, 45000, 5000, 3600000);
 if (
   !dbHost ||
   !dbUser ||
@@ -423,13 +428,16 @@ const {
 // Job penataan audit trail lama. Dijalankan hanya setelah port terbuka dan dihentikan
 // rapi saat shutdown; transaksi internalnya mengunci baris revision sehingga tidak pernah
 // menimpa simpanan pengguna yang sedang berjalan.
+const auditReplayGuard = createAuditReplayGuard();
 const auditRetention = createAuditRetentionJob({
   db,
   dataBackend,
   retentionDays: auditRetentionDays,
   activeLimit: auditActiveLimit,
   intervalMs: auditRetentionIntervalMs,
-  refreshAfterRun: () => refreshCollections(db, { force: true })
+  runAfterMs: auditRetentionRunAfterMs,
+  refreshAfterRun: () => refreshCollections(db, { force: true }),
+  replayGuard: auditReplayGuard
 });
 
 // Riwayat beban runtime disimpan di database karena keluaran proses pada hosting
@@ -560,7 +568,13 @@ function buildLoadSnapshot() {
     memory: getMemorySnapshot(),
     state_cache: cacheStats(),
     state_write: stateWriteLimiter.stats(),
-    audit_retention: auditRetention.summary(),
+    // active_entries dibaca dari cache state, bukan dari database: angka inilah yang
+    // menentukan perlu tidaknya retensi dinyalakan, dan pemeriksaan kesehatan tidak
+    // boleh menambah satu pertanyaan berat pun.
+    audit_retention: {
+      ...auditRetention.summary(),
+      active_entries: Array.isArray(getCollection('auditLogs')) ? getCollection('auditLogs').length : null
+    },
     health_history: healthHistory.summary()
   };
 }
@@ -596,6 +610,7 @@ const context = {
   refreshCollections,
   readCollections,
   markCollectionsFresh,
+  auditReplayGuard,
   stateWriteLimiter,
   diagnostics: buildDiagnostics,
   healthHistory,

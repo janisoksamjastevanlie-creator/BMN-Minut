@@ -9,6 +9,7 @@ import {
   splitAuditLogsByLimit,
   splitAuditLogsByRetention
 } from '../server/auditRetention.mjs';
+import { createAuditReplayGuard } from '../server/auditReplayGuard.mjs';
 import { currentMakassarDate } from '../server/datetime.mjs';
 
 function fakeDatabase({ auditLogs, rawAuditLogs, failOn, operationalArchiveMissing = false } = {}) {
@@ -99,7 +100,9 @@ test('job hanya dengan batas jumlah tetap bekerja tanpa batas umur', async () =>
   });
   const job = createAuditRetentionJob({ db: fake.db, dataBackend: 'legacy', activeLimit: 2 });
   const result = await job.runOnce();
-  assert.deepEqual(result, { archived: 1, remaining: 2 });
+  assert.equal(result.archived, 1);
+  assert.equal(result.remaining, 2);
+  assert.deepEqual(result.archivedIds, ['paling-lama'], 'id yang diarshif diserahkan ke gardi replay');
   assert.deepEqual(fake.state.appDataWrites[0].map((entry) => entry.id), ['tengah', 'terbaru']);
   assert.equal(job.stats().enabled, true, 'batas jumlah saja sudah mengaktifkan penataan');
   assert.equal(job.stats().retention_days, 0);
@@ -156,7 +159,7 @@ test('retensi legacy mengarsipkan catatan tua, memelihara urutan, dan menaikkan 
   });
 
   const result = await job.runOnce();
-  assert.deepEqual(result, { archived: 2, remaining: 1 });
+  assert.deepEqual(result, { archived: 2, remaining: 1, archivedIds: ['log-1', 'log-3'] });
   assert.deepEqual(fake.state.archived, ['log-1', 'log-3']);
   assert.deepEqual(fake.state.appDataWrites[0].map((entry) => entry.id), ['log-2'], 'urutan asli dipertahankan');
   assert.equal(fake.getRevision(), '8', 'revision dinaikkan supaya pengguna sinkron ulang');
@@ -171,7 +174,7 @@ test('tanpa catatan tua tidak ada penulisan ulang state dan revision tetap', asy
   const fake = fakeDatabase({ auditLogs: logs });
   const job = createAuditRetentionJob({ db: fake.db, dataBackend: 'legacy', retentionDays: 180 });
   const result = await job.runOnce();
-  assert.deepEqual(result, { archived: 0, remaining: 1 });
+  assert.deepEqual(result, { archived: 0, remaining: 1, archivedIds: [] });
   assert.equal(fake.state.appDataWrites.length, 0);
   assert.equal(fake.getRevision(), '7', 'tidak ada perubahan, tidak ada kenaikan revision');
   assert.equal(fake.state.commit, 1, 'transaksi tetap ditutup rapi');
@@ -251,4 +254,94 @@ test('ringkasan health tidak membocorkan teks error', async () => {
   assert.equal(typeof summary.last_run_at, 'string');
   assert.equal(JSON.stringify(summary).includes('koneksi database putus'), false, 'pesan error tidak ikut ke /api/health');
   assert.match(job.stats().last_error, /koneksi database putus/);
+});
+
+test('entri tanpa id tidak ikut terbuang saat catatan tanpa id diarshif', async () => {
+  // Regression: pengeluaran entri pernah ditafsirkan lewat nilai id. Entri arsip yang
+  // id-nya kosong membuat kunci '' ikut cocok, dan setiap catatan tanpa id — yang tidak
+  // pernah boleh disentuh retensi — hilang dari state aktif.
+  const logs = [
+    { id: '', tanggal: '2020-01-01', aktivitas: 'Lama tanpa id' },
+    { aktivitas: 'Tanpa id dan tanpa tanggal' },
+    { aktivitas: 'Satu lagi tanpa tanggal' },
+    { id: 'log-baru', tanggal: currentMakassarDate() }
+  ];
+  const fake = fakeDatabase({ auditLogs: logs });
+  const job = createAuditRetentionJob({ db: fake.db, dataBackend: 'legacy', retentionDays: 180 });
+  const result = await job.runOnce();
+  assert.equal(result.archived, 1);
+  assert.deepEqual(
+    fake.state.appDataWrites[0].map((entry) => entry.aktivitas),
+    ['Tanpa id dan tanpa tanggal', 'Satu lagi tanpa tanggal', undefined],
+    'hanya entri yang benar-benar diarshif yang keluar'
+  );
+});
+
+test('id hasil arsip diserahkan ke gardi replay sebelum cache diisi ulang', async () => {
+  const urutan = [];
+  const guard = createAuditReplayGuard();
+  const stub = {
+    setEnabled: (nilai) => guard.setEnabled(nilai),
+    track: (ids) => {
+      urutan.push('track');
+      return guard.track(ids);
+    },
+    strip: (logs) => guard.strip(logs),
+    stats: () => guard.stats()
+  };
+  const fake = fakeDatabase({
+    auditLogs: [
+      { id: 'lama-1', tanggal: '2019-01-01' },
+      { id: 'lama-2', tanggal: '2019-02-01' },
+      { id: 'sekarang', tanggal: currentMakassarDate() }
+    ]
+  });
+  const job = createAuditRetentionJob({
+    db: fake.db,
+    dataBackend: 'legacy',
+    retentionDays: 180,
+    replayGuard: stub,
+    refreshAfterRun: async () => urutan.push('refresh')
+  });
+  assert.equal(guard.stats().enabled, true, 'retensi aktif menyalakan gardi');
+  const result = await job.runOnce();
+  assert.deepEqual(result.archivedIds, ['lama-1', 'lama-2']);
+  assert.deepEqual(urutan, ['track', 'refresh'], 'penahan dipasang sebelum state disajikan lagi');
+  assert.equal(guard.has('lama-1'), true);
+  assert.equal(guard.has('sekarang'), false, 'entri yang masih aktif tidak ikut ditahan');
+  assert.equal(job.summary().replay_guard, true);
+});
+
+test('gardi replay tidak berbuat apa-apa selama retensi dimatikan', () => {
+  const guard = createAuditReplayGuard();
+  const logs = [{ id: 'a' }, { id: 'b' }];
+  assert.equal(guard.track(['a']), 0, 'id tidak ditahan sebelum diizinkan');
+  assert.equal(guard.has('a'), false);
+  const hasil = guard.strip(logs);
+  assert.equal(hasil.removed, 0);
+  assert.equal(hasil.keep, logs, 'array yang sama dikembalikan, tanpa alokasi baru');
+  assert.equal(guard.stats().blocked_total, 0);
+});
+
+test('gardi replay mengeluarkan id arsip dan menghitungnya', () => {
+  const guard = createAuditReplayGuard();
+  guard.setEnabled(true);
+  assert.equal(guard.track(['arsip-1', 'arsip-2', '', 'arsip-1']), 2, 'id kosong dan duplikat tidak dihitung');
+  const hasil = guard.strip([{ id: 'arsip-1', tanggal: '2019-01-01' }, { id: 'hidup' }, { tanggal: 'tanpa id' }]);
+  assert.deepEqual(hasil.removedIds, ['arsip-1']);
+  assert.deepEqual(hasil.keep.map((entry) => entry.id), ['hidup', undefined]);
+  assert.equal(guard.stats().blocked_total, 1);
+  assert.equal(typeof guard.stats().last_blocked_at, 'string');
+  assert.equal(guard.strip([{ id: 'arsip-1' }]).keep.length, 0, 'id arsip tidak pernah diselamatkan');
+});
+
+test('daftar id yang ditahan dibatasi dan yang paling tua menguap lebih dulu', () => {
+  const guard = createAuditReplayGuard({ maxTrackedIds: 3 });
+  guard.setEnabled(true);
+  guard.track(['satu', 'dua', 'tiga', 'empat']);
+  assert.equal(guard.stats().tracked, 3);
+  assert.equal(guard.has('satu'), false, 'yang tertua dilepas, bukan yang terbaru');
+  assert.equal(guard.has('empat'), true);
+  guard.setEnabled(false);
+  assert.equal(guard.stats().tracked, 0, 'retensi dimatikan mengosongkan ingatan gardi');
 });

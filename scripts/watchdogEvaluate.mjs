@@ -91,6 +91,23 @@ export function evaluate(probeResult, previous, {
     issues.push(`memori ${Math.round(load.memory.limit_ratio * 100)}% dari batas`);
   }
   if (load.audit_retention?.has_error) issues.push('penataan audit gagal (lihat /api/health/detail)');
+  // Retensi yang dinyalakan tetapi tidak menyusutkan state adalah kegagalan senyap:
+  // angka active_entries tetap di atas batas sementara semua terlihat hijau.
+  const penataan = load.audit_retention || {};
+  if (
+    penataan.enabled &&
+    Number(penataan.active_limit) > 0 &&
+    Number.isFinite(Number(penataan.active_entries)) &&
+    Number(penataan.active_entries) > Number(penataan.active_limit) * 1.5
+  ) {
+    issues.push(
+      `auditLogs masih ${penataan.active_entries} entri padahal batas ${penataan.active_limit}`
+    );
+  }
+  // Kenaikan penolakan replay berarti ada klien yang terus mengirim kembali catatan yang
+  // sudah diarshif: retensinya sendiri tidak menempel, dan itu perlu diketahui.
+  const newReplays = delta(load.audit_retention?.blocked_replays, previous?.retention_blocked_replays);
+  if (newReplays) issues.push(`${newReplays} catatan arsip mencoba ditulis ulang klien (ditahan gardi)`);
   const history = load.health_history || {};
   if (history.enabled && history.has_error) issues.push('riwayat kesehatan gagal ditulis');
   if (history.enabled && history.table_ready === false && !boot) {

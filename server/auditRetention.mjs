@@ -90,19 +90,22 @@ async function insertArchiveChunk(connection, entries) {
 
 async function runLegacyRetention(connection, cutoffDate, activeLimit) {
   const [rows] = await connection.execute("SELECT value_json FROM app_data WHERE `key` = 'auditLogs'");
-  if (!rows.length) return { archived: 0, remaining: 0 };
+  if (!rows.length) return { archived: 0, remaining: 0, archivedIds: [] };
   let logs;
   try {
     logs = JSON.parse(rows[0].value_json);
   } catch {
     // Blob yang rusak bukan urusan retensi; jangan pernah menulis ulang.
-    return { archived: 0, remaining: 0, skipped: 'auditLogs tidak dapat dibaca' };
+    return { archived: 0, remaining: 0, archivedIds: [], skipped: 'auditLogs tidak dapat dibaca' };
   }
   const { keep: withinAge, archive } = splitAuditLogsByRetention(logs, cutoffDate);
   const { keep, overflow } = splitAuditLogsByLimit(withinAge, activeLimit);
   const batch = [...archive, ...overflow].slice(0, MAX_ENTRIES_PER_RUN);
-  if (!batch.length) return { archived: 0, remaining: keep.length };
-  const archivedIds = new Set(batch.map((entry) => String(entry.id || '')));
+  if (!batch.length) return { archived: 0, remaining: keep.length, archivedIds: [] };
+  // Keluarnya entri ditentukan oleh identitas objek, bukan nilai id. Bila id kosong
+  // ikut dijadikan kunci, setiap catatan tanpa id akan ikut terbuang — dan retensi
+  // tidak boleh kehilangan satu baris pun.
+  const archivedEntries = new Set(batch);
   for (let index = 0; index < batch.length; index += INSERT_CHUNK) {
     await insertArchiveChunk(connection, batch.slice(index, index + INSERT_CHUNK));
   }
@@ -111,8 +114,12 @@ async function runLegacyRetention(connection, cutoffDate, activeLimit) {
   await execute(connection, `
     INSERT INTO app_data (\`key\`, value_json) VALUES ('auditLogs', ?)
     ON DUPLICATE KEY UPDATE value_json = VALUES(value_json)
-  `, [JSON.stringify(logs.filter((entry) => !archivedIds.has(String(entry.id || ''))))]);
-  return { archived: batch.length, remaining: logs.length - batch.length };
+  `, [JSON.stringify(logs.filter((entry) => !archivedEntries.has(entry)))]);
+  return {
+    archived: batch.length,
+    remaining: logs.length - batch.length,
+    archivedIds: batch.map((entry) => String(entry.id ?? '')).filter(Boolean)
+  };
 }
 
 async function runOperationalRetention(connection, cutoffDate, activeLimit) {
@@ -139,7 +146,7 @@ async function runOperationalRetention(connection, cutoffDate, activeLimit) {
     }
   }
   const ids = [...candidates.keys()].slice(0, MAX_ENTRIES_PER_RUN);
-  if (!ids.length) return { archived: 0, remaining: 0 };
+  if (!ids.length) return { archived: 0, remaining: 0, archivedIds: [] };
   const markers = ids.map(() => '?').join(',');
   await execute(connection, `
     INSERT IGNORE INTO audit_log_archive
@@ -151,7 +158,7 @@ async function runOperationalRetention(connection, cutoffDate, activeLimit) {
   // Hanya baris yang sudah dicoba arsipkan pada langkah sebelumnya yang dihapus.
   await execute(connection, `DELETE FROM audit_logs WHERE id IN (${markers})`, ids);
   const [rest] = await connection.execute('SELECT COUNT(*) AS total FROM audit_logs');
-  return { archived: ids.length, remaining: Number(rest[0]?.total || 0) };
+  return { archived: ids.length, remaining: Number(rest[0]?.total || 0), archivedIds: ids };
 }
 
 async function archiveTableExists(db) {
@@ -201,7 +208,8 @@ export function createAuditRetentionJob({
   activeLimit,
   intervalMs,
   runAfterMs,
-  refreshAfterRun
+  refreshAfterRun,
+  replayGuard
 } = {}) {
   const days = Number.isFinite(Number(retentionDays)) ? Math.max(0, Math.round(Number(retentionDays))) : 0;
   const limit = Number.isFinite(Number(activeLimit)) ? Math.max(0, Math.round(Number(activeLimit))) : 0;
@@ -221,6 +229,10 @@ export function createAuditRetentionJob({
   };
   const timers = [];
   let stopped = false;
+  // Gardi replay hanya punya arti bila retensi benar-benar mengarsipkan sesuatu; saat
+  // retensi mati tidak ada id yang ditahan sehingga jalur tulis persis seperti sebelum
+  // fitur ini ada.
+  if (replayGuard) replayGuard.setEnabled(stats.enabled);
 
   async function runOnce() {
     if (!stats.enabled) {
@@ -249,6 +261,10 @@ export function createAuditRetentionJob({
         console.log(
           `[diagnostic] audit_retention archived=${stats.last_archived} cutoff=${cutoffDate} backend=${stats.backend}`
         );
+        // Ditahan lebih dulu, baru cache diisi ulang: jendela waktu antara penulisan
+        // arsip dan penyegaran cache adalah saat klien masih bisa mengirim kembali
+        // entri yang barusan dipindahkan.
+        if (replayGuard) replayGuard.track(result.archivedIds);
         if (refreshAfterRun) await refreshAfterRun();
       }
       return result;
@@ -282,6 +298,7 @@ export function createAuditRetentionJob({
 
   // Ringkasan aman untuk /api/health (tanpa teks error): jumlah dan kapan terakhir jalan.
   function summary() {
+    const guard = replayGuard ? replayGuard.stats() : null;
     return {
       enabled: stats.enabled,
       retention_days: stats.retention_days,
@@ -289,7 +306,12 @@ export function createAuditRetentionJob({
       runs: stats.runs,
       archived_total: stats.archived_total,
       last_run_at: stats.last_run_at,
-      has_error: Boolean(stats.last_error)
+      has_error: Boolean(stats.last_error),
+      // Hanya angka: berapa entri arsip yang barusan coba ditulis ulang oleh klien dan
+      // ditahan, supaya menyalakan retensi bisa dibuktikan tidak membuat mundur.
+      replay_guard: Boolean(guard?.enabled),
+      replay_tracked: guard?.tracked ?? 0,
+      blocked_replays: guard?.blocked_total ?? 0
     };
   }
 
@@ -301,5 +323,11 @@ export function createAuditRetentionJob({
     timers.length = 0;
   }
 
-  return { stats: () => ({ ...stats }), summary, runOnce, start, stop };
+  return {
+    stats: () => ({ ...stats, replay_guard: replayGuard ? replayGuard.stats() : null }),
+    summary,
+    runOnce,
+    start,
+    stop
+  };
 }

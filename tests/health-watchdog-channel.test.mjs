@@ -196,6 +196,32 @@ test('penilaian lain tetap berjalan setelah pemindahan modul', () => {
   assert.match(ditolak[0], /health menolak \(HTTP 502/);
 });
 
+test('retensi yang tidak menyusutkan state terlihat sebagai catatan', () => {
+  const matang = { uptime_seconds: 3600, health_history: { enabled: false } };
+  const jalan = {
+    ...matang,
+    audit_retention: { enabled: true, active_limit: 2000, active_entries: 1500, archived_total: 9000, blocked_replays: 0 }
+  };
+  assert.deepEqual(evaluate(probeBaik(jalan), null), [], 'di bawah batas: tidak ada yang dikeluhkan');
+
+  const membengkak = { ...jalan, audit_retention: { ...jalan.audit_retention, active_entries: 4100 } };
+  const daftar = evaluate(probeBaik(membengkak), null);
+  assert.equal(daftar.length, 1);
+  assert.match(daftar[0], /auditLogs masih 4100 entri padahal batas 2000/);
+
+  const mati = { ...matang, audit_retention: { enabled: false, active_limit: 0, active_entries: 11161 } };
+  assert.deepEqual(evaluate(probeBaik(mati), null), [], 'retensi memang tidak dinyalakan: bukan laporan kegagalan');
+});
+
+test('usaha menghidupkan catatan arsip lagi dilaporkan saat angkanya naik', () => {
+  const matang = { uptime_seconds: 3600, health_history: { enabled: false } };
+  const load = { ...matang, audit_retention: { enabled: true, active_limit: 2000, active_entries: 2000, blocked_replays: 6 } };
+  const daftar = evaluate(probeBaik(load), { retention_blocked_replays: 3, uptime_seconds: 3000 });
+  assert.equal(daftar.length, 1);
+  assert.match(daftar[0], /3 catatan arsip mencoba ditulis ulang klien/);
+  assert.deepEqual(evaluate(probeBaik(load), { retention_blocked_replays: 6 }), [], 'angka yang sama bukan kejadian baru');
+});
+
 test('server mati dan laptop mati sinyal tidak lagi dilaporkan sama', () => {
   const galat = new Error('fetch failed');
   const rujukan = 'https://api.fonnte.com/';

@@ -210,6 +210,7 @@ if (result) {
     rss_mb: result.body?.load?.memory?.rss_mb,
     limit_ratio: result.body?.load?.memory?.limit_ratio,
     retention_archived: result.body?.load?.audit_retention?.archived_total,
+    retention_blocked_replays: result.body?.load?.audit_retention?.blocked_replays,
     retention_error: result.body?.load?.audit_retention?.has_error,
     history_writes: result.body?.load?.health_history?.writes,
     history_table_ready: result.body?.load?.health_history?.table_ready,

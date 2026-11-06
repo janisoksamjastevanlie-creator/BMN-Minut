@@ -40,7 +40,8 @@ export function registerStateRoutes(app, context) {
     whatsapp,
     n8nIntegration,
     whatsappProvider,
-    sendTwilioRequestEvent
+    sendTwilioRequestEvent,
+    auditReplayGuard
   } = context;
 
   async function syncAccountProfiles(connection, users, previousUsers) {
@@ -142,6 +143,19 @@ export function registerStateRoutes(app, context) {
           return { status: 403, body: { error: authorizationError, revision } };
         }
         state = fillOmittedCollections(state, currentState, collections);
+        // Entri yang baru dipindahkan ke arsip tidak boleh hidup lagi lewat simpanan
+        // klien. Penahaninya daftar id di memori proses, jadi jalur tulis tidak menambah
+        // permintaan ke tabel arsip; tanpa retensi aktif strip() mengembalikan array apa
+        // adanya dan simpanan berjalan persis seperti sebelumnya.
+        if (auditReplayGuard) {
+          const hasilGardi = auditReplayGuard.strip(state.auditLogs);
+          if (hasilGardi.removed) {
+            state.auditLogs = hasilGardi.keep;
+            console.warn(
+              `[diagnostic] audit_replay_blocked removed=${hasilGardi.removed} user=${request.user?.id ?? '?'}`
+            );
+          }
+        }
         const numberFloors = await queryRows(connection, "SELECT `key`, value FROM app_meta WHERE `key` LIKE 'request_number_floor:%'");
         const minimumSequences = {};
         for (const row of numberFloors) {
