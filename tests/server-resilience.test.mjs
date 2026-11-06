@@ -141,6 +141,41 @@ test('concurrency limiter queues heavy writes and sheds overflow with 503', asyn
   assert.equal(limiter.stats().maxActive, 1);
 });
 
+test('queued writes that the client abandons release their place in line', async () => {
+  const limiter = createConcurrencyLimiter({ name: 'abandon_write', limit: 1, maxPending: 1 });
+  const gates = [];
+  const responses = [];
+
+  function attempt() {
+    const response = fakeResponse();
+    responses.push(response);
+    limiter(fakeRequest('/api/state', 'PUT'), response, () => {
+      gates.push(() => response.finish(200));
+    });
+    return response;
+  }
+
+  attempt();
+  const queued = attempt();
+  assert.equal(limiter.stats().pending, 1);
+
+  // Klien menutup koneksi sebelum gilirannya: slot antrean harus dilepas.
+  queued.emit('close');
+  assert.equal(limiter.stats().pending, 0, 'permintaan batal keluar dari antrean');
+
+  const replacement = attempt();
+  assert.equal(replacement.statusCode, 200, 'pengganti tidak ditolak 503 karena antrean kosong');
+  assert.equal(replacement.payload, null, 'pengganti mengantre, bukan langsung ditolak');
+  assert.equal(limiter.stats().pending, 1);
+
+  gates[0]();
+  await delay(20);
+  assert.equal(limiter.stats().active, 1, 'slot diberikan ke permintaan yang masih hidup');
+  gates[1]();
+  await delay(20);
+  assert.equal(limiter.stats().active, 0);
+});
+
 test('pool statistics read mysql2 RingQueue fields', () => {
   const ringQueue = (size) => ({ length: size, size: () => size });
   const stats = getDatabasePoolStats(

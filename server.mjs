@@ -20,9 +20,11 @@ import {
   createRequestDeadlineMiddleware,
   createSlowRequestRecorder,
   getDatabasePoolStats,
+  getMemorySnapshot,
   installCrashGuards,
   isPoolQueueLimitError
 } from './server/observability.mjs';
+import { createAuditRetentionJob } from './server/auditRetention.mjs';
 import { measureExternalService } from './server/serviceMetrics.mjs';
 import { currentMakassarDate } from './server/datetime.mjs';
 import {
@@ -137,6 +139,16 @@ const stateWriteConcurrency = boundedInteger(process.env.STATE_WRITE_CONCURRENCY
 const stateWriteQueueLimit = boundedInteger(process.env.STATE_WRITE_QUEUE_LIMIT, 20, 0, 500);
 const stateCacheTtlMs = boundedInteger(process.env.STATE_CACHE_TTL_MS, 2000, 0, 15000);
 const eventLoopThresholdMs = boundedInteger(process.env.EVENT_LOOP_LAG_THRESHOLD_MS, 300, 50, 10000);
+// Retensi audit trail dimatikan secara bawaan: lamanya catatan resmi disimpan adalah
+// keputusan instansi, bukan keputusan teknis. Nilai > 0 memindahkan entri tua ke
+// audit_log_archive (bukan membuangnya) agar payload sinkronisasi tidak terus membesar.
+const auditRetentionDays = boundedInteger(process.env.AUDIT_RETENTION_DAYS, 0, 0, 3650);
+const auditRetentionIntervalMs = boundedInteger(
+  process.env.AUDIT_RETENTION_INTERVAL_MS,
+  21600000,
+  600000,
+  86400000
+);
 if (
   !dbHost ||
   !dbUser ||
@@ -308,6 +320,17 @@ const schema = [
     request_id VARCHAR(100) NOT NULL PRIMARY KEY,
     user_id VARCHAR(191) NOT NULL,
     INDEX idx_request_owner_user (user_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+  // Arsip audit trail: isi auditLogs yang lebih tua dari batas retensi dipindah ke sini,
+  // bukan dihapus, supaya catatan resmi tetap dapat dibaca kembali bila diperlukan.
+  `CREATE TABLE IF NOT EXISTS audit_log_archive (
+    id VARCHAR(36) NOT NULL PRIMARY KEY,
+    entry_json LONGTEXT NOT NULL,
+    tanggal VARCHAR(10) NOT NULL,
+    modul VARCHAR(60) NULL,
+    aktivitas VARCHAR(191) NULL,
+    archived_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_audit_archive_tanggal (tanggal)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
 ];
 
@@ -380,6 +403,17 @@ const {
   stateForUser,
   cacheStats
 } = createStateHelpers({ db, dataBackend, cacheTtlMs: stateCacheTtlMs });
+
+// Job penataan audit trail lama. Dijalankan hanya setelah port terbuka dan dihentikan
+// rapi saat shutdown; transaksi internalnya mengunci baris revision sehingga tidak pernah
+// menimpa simpanan pengguna yang sedang berjalan.
+const auditRetention = createAuditRetentionJob({
+  db,
+  dataBackend,
+  retentionDays: auditRetentionDays,
+  intervalMs: auditRetentionIntervalMs,
+  refreshAfterRun: () => refreshCollections(db, { force: true })
+});
 
 const { sendTwilioRequestEvent } = createTwilioRequestNotification({ db });
 
@@ -490,8 +524,10 @@ function buildLoadSnapshot() {
       pool_errors: poolDiagnostics.errors
     },
     event_loop: eventLoopMonitor.stats(),
+    memory: getMemorySnapshot(),
     state_cache: cacheStats(),
-    state_write: stateWriteLimiter.stats()
+    state_write: stateWriteLimiter.stats(),
+    audit_retention: auditRetention.summary()
   };
 }
 
@@ -499,6 +535,7 @@ function buildDiagnostics() {
   return {
     ...buildLoadSnapshot(),
     slow_requests: slowRequests.stats(),
+    audit_retention: auditRetention.stats(),
     failures: {
       unhandled_rejections: crashCounters.unhandledRejections,
       uncaught_exceptions: crashCounters.uncaughtExceptions,
@@ -644,8 +681,10 @@ httpServer = app.listen(port, host, () => {
   console.log(
     `Runtime limits: db_connections=${dbConnectionLimit} db_queue=${dbQueueLimit} ` +
       `request_timeout_ms=${requestTimeoutMs} state_timeout_ms=${stateRequestTimeoutMs} ` +
-      `state_write_concurrency=${stateWriteConcurrency} state_cache_ttl_ms=${stateCacheTtlMs}`
+      `state_write_concurrency=${stateWriteConcurrency} state_cache_ttl_ms=${stateCacheTtlMs} ` +
+      `audit_retention_days=${auditRetentionDays}`
   );
+  auditRetention.start();
 });
 
 // Timeout socket eksplisit: koneksi keep-alive yang macet dibersihkan lebih cepat
@@ -673,6 +712,7 @@ function shutdown(reason) {
     const finish = () => {
       detachPoolErrorHandler();
       eventLoopMonitor.stop();
+      auditRetention.stop();
       db.end().then(
         () => resolve(),
         () => resolve()

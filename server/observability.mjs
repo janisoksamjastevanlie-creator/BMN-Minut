@@ -2,6 +2,8 @@
 // Modul ini menyediakan pemantau event loop, pembacaan statistik pool MySQL,
 // batas waktu permintaan, pembatas antrian pekerjaan berat, dan pencatatan
 // kegagalan fatal supaya penyebab gangguan bisa dilihat dari log, bukan ditebak.
+import fs from 'node:fs';
+import v8 from 'node:v8';
 
 function clampInteger(value, fallback, min, max) {
   const parsed = Number(value);
@@ -69,6 +71,47 @@ export function attachPoolErrorHandler(pool, { onEvent } = {}) {
   pool.on('error', handler);
   return () => {
     if (typeof pool.off === 'function') pool.off('error', handler);
+  };
+}
+
+// Batas memori proses dibaca dari beberapa kemungkinan sumber karena hosting
+// terkelola sering membatasi memori di luar kendali aplikasi. Bila batas terlampaui,
+// proses dihentikan platform dan gejala yang tampak pengguna adalah "server diam".
+function readMemoryLimitBytes() {
+  const readers = [
+    { path: '/sys/fs/cgroup/memory.max', parse: (text) => (text === 'max' ? null : Number(text)) },
+    { path: '/sys/fs/cgroup/memory/memory.limit_in_bytes', parse: Number }
+  ];
+  for (const reader of readers) {
+    try {
+      const raw = fs.readFileSync(reader.path, 'utf8').trim();
+      const value = reader.parse(raw);
+      // Nilai "tidak terbatas" dilaporkan sebagai angka sangat besar atau negatif.
+      if (Number.isFinite(value) && value > 0 && value < 2 ** 45) return value;
+    } catch {
+      // Tidak tersedia di platform ini; coba sumber berikutnya.
+    }
+  }
+  const heapLimit = v8.getHeapStatistics().heap_size_limit;
+  return Number.isFinite(heapLimit) && heapLimit > 0 ? heapLimit : null;
+}
+
+let peakRssBytes = 0;
+
+export function getMemorySnapshot() {
+  const usage = process.memoryUsage();
+  peakRssBytes = Math.max(peakRssBytes, usage.rss);
+  const limitBytes = readMemoryLimitBytes();
+  const toMb = (bytes) => Math.round((bytes / 1024 / 1024) * 10) / 10;
+  return {
+    rss_mb: toMb(usage.rss),
+    heap_used_mb: toMb(usage.heapUsed),
+    heap_total_mb: toMb(usage.heapTotal),
+    external_mb: toMb(usage.external),
+    peak_rss_mb: toMb(peakRssBytes),
+    limit_mb: limitBytes ? toMb(limitBytes) : null,
+    // rasio > 0,8 terhadap batas memori adalah tanda proses akan dihentikan platform.
+    limit_ratio: limitBytes ? Math.round((usage.rss / limitBytes) * 100) / 100 : null
   };
 }
 
@@ -177,7 +220,16 @@ export function createConcurrencyLimiter({ name, limit, maxPending } = {}) {
           });
         }
         state.queued += 1;
-        waiting.push(() => {
+        // Klien yang membatalkan permintaan sebelum gilirannya tiba tidak boleh
+        // menahan slot antrean; kalau tidak, antrean penuh oleh permintaan mati
+        // dan simpanan berikutnya ditolak 503 selamanya.
+        const abandon = () => {
+          const index = waiting.indexOf(handler);
+          if (index !== -1) waiting.splice(index, 1);
+          state.pending = waiting.length;
+        };
+        const handler = () => {
+          response.removeListener('close', abandon);
           let released = false;
           const guard = () => {
             if (released) return;
@@ -187,7 +239,9 @@ export function createConcurrencyLimiter({ name, limit, maxPending } = {}) {
           response.once('finish', guard);
           response.once('close', guard);
           next();
-        });
+        };
+        response.once('close', abandon);
+        waiting.push(handler);
         state.pending = waiting.length;
         return undefined;
       }
