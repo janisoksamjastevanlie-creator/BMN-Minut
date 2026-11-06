@@ -90,7 +90,14 @@ export async function sendFonnteMessage(config, phone, message, fetchImpl = fetc
     throw new Error(`Fonnte API mengembalikan respons tidak valid (HTTP ${response.status}).`);
   }
   if (!response.ok) throw new Error(`Fonnte API menolak pesan (HTTP ${response.status}).`);
-  if (result?.status !== true) throw new Error('Fonnte API tidak menerima pesan.');
+  if (result?.status !== true) {
+    // Kalimat galat sengaja tetap generik (isi jawaban provider tidak dipakai di
+    // jalur aplikasi), tetapi pemantau kesehatan butuh sebab aslinya supaya log
+    // tidak berhenti di "gagal=1". Dibawa sebagai properti tambahan.
+    const sebab = String(result?.reason || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+    throw sebab ? Object.assign(new Error('Fonnte API tidak menerima pesan.'), { sebab })
+      : new Error('Fonnte API tidak menerima pesan.');
+  }
   if (Array.isArray(result.detail) && result.detail.some(item =>
     item && (item.failed === true || item.status === 'failed' || item.status === 'Invalid')
   )) {

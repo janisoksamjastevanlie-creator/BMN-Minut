@@ -8,21 +8,29 @@
 // Pemakaian:
 //   node scripts/health-watchdog.mjs
 //   node scripts/health-watchdog.mjs --url=https://bmnbpsminut.online --history=var/watch/health.jsonl
+//   node scripts/health-watchdog.mjs --notify            # peringatan WhatsApp + cadangan lokal
+//   node scripts/health-watchdog.mjs --notify=dry        # cetak naskah, tidak mengirim apa pun
 //
+// Batas nilai dapat diubah lewat --max-latency-ms, --max-memory-ratio,
+// --probe-retry, --probe-delay-ms, --local-cooldown-ms, dan --no-local-notify.
 // Kode keluar: 0 sehat, 1 ada pelanggaran ambang, 2 server tidak dapat dijangkau.
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import {
   DEFAULT_COOLDOWN_MS,
+  DEFAULT_LOKAL_COOLDOWN_MS,
   DEFAULT_STATE_FILE,
   buildAlertMessage,
   decideAlert,
   nilaiRestart,
+  perluLokal,
   readAlertState,
   signatureOf,
   writeAlertState
 } from './healthAlerts.mjs';
+import { evaluate } from './watchdogEvaluate.mjs';
+import { tampilkanToast } from './notifyLocal.mjs';
 
 const argv = new Map(
   process.argv.slice(2).map((arg) => {
@@ -48,6 +56,16 @@ const dryRun = String(argv.get('notify') || '').toLowerCase() === 'dry';
 const stateFile = String(argv.get('state') || process.env.WATCHDOG_ALERT_STATE || DEFAULT_STATE_FILE);
 const cooldownMs = Number(argv.get('cooldown-ms') || process.env.WATCHDOG_ALERT_COOLDOWN_MS || DEFAULT_COOLDOWN_MS);
 const recipientsArg = argv.get('recipient') || process.env.WATCHDOG_RECIPIENTS || '';
+// Percobaan probe. Satu permintaan yang melampui batas waktu pernah tercatat
+// sebagai "MATI" sementara pemeriksaan berikutnya sehat kembali, jadi kegagalan
+// transportasi dan galat tepi 5xx dicoba sekali lagi sebelum dinyatakan mati.
+const percobaanProbe = Math.max(1, Number(argv.get('probe-retry') || 2));
+const jedaProbeMs = Math.max(0, Number(argv.get('probe-delay-ms') ?? 4000));
+// Notifikasi Windows menyala sendiri saat peringatan WhatsApp tidak ada yang
+// menerima, supaya pemantau tidak berubah bisu bersamaan dengan perangkat
+// Fonnte yang terputus. Bisa dimatikan dengan --no-local-notify.
+const notifikasiLokal = !argv.get('no-local-notify');
+const cooldownLokalMs = Math.max(60_000, Number(argv.get('local-cooldown-ms') || DEFAULT_LOKAL_COOLDOWN_MS));
 
 function catat(text) {
   const baris = `[${new Date().toISOString()}] ${text}`;
@@ -84,62 +102,51 @@ function appendSample(sample) {
   if (lines.length > 2000) fs.writeFileSync(historyFile, `${lines.slice(-2000).join('\n')}\n`);
 }
 
-async function probe() {
+async function probeSekali() {
   const startedAt = Date.now();
   const response = await fetch(`${url.replace(/\/$/, '')}/api/health`, {
     signal: AbortSignal.timeout(timeoutMs),
     headers: { 'cache-control': 'no-store' }
   });
-  const body = await response.json();
-  return { latencyMs: Date.now() - startedAt, status: response.status, body };
+  const teks = await response.text();
+  let body = null;
+  let bukanJson = '';
+  try {
+    body = JSON.parse(teks);
+  } catch {
+    bukanJson = teks.replace(/\s+/g, ' ').trim().slice(0, 80);
+  }
+  return { latencyMs: Date.now() - startedAt, status: response.status, body, bukanJson };
 }
 
-function evaluate(probeResult, previous) {
-  const issues = [];
-  const load = probeResult.body?.load || {};
-  if (probeResult.status !== 200 || probeResult.body?.status !== 'ok') {
-    issues.push(`health menolak (HTTP ${probeResult.status}, status=${probeResult.body?.status})`);
-  }
-  if (probeResult.latencyMs > maxLatencyMs) {
-    issues.push(`latency ${probeResult.latencyMs}ms melebihi ${maxLatencyMs}ms`);
-  }
-  // Restart sengaja tidak dinilai di sini: itu pekerjaan nilaiRestart(), yang
-  // membedakan deploy yang direncanakan dari crash-loop.
-  // Pembilang di bawah ini kumulatif sejak proses hidup. Tanpa selisih terhadap
-  // sampel sebelumnya, satu kejadian lama membuat setiap pemeriksaan berikutnya
-  // berpendapat sama sehingga peringatan tidak lagi menandai kejadian baru.
-  const delta = (value, before) => {
-    const now = Number(value) || 0;
-    if (now === 0) return 0;
-    const old = Number(before);
-    if (!Number.isFinite(old)) return now;
-    return Math.max(0, now - old);
-  };
-  const newPoolErrors = delta(load.database?.pool_errors, previous?.pool_errors);
-  const newRejections = delta(load.database?.queue_limit_rejections, previous?.rejections);
-  const newLag = delta(load.event_loop?.breaches, previous?.lag_breaches);
-  const newWriteRejects = delta(load.state_write?.rejected, previous?.write_rejected);
-  if (newPoolErrors) issues.push(`pool_errors_baru=${newPoolErrors}`);
-  if (newRejections) issues.push(`antrean_database_penuh_baru=${newRejections}`);
-  if (newLag) issues.push(`event_loop_lag_baru=${newLag}x`);
-  if (newWriteRejects) issues.push(`tulis_ditolak_baru=${newWriteRejects}`);
-  if (load.memory?.limit_ratio != null && load.memory.limit_ratio > maxMemoryRatio) {
-    issues.push(`memori ${Math.round(load.memory.limit_ratio * 100)}% dari batas`);
-  }
-  if (load.audit_retention?.has_error) issues.push('penataan audit gagal (lihat /api/health/detail)');
-  const history = load.health_history || {};
-  if (history.enabled && history.has_error) issues.push('riwayat kesehatan gagal ditulis');
-  if (history.enabled && history.table_ready === false) {
-    issues.push('riwayat kesehatan aktif tetapi tabel health_samples belum ada');
-  }
-  if (history.enabled && history.table_ready && history.last_write_at) {
-    const ageMinutes = (Date.now() - new Date(history.last_write_at).getTime()) / 60000;
-    const allowedMinutes = Math.max(15, ((Number(history.interval_ms) || 300000) / 60000) * 3);
-    if (Number.isFinite(ageMinutes) && ageMinutes > allowedMinutes) {
-      issues.push(`riwayat kesehatan macet (${Math.round(ageMinutes)} menit sejak sampel terakhir)`);
+// Jeda antar percobaan, supaya proses yang sedang restart tidak langsung
+// dinyatakan mati.
+function tunggu(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Satu permintaan yang kebetulan melewati batas waktu pernah tercatat sebagai
+// "MATI" padahal pemeriksaan berikutnya sehat kembali — dan itu memicu
+// peringatan palsu. Percobaan kedua hanya dijalankan untuk kegagalan
+// transportasi dan galat tepi (5xx), bukan untuk jawaban sehat yang lambat.
+async function probeBerulang({ percobaan = 2, jedaMs = 4000 } = {}) {
+  let terakhir = null;
+  for (let index = 0; index < percobaan; index += 1) {
+    try {
+      const hasil = await probeSekali();
+      if (hasil.status >= 500 && index + 1 < percobaan) {
+        terakhir = { hasil, percobaan: index + 1 };
+        await tunggu(jedaMs);
+        continue;
+      }
+      return hasil;
+    } catch (error) {
+      terakhir = { error, percobaan: index + 1 };
+      if (index + 1 < percobaan) await tunggu(jedaMs);
     }
   }
-  return issues;
+  if (terakhir?.error) throw terakhir.error;
+  return terakhir.hasil;
 }
 
 const previous = readPreviousSample();
@@ -150,10 +157,10 @@ let result = null;
 let unreachableError = null;
 const issues = [];
 try {
-  result = await probe();
+  result = await probeBerulang({ percobaan: percobaanProbe, jedaMs: jedaProbeMs });
 } catch (error) {
   unreachableError = error;
-  console.error(`MATI: ${url} tidak dapat dijangkau — ${error.message}`);
+  console.error(`MATI: ${url} tidak dapat dijangkau setelah ${percobaanProbe} percobaan — ${error.message}`);
   appendSample({ at: new Date().toISOString(), unreachable: true, error: error.message });
 }
 
@@ -190,7 +197,10 @@ if (result) {
   });
   sample.restart_seen = restart.restart;
   appendSample(sample);
-  issues.push(...evaluate(result, previous));
+  issues.push(...evaluate(result, previous, { maxLatencyMs, maxMemoryRatio }));
+  if (result.bukanJson) {
+    issues.push(`health menjawab bukan JSON (HTTP ${result.status}): ${result.bukanJson}`);
+  }
   if (restart.layakDilaporkan) issues.push(`restart berulang — ${restart.catatan}`);
   else if (restart.restart) console.log(`catatan: proses berganti (kemungkinan deploy) — ${restart.catatan}`);
 }
@@ -215,19 +225,21 @@ catat(
       : `SEHAT ${url} latency=${result.latencyMs}ms uptime=${sample.uptime_seconds}s rss=${sample.rss_mb}MB`
 );
 
-// Pengiriman peringatan hanya terjadi bila diminta. State ditulis ulang hanya
-// setelah pesan benar-benar diterima provider; kegagalan kirim tidak boleh
+// Pengiriman peringatan hanya terjadi bila diminta. State WhatsApp ditulis ulang
+// hanya setelah pesan benar-benar diterima provider; kegagalan kirim tidak boleh
 // menandai "sudah diberi tahu" karena akan membungkam peringatan berikutnya.
 if (notifyRequested) {
   const peringatan = unreachableError
     ? [`server tidak dapat dijangkau (${unreachableError.message})`]
     : issues;
   const signature = peringatan.length ? signatureOf(peringatan) : '';
+  const stateSemula = readAlertState(stateFile);
+  const sekarang = Date.now();
   const keputusan = decideAlert({
-    previous: readAlertState(stateFile),
+    previous: stateSemula,
     signature,
     issueCount: peringatan.length,
-    nowMs: Date.now(),
+    nowMs: sekarang,
     cooldownMs: Number.isFinite(cooldownMs) && cooldownMs > 0 ? cooldownMs : DEFAULT_COOLDOWN_MS
   });
 
@@ -240,9 +252,11 @@ if (notifyRequested) {
       decision: keputusan,
       issues: peringatan,
       sample,
-      nowMs: Date.now(),
+      nowMs: sekarang,
       unreachable: unreachableError?.message
     });
+    const judulLokal = keputusan.action === 'recover' ? 'SIMAN pulih' : 'SIMAN gangguan';
+
     if (dryRun) {
       console.log(`peringatan (hanya naskah, tidak dikirim):\n${pesan}`);
       catat(`DRY ${keputusan.reason}`);
@@ -250,11 +264,49 @@ if (notifyRequested) {
       const { kirimPeringatan } = await import('./healthNotify.mjs');
       const hasil = await kirimPeringatan({ pesan, recipientsArg, url });
       for (const item of hasil.hasil) {
-        console.log(`peringatan ${item.mask}: ${item.status}${item.detail ? ` — ${item.detail}` : ''}`);
+        // Keluaran konsol tidak tertangkap Task Scheduler, jadi sebab galat ikut
+        // ditulis ke berkas log; tanpa baris ini log hanya berisi "gagal=1".
+        const baris = `peringatan ${item.mask}: ${item.status}${item.detail ? ` — ${item.detail}` : ''}`;
+        console.log(baris);
+        catat(baris);
       }
       catat(`KIRIM ${keputusan.reason} ${hasil.rangkuman()}`);
-      if (hasil.terkirim > 0) writeAlertState(stateFile, keputusan.nextState);
-      else if (!hasil.dilewati) console.error('peringatan tidak terkirim; state tidak diubah sehingga dicoba lagi pada pemeriksaan berikutnya');
+
+      if (hasil.terkirim > 0) {
+        writeAlertState(stateFile, { ...keputusan.nextState, lokal: stateSemula?.lokal ?? null });
+      } else {
+        if (hasil.kanal) {
+          const baris = `KANAL ${hasil.kanal.status} — ${hasil.kanal.catatan}`;
+          console.error(baris);
+          catat(baris);
+        }
+        // Saluran utama bisu: bunyikan saluran lokal dengan jedanya sendiri,
+        // supaya gangguan tetap terlihat tanpa mengirim WhatsApp tiap lima menit.
+        const keputLokal = perluLokal({
+          previous: stateSemula,
+          signature: keputusan.action === 'recover' ? '' : signature,
+          nowMs: sekarang,
+          cooldownMs: cooldownLokalMs
+        });
+        if (!notifikasiLokal) {
+          console.error('peringatan tidak terkirim dan notifikasi lokal dimatikan (--no-local-notify)');
+        } else if (!keputLokal.kirim) {
+          console.log(`notifikasi lokal: ${keputLokal.alasan}`);
+        } else {
+          const lokal = await tampilkanToast({
+            judul: `${judulLokal} — ${url}`,
+            pesan: pesan.replace(/\n/g, ' · ')
+          });
+          catat(`LOKAL ${keputLokal.alasan} ${lokal.berhasil ? 'tampil' : 'gagal'}${lokal.catatan ? ` — ${lokal.catatan}` : ''}`);
+          console.log(`notifikasi lokal (${keputLokal.alasan}): ${lokal.catatan}`);
+          if (lokal.berhasil) {
+            writeAlertState(stateFile, { ...stateSemula, lokal: keputLokal.nextState });
+          }
+        }
+        if (!hasil.dilewati) {
+          console.error('peringatan WhatsApp tidak terkirim; state WhatsApp tidak diubah sehingga dicoba lagi pada pemeriksaan berikutnya');
+        }
+      }
     }
   }
 }

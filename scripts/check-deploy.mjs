@@ -64,12 +64,26 @@ async function remoteHead() {
   }
 }
 
+// Respons health dibaca sebagai teks lebih dulu. Saat deploy berlangsung, tepi
+// (hcdn/nginx) dapat menjawab HTML 502/503, dan JSON.parse yang biarkan lepas
+// menghentikan gerbang dengan tumpukan galat alih-alih laporan "belum sehat".
 async function health() {
-  const response = await fetch(`${url}/api/health`, {
-    signal: AbortSignal.timeout(20000),
-    headers: { 'cache-control': 'no-store' }
-  });
-  return { status: response.status, body: await response.json() };
+  let response;
+  try {
+    response = await fetch(`${url}/api/health`, {
+      signal: AbortSignal.timeout(20000),
+      headers: { 'cache-control': 'no-store' }
+    });
+  } catch (error) {
+    return { status: 0, body: null, catatan: `tidak dapat menghubungi ${url}: ${error.message}` };
+  }
+  const teks = await response.text();
+  try {
+    return { status: response.status, body: JSON.parse(teks), contentType: response.headers.get('content-type') || '' };
+  } catch {
+    const cuplikan = teks.replace(/\s+/g, ' ').trim().slice(0, 90);
+    return { status: response.status, body: null, catatan: `bukan JSON (${cuplikan})` };
+  }
 }
 
 function describe(result) {
@@ -101,9 +115,11 @@ for (;;) {
   const commitOk = remote === null || remote === expected;
   const healthy = result.status === 200 && summary.status === 'ok';
 
+  const ekstra = result.catatan ? ` health=${result.catatan}` : '';
   console.log(
     `percobaan ${attempt}: commit_lokal=${expected} commit_server=${remote ?? 'dilewati'} ` +
-      `uptime=${summary.uptime_seconds}s backend=${summary.backend} rss=${summary.rss_mb}MB`
+      `uptime=${summary.uptime_seconds ?? '?'}s backend=${summary.backend ?? '?'} ` +
+      `rss=${summary.rss_mb ?? '?'}MB${ekstra}`
   );
 
   if (commitOk && healthy) {

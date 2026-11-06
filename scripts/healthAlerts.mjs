@@ -107,6 +107,46 @@ export function buildAlertMessage({ url, decision, issues, sample, nowMs, unreac
   return baris.join('\n');
 }
 
+// Notifikasi Windows adalah saluran cadangan: ia dipakai ketika WhatsApp tidak
+// ada yang menerima. Aturan jeda sendiri, lebih pendek dari jeda WhatsApp, karena
+// yang dibunyikan hanya sebarkan jendela laptop dan tidak ada orang yang sedang
+// menyetir menunggu notifikasinya.
+export const DEFAULT_LOKAL_COOLDOWN_MS = 30 * 60 * 1000;
+
+// Keadaan saluran lokal disimpan di berkas state yang sama supaya satu berkas
+// menggambarkan seluruh pemantau, tetapi TIDAK menggantikan state peringatan
+// WhatsApp: selama WhatsApp belum berhasil, tiap pemeriksaan tetap boleh
+// mencobanya lagi (dan tidak ada yang lebih buruk daripada gangguan yang
+// tercatat tapi tidak pernah sampai ke siapa pun).
+export function perluLokal({
+  previous,
+  signature,
+  nowMs,
+  cooldownMs = DEFAULT_LOKAL_COOLDOWN_MS
+} = {}) {
+  const lokal = previous?.lokal || null;
+  const masalah = Boolean(signature);
+  const capat = (alasan, state) => ({ kirim: true, alasan, nextState: state });
+  if (!masalah) {
+    if (lokal?.status === 'problem') {
+      return capat('pulih', { status: 'ok', notified_at: new Date(nowMs).toISOString() });
+    }
+    return { kirim: false, alasan: 'sehat', nextState: lokal };
+  }
+  const terakhir = Date.parse(lokal?.notified_at || '');
+  if (lokal?.signature && lokal.signature === signature) {
+    if (Number.isFinite(terakhir) && nowMs - terakhir < cooldownMs) {
+      return { kirim: false, alasan: 'sama_dalam_jeda', nextState: lokal };
+    }
+    return capat('masih_berlangsung', { status: 'problem', signature, notified_at: new Date(nowMs).toISOString() });
+  }
+  return capat(lokal?.status === 'problem' ? 'berubah' : 'baru', {
+    status: 'problem',
+    signature,
+    notified_at: new Date(nowMs).toISOString()
+  });
+}
+
 export function readAlertState(file) {
   try {
     const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));

@@ -14,6 +14,7 @@
 import { getWhatsAppConfig } from '../whatsapp/config.mjs';
 import { sendFonnteMessage } from '../whatsapp/fonnte.mjs';
 import { maskPhone, normalizePhone } from '../whatsapp/security.mjs';
+import { periksaKanalFonnte } from './fonnteChannel.mjs';
 
 export function bagiNomor(nilai) {
   return String(nilai || '')
@@ -41,10 +42,25 @@ const PETUNJUK = {
   'Nomor tujuan tidak valid.': 'periksa WHATSAPP_RECIPIENT_NUMBER atau --recipient'
 };
 
+// Sebab asli dari Fonnte (dikirim lewat error.sebab) jauh lebih berguna daripada
+// "gagal=1". Diterjemahkan per awalan agar tidak perlu menebak jawaban provider.
+const SEBAB_FONNTE = [
+  [/disconnected device/, 'perangkat WhatsApp Fonnte terputus — sambungkan ulang di dashboard Fonnte (pindai QR)'],
+  [/credit habis|insufficient credit|no credit/, 'kredit Fonnte habis — top up di dashboard Fonnte'],
+  [/expired|kedaluwarsa/, 'paket Fonnte kedaluwarsa — perpanjang di dashboard Fonnte'],
+  [/invalid token|unauthorized|token/, 'token Fonnte tidak berlaku — periksa FONNTE_TOKEN'],
+  [/invalid number|nomor/, 'nomor tujuan ditolak Fonnte — periksa WHATSAPP_RECIPIENT_NUMBER']
+];
+
 export function jelaskanKesalahan(error) {
   const awal = String(error?.message || error).slice(0, 160);
-  const petunjuk = Object.entries(PETUNJUK).find(([pesan]) => awal.startsWith(pesan))?.[1];
-  return petunjuk ? `${awal} — ${petunjuk}` : awal;
+  const sebab = String(error?.sebab || '').slice(0, 120);
+  if (!sebab) {
+    const petunjuk = Object.entries(PETUNJUK).find(([pesan]) => awal.startsWith(pesan))?.[1];
+    return petunjuk ? `${awal} — ${petunjuk}` : awal;
+  }
+  const petunjuk = SEBAB_FONNTE.find(([pola]) => pola.test(sebab.toLowerCase()))?.[1];
+  return `${awal.replace(/\.$/, '')} (sebab: ${sebab})${petunjuk ? ` — ${petunjuk}` : ''}`;
 }
 
 export function siapkanPeringatan({ recipientsArg, config }) {
@@ -63,6 +79,7 @@ export async function kirimPeringatan({
   pesan,
   recipientsArg,
   kirim = sendFonnteMessage,
+  periksaKanal = periksaKanalFonnte,
   muatEnv = async () => {
     if (process.env.FONNTE_TOKEN) return;
     try {
@@ -77,6 +94,7 @@ export async function kirimPeringatan({
 }) {
   const hasil = [];
   let terkirim = 0;
+  let kanal = null;
 
   await muatEnv();
 
@@ -84,7 +102,14 @@ export async function kirimPeringatan({
   const siap = siapkanPeringatan({ recipientsArg, config });
   if (siap.alasan) {
     const item = { mask: '-', status: 'dilewati', detail: siap.alasan };
-    return { hasil: [item], terkirim, dilewati: true, rangkuman: () => `dilewati (${siap.alasan})` };
+    return {
+      hasil: [item],
+      terkirim,
+      gagal: 0,
+      kanal: null,
+      dilewati: true,
+      rangkuman: () => `dilewati (${siap.alasan})`
+    };
   }
 
   let gagal = 0;
@@ -102,10 +127,23 @@ export async function kirimPeringatan({
       hasil.push({ mask: maskPhone(phone), status: 'gagal', detail: jelaskanKesalahan(error) });
     }
   }
+  if (terkirim === 0 && gagal > 0) {
+    // Semua percobaan gagal: tanyakan status perangkatnya, sebab "gagal=1" saja
+    // tidak membedakan server lambat dari WhatsApp yang memang tidak bisa dipakai.
+    // Hanya dipanggil pada jalur gagal supaya pemeriksaan rutin tidak menambah
+    // permintaan ke Fonnte.
+    try {
+      kanal = await periksaKanal({ config });
+    } catch {
+      kanal = { siap: false, status: 'tidak_terkenal', catatan: 'status perangkat tidak dapat dibaca' };
+    }
+  }
   return {
     hasil,
     terkirim,
+    gagal,
     dilewati: false,
+    kanal,
     rangkuman: () => `terkirim=${terkirim} gagal=${gagal} tujuan=${siap.tujuan.length}`
   };
 }
