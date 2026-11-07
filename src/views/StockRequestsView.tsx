@@ -17,6 +17,7 @@ import {
   Clock,
   Check,
   X,
+  XCircle,
   AlertCircle,
   FileText,
   Search,

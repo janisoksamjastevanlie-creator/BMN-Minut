@@ -14,6 +14,7 @@ import { AiAssistantFab } from './components/ai/AiAssistantFab';
 import { QrScannerModal } from './components/common/QrScannerModal';
 import { AiAssistantModal } from './components/ai/AiAssistantModal';
 import { BackToTopButton } from './components/common/BackToTopButton';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 
 // Modals ringan yang selalu dimuat
 import { StockInModal } from './components/inventory/StockInModal';
@@ -140,7 +141,10 @@ const MainLayout: React.FC = () => {
           {!canAccessView(activeView, hasPermission, currentUser) ? (
             <AccessDeniedView />
           ) : (
-            <>
+            <ErrorBoundary
+              key={activeView}
+              onGoHome={() => setActiveView(getHomeView(currentUser))}
+            >
               {activeView === 'dashboard' && (
                 <DashboardView
                   onOpenStockIn={() => setIsStockInModalOpen(true)}
@@ -179,7 +183,7 @@ const MainLayout: React.FC = () => {
               {activeView === 'audit-trail' && <AuditTrailView />}
               {activeView === 'users' && <UsersView />}
               {activeView === 'settings' && <SettingsView />}
-            </>
+            </ErrorBoundary>
           )}
         </main>
       </div>
