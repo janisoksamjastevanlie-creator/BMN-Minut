@@ -41,6 +41,58 @@
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
 }
 
+/* Button hover effects */
+button {
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+/* Primary buttons (blue/teal) */
+button[class*='bg-blue-']:hover:not(:disabled),
+button[class*='bg-cyan-']:hover:not(:disabled),
+button[class*='bg-teal-']:hover:not(:disabled) {
+  filter: brightness(1.1);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+/* Success buttons (green/emerald) */
+button[class*='bg-emerald-']:hover:not(:disabled),
+button[class*='bg-green-']:hover:not(:disabled) {
+  filter: brightness(1.1);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+/* Danger buttons (red/rose) */
+button[class*='bg-red-']:hover:not(:disabled),
+button[class*='bg-rose-']:hover:not(:disabled) {
+  filter: brightness(1.1);
+  box-shadow: 0 4px 12px rgba(244, 63, 94, 0.3);
+}
+
+/* Warning buttons (amber/orange) */
+button[class*='bg-amber-']:hover:not(:disabled),
+button[class*='bg-orange-']:hover:not(:disabled) {
+  filter: brightness(1.1);
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+}
+
+/* Ghost/outline buttons */
+button[class*='border-']:hover:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+/* Icon buttons */
+button:has(svg):hover:not(:disabled) {
+  transform: scale(1.05);
+}
+
 @media screen {
   /* ==========================================================================
      TEMA MALAM — "Graphite"
