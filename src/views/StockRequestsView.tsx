@@ -706,7 +706,7 @@ export const StockRequestsView: React.FC = () => {
           </div>
         )}
         {/* CARD VIEW */}
-        <div className={`${viewMode === 'cards' ? '' : 'hidden'} divide-y divide-slate-800/80`}>
+        <div className={`${viewMode === 'cards' ? '' : 'hidden'} p-4 space-y-3`}>
           {filteredRequests.length === 0 ? (
             <div className="py-12 px-4 text-center text-slate-400 text-xs">
               <ClipboardList className="w-8 h-8 mx-auto text-slate-600 mb-2" />
@@ -717,7 +717,7 @@ export const StockRequestsView: React.FC = () => {
               const requestItems = getRequestItems(req);
               const item = inventoryItems.find(i => i.id === req.itemId);
               return (
-                <div key={req.id} className="p-4 space-y-3 hover:bg-slate-800/30 transition-colors">
+                <div key={req.id} className="p-4 rounded-2xl bg-slate-900/50 border border-slate-800 hover:border-slate-700 hover:bg-slate-900/80 transition-all space-y-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-start gap-2">
                       {hasPermission('manageInventory') && (
