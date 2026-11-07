@@ -1656,7 +1656,7 @@ export const StockRequestsView: React.FC = () => {
 
             {/* Printable Content Area */}
             <div className="p-6 overflow-y-auto text-xs bg-slate-950 print-page text-slate-200">
-              <PrintableDocument className="space-y-4">
+              <PrintableDocument className="space-y-4 sbbk-print">
 
               <div className="text-center py-1">
                 <div className="font-bold text-xs uppercase tracking-wider text-white underline">

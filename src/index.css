@@ -898,6 +898,14 @@ tr[class*='hover:bg-'] {
     color: #000000 !important;
   }
 
+  /* Tabel data SBBK bawaannya table-layout:auto; saat paginasi cetak Chrome menyusutkan tabel
+     auto sehingga tepi kanannya berhenti sebelum garis kop. table-layout:fixed memaksa tabel
+     mengisi penuh lebar sel dokumen sehingga tepi kanan sejajar garis kop. Hanya tabel tingkat
+     atas (anak langsung sel isi); tabel rincian di dalamnya tetap auto agar proporsi kolom terjaga. */
+  .official-print-document-body.sbbk-print > table {
+    table-layout: fixed !important;
+  }
+
   .report-signatures {
     display: grid;
     gap: 8mm;
