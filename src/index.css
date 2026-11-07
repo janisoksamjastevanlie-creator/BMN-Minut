@@ -93,6 +93,20 @@ button:has(svg):hover:not(:disabled) {
   transform: scale(1.05);
 }
 
+/* Card row hover effects */
+div[class*='hover:bg-'] {
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+div[class*='hover:bg-']:hover {
+  transform: translateX(2px);
+}
+
+/* Table row hover */
+tr[class*='hover:bg-'] {
+  transition: background-color 0.2s ease;
+}
+
 @media screen {
   /* ==========================================================================
      TEMA MALAM — "Graphite"
