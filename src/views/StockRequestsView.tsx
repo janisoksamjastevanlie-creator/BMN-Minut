@@ -30,7 +30,8 @@ import {
   Send,
   Boxes,
   Eye,
-  Trash2
+  Trash2,
+  Package
 } from 'lucide-react';
 
 const getRequestItems = (request: InventoryRequest): InventoryRequestItem[] => request.items?.length
@@ -718,97 +719,109 @@ export const StockRequestsView: React.FC = () => {
               const item = inventoryItems.find(i => i.id === req.itemId);
               return (
                 <div key={req.id} className="p-4 space-y-3 rounded-xl border border-slate-800 bg-slate-900 hover:bg-slate-800/30 transition-colors">
+                  {/* Header: Nomor + Tanggal | Prioritas + Status */}
                   <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-start gap-2">
+                    <div className="flex items-center gap-2">
                       {hasPermission('manageInventory') && (
                         <input
                           type="checkbox"
                           checked={selectedRequestIds.has(req.id)}
                           onChange={() => toggleRequestSelection(req.id)}
                           disabled={isPermanentDeleteBusy || isBulkCancelBusy}
-                          className="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-950 text-indigo-500 focus:ring-indigo-500"
+                          className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-indigo-500 focus:ring-indigo-500"
                           aria-label={`Pilih permohonan ${req.nomorPermintaan}`}
                         />
                       )}
-                      <div>
-                      <span className="font-mono font-bold text-xs text-cyan-300">
+                      <span className="font-mono text-xs text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
                         {req.nomorPermintaan}
                       </span>
-                      <div className="text-[10px] text-slate-400 mt-0.5">{req.tanggal}</div>
-                      </div>
+                      <span className="text-[10px] text-slate-500">{req.tanggal}</span>
                     </div>
-                    <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                    <div className="flex items-center gap-1.5">
                       <span
                         className={`text-[10px] font-bold px-2 py-0.5 rounded ${
                           req.prioritas === 'Mendesak'
-                            ? 'bg-rose-500/20 text-rose-300'
+                            ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
                             : req.prioritas === 'Tinggi'
-                            ? 'bg-amber-500/20 text-amber-300'
-                            : 'bg-slate-800 text-slate-300'
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/20'
+                            : 'bg-slate-800 text-slate-400 border border-slate-700'
                         }`}
                       >
                         {req.prioritas}
                       </span>
-                      <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold ${getBadgeStyle(req.status)}`}>
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold ${getBadgeStyle(req.status)}`}>
+                        {req.status === 'Diterima' || req.status === 'Selesai' ? <CheckCircle2 className="w-3 h-3" /> :
+                         req.status === 'Diajukan' || req.status === 'Diverifikasi' || req.status === 'Disetujui' ? <Clock className="w-3 h-3" /> :
+                         req.status === 'Dibatalkan' || req.status === 'Ditolak' ? <XCircle className="w-3 h-3" /> :
+                         <AlertCircle className="w-3 h-3" />}
                         {req.status}
                       </span>
                     </div>
                   </div>
 
-                  <div className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-1.5 text-xs">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-white">{req.pemohonNama}</span>
-                      <span className="text-[11px] text-slate-400">{req.unitKerja}</span>
+                  {/* Body: Pemohon + Items */}
+                  <div className="flex items-start gap-3">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-xs font-bold text-white leading-snug line-clamp-1">
+                        {req.pemohonNama}
+                      </h3>
+                      <div className="text-[11px] text-slate-400 mt-0.5">{req.unitKerja}</div>
+                      <div className="text-[10px] text-indigo-300 mt-1">{requestItems.length} jenis barang</div>
+                      {req.keperluan && (
+                        <div className="text-[11px] text-slate-400 line-clamp-1 mt-0.5">{req.keperluan}</div>
+                      )}
                     </div>
-                    <div className="border-t border-slate-800/60 pt-1.5 flex items-start justify-between gap-2">
-                      <div>
-                        <div className="font-bold text-slate-200">
-                          {requestItems.slice(0, 2).map(requestItem => requestItem.namaBarang).join(', ')}
-                          {requestItems.length > 2 ? ` + ${requestItems.length - 2} barang lainnya` : ''}
-                        </div>
-                        <div className="text-[10px] text-indigo-300">{requestItems.length} jenis barang</div>
-                        <div className="text-[11px] text-slate-400 line-clamp-1">{req.keperluan}</div>
-                      </div>
-                      <div className="text-right shrink-0">
-                        {requestItems.map(requestItem => {
-                          const receivedQuantity = (req.penerimaan?.diterimaItems || [])
-                            .find(received => received.itemId === requestItem.itemId)?.jumlah || 0;
-                          return (
-                            <div key={requestItem.itemId} className="font-mono font-bold text-sm text-white">
-                              {requestItem.jumlahDiminta} {requestItem.satuan}
-                              {requestItem.jumlahDisetujui !== undefined && requestItem.jumlahDisetujui !== requestItem.jumlahDiminta && (
-                                <span className="block text-[10px] text-amber-400">Setuju: {requestItem.jumlahDisetujui}</span>
-                              )}
-                              {receivedQuantity > 0 && (
-                                <span className="block text-[10px] text-emerald-400">
-                                  Diterima: {receivedQuantity}
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })}
-                        {requestItems.length > 1 && (
-                          <div className="text-[10px] text-slate-500">{requestItems.length} jenis</div>
-                        )}
-                        {item && requestItems.length === 1 && !['Selesai', 'Diterima'].includes(req.status) && (
-                          <div className={`text-[10px] ${item.stokSaatIni < Math.max(0, (requestItems[0].jumlahDisetujui ?? req.jumlahDiminta) - ((req.penerimaan?.diterimaItems || []).find(received => received.itemId === requestItems[0].itemId)?.jumlah || 0)) ? 'text-rose-400' : 'text-slate-400'}`}>
-                            Stok: {item.stokSaatIni} {item.satuan}
+                    <div className="text-right shrink-0">
+                      {requestItems.map(requestItem => {
+                        const receivedQuantity = (req.penerimaan?.diterimaItems || [])
+                          .find(received => received.itemId === requestItem.itemId)?.jumlah || 0;
+                        return (
+                          <div key={requestItem.itemId} className="font-mono font-bold text-sm text-white">
+                            {requestItem.jumlahDiminta} {requestItem.satuan}
+                            {requestItem.jumlahDisetujui !== undefined && requestItem.jumlahDisetujui !== requestItem.jumlahDiminta && (
+                              <span className="block text-[10px] text-amber-400">Setuju: {requestItem.jumlahDisetujui}</span>
+                            )}
+                            {receivedQuantity > 0 && (
+                              <span className="block text-[10px] text-emerald-400">
+                                Diterima: {receivedQuantity}
+                              </span>
+                            )}
                           </div>
-                        )}
-                      </div>
+                        );
+                      })}
                     </div>
-                    {req.catatan && (
-                      <div className="text-[10px] text-amber-300/90 italic">
-                        Catatan: {req.catatan}
+                  </div>
+
+                  {/* Info Box: Items Detail */}
+                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80 text-xs">
+                    <div>
+                      <span className="text-[10px] text-slate-400 block">Barang:</span>
+                      <span className="text-[11px] text-slate-200 font-medium">
+                        {requestItems.slice(0, 2).map(requestItem => requestItem.namaBarang).join(', ')}
+                        {requestItems.length > 2 ? ` +${requestItems.length - 2}` : ''}
+                      </span>
+                    </div>
+                    {item && requestItems.length === 1 && !['Selesai', 'Diterima'].includes(req.status) && (
+                      <div className="text-right">
+                        <span className="text-[10px] text-slate-400 block">Stok:</span>
+                        <span className={`font-mono font-bold ${item.stokSaatIni < Math.max(0, (requestItems[0].jumlahDisetujui ?? req.jumlahDiminta) - ((req.penerimaan?.diterimaItems || []).find(received => received.itemId === requestItems[0].itemId)?.jumlah || 0)) ? 'text-rose-400' : 'text-emerald-400'}`}>
+                          {item.stokSaatIni} {item.satuan}
+                        </span>
                       </div>
                     )}
                   </div>
 
-                  {/* Mobile Actions */}
-                  <div className="flex items-center justify-between gap-2 pt-1">
+                  {req.catatan && (
+                    <div className="text-[10px] text-amber-300/90 italic px-2">
+                      Catatan: {req.catatan}
+                    </div>
+                  )}
+
+                  {/* Action Buttons */}
+                  <div className="flex items-center justify-between gap-1.5 pt-1">
                     <button
                       onClick={() => setSelectedDetail(req)}
-                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 min-h-[36px]"
+                      className="flex-1 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-400 text-xs font-semibold flex items-center justify-center gap-1.5 min-h-[36px]"
                     >
                       <Eye className="w-3.5 h-3.5" />
                       <span>Rincian</span>
@@ -822,31 +835,34 @@ export const StockRequestsView: React.FC = () => {
                             setCancelReason('');
                             setCancelError(null);
                           }}
-                          className="px-3 py-1.5 rounded-xl bg-rose-600/20 text-rose-300 hover:bg-rose-600 hover:text-white text-xs font-bold transition-colors min-h-[36px]"
+                          className="px-2.5 py-1.5 rounded-xl bg-rose-600/20 hover:bg-rose-600 text-rose-400 hover:text-white text-xs font-semibold flex items-center gap-1 min-h-[36px]"
                           title="Batalkan permohonan sendiri"
                         >
-                          Batal
+                          <X className="w-3.5 h-3.5" />
+                          <span>Batal</span>
                         </button>
                       )}
                       {req.status === 'Diajukan' && canReviewRequests && (
                         <>
                           <button
                             onClick={() => handleOpenVerifyDialog(req)}
-                            className="px-3 py-1.5 rounded-xl bg-cyan-600/20 text-cyan-300 hover:bg-cyan-600 hover:text-white text-xs font-bold transition-colors min-h-[36px]"
+                            className="px-2.5 py-1.5 rounded-xl bg-cyan-600/20 hover:bg-cyan-600 text-cyan-400 hover:text-white text-xs font-semibold flex items-center gap-1 min-h-[36px]"
                           >
-                            Verifikasi
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Verifikasi</span>
                           </button>
                           <button
                             onClick={() => handleOpenRejectDialog(req)}
-                            className="px-3 py-1.5 rounded-xl bg-rose-600/20 text-rose-300 hover:bg-rose-600 hover:text-white text-xs font-bold transition-colors min-h-[36px]"
+                            className="px-2.5 py-1.5 rounded-xl bg-rose-600/20 hover:bg-rose-600 text-rose-400 hover:text-white text-xs font-semibold flex items-center gap-1 min-h-[36px]"
                           >
-                            Tolak
+                            <X className="w-3.5 h-3.5" />
+                            <span>Tolak</span>
                           </button>
                         </>
                       )}
 
                       {req.status === 'Diajukan' && !canReviewRequests && (
-                        <span className="text-cyan-400 text-xs font-medium">Menunggu Verifikasi</span>
+                        <span className="text-cyan-400 text-xs font-medium px-2">Menunggu Verifikasi</span>
                       )}
 
                       {req.status === 'Diverifikasi' && (
@@ -854,19 +870,21 @@ export const StockRequestsView: React.FC = () => {
                           <>
                             <button
                               onClick={() => handleOpenApproveDialog(req)}
-                              className="px-3 py-1.5 rounded-xl bg-amber-600/20 text-amber-300 hover:bg-amber-600 hover:text-white text-xs font-bold transition-colors min-h-[36px]"
+                              className="px-2.5 py-1.5 rounded-xl bg-amber-600/20 hover:bg-amber-600 text-amber-400 hover:text-white text-xs font-semibold flex items-center gap-1 min-h-[36px]"
                             >
-                              Setujui
+                              <Check className="w-3.5 h-3.5" />
+                              <span>Setujui</span>
                             </button>
                             <button
                               onClick={() => handleOpenRejectDialog(req)}
-                              className="px-3 py-1.5 rounded-xl bg-rose-600/20 text-rose-300 hover:bg-rose-600 hover:text-white text-xs font-bold transition-colors min-h-[36px]"
+                              className="px-2.5 py-1.5 rounded-xl bg-rose-600/20 hover:bg-rose-600 text-rose-400 hover:text-white text-xs font-semibold flex items-center gap-1 min-h-[36px]"
                             >
-                              Tolak
+                              <X className="w-3.5 h-3.5" />
+                              <span>Tolak</span>
                             </button>
                           </>
                         ) : (
-                          <span className="text-amber-400 text-xs font-medium">Menunggu Disposisi</span>
+                          <span className="text-amber-400 text-xs font-medium px-2">Menunggu Disposisi</span>
                         )
                       )}
 
@@ -874,12 +892,13 @@ export const StockRequestsView: React.FC = () => {
                         hasPermission('manageInventory') ? (
                           <button
                             onClick={() => handleOpenProcessDialog(req)}
-                            className="px-3 py-1.5 rounded-xl bg-purple-600/20 text-purple-300 hover:bg-purple-600 hover:text-white text-xs font-bold transition-colors min-h-[36px]"
+                            className="px-2.5 py-1.5 rounded-xl bg-purple-600/20 hover:bg-purple-600 text-purple-400 hover:text-white text-xs font-semibold flex items-center gap-1 min-h-[36px]"
                           >
-                            Proses Gudang
+                            <Package className="w-3.5 h-3.5" />
+                            <span>Proses Gudang</span>
                           </button>
                         ) : (
-                          <span className="text-purple-400 text-xs font-medium">Siap Diproses</span>
+                          <span className="text-purple-400 text-xs font-medium px-2">Siap Diproses</span>
                         )
                       )}
 
@@ -887,30 +906,33 @@ export const StockRequestsView: React.FC = () => {
                         hasPermission('manageInventory') ? (
                           <button
                             onClick={() => handleOpenCompleteDialog(req)}
-                            className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-sm transition-colors min-h-[36px]"
+                            className="px-2.5 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white text-xs font-semibold flex items-center gap-1 min-h-[36px]"
                           >
-                            Tandai Barang Diserahkan
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Tandai Diserahkan</span>
                           </button>
                         ) : (
-                          <span className="text-blue-400 text-xs font-medium">Sedang Disiapkan</span>
+                          <span className="text-blue-400 text-xs font-medium px-2">Sedang Disiapkan</span>
                         )
                       )}
 
                       {req.status === 'Menunggu Konfirmasi' && isOwnRequest(req) && (
                         <button
                           onClick={() => openReceiptDialog(req)}
-                          className="px-3 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold shadow-sm transition-colors min-h-[36px]"
+                          className="px-2.5 py-1.5 rounded-xl bg-cyan-600/20 hover:bg-cyan-600 text-cyan-400 hover:text-white text-xs font-semibold flex items-center gap-1 min-h-[36px]"
                         >
-                          Konfirmasi Barang Diterima
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Konfirmasi Diterima</span>
                         </button>
                       )}
 
                       {req.status === 'Menunggu Konfirmasi' && hasPermission('manageInventory') && req.penerimaan?.catatanSelisih && (
                         <button
                           onClick={() => handleOpenReopenDialog(req)}
-                          className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold transition-colors min-h-[36px]"
+                          className="px-2.5 py-1.5 rounded-xl bg-amber-600/20 hover:bg-amber-600 text-amber-400 hover:text-white text-xs font-semibold flex items-center gap-1 min-h-[36px]"
                         >
-                          Tindaklanjuti Selisih
+                          <AlertCircle className="w-3.5 h-3.5" />
+                          <span>Tindaklanjuti Selisih</span>
                         </button>
                       )}
 
