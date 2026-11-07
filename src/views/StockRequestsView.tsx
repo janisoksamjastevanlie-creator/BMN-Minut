@@ -706,9 +706,9 @@ export const StockRequestsView: React.FC = () => {
           </div>
         )}
         {/* CARD VIEW */}
-        <div className={`${viewMode === 'cards' ? '' : 'hidden'} p-4 space-y-3`}>
+        <div className={`${viewMode === 'cards' ? '' : 'hidden'} grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 p-3`}>
           {filteredRequests.length === 0 ? (
-            <div className="py-12 px-4 text-center text-slate-400 text-xs">
+            <div className="py-12 px-4 text-center text-slate-400 text-xs col-span-full">
               <ClipboardList className="w-8 h-8 mx-auto text-slate-600 mb-2" />
               <div>Tidak ada permohonan barang yang sesuai dengan filter.</div>
             </div>
@@ -717,7 +717,7 @@ export const StockRequestsView: React.FC = () => {
               const requestItems = getRequestItems(req);
               const item = inventoryItems.find(i => i.id === req.itemId);
               return (
-                <div key={req.id} className="p-4 rounded-2xl bg-slate-900/50 border border-slate-800 hover:border-slate-700 hover:bg-slate-900/80 transition-all space-y-3">
+                <div key={req.id} className="p-4 space-y-3 rounded-xl border border-slate-800 bg-slate-900 hover:bg-slate-800/30 transition-colors">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-start gap-2">
                       {hasPermission('manageInventory') && (
