@@ -11,6 +11,27 @@ export default defineConfig(() => {
         '@': path.resolve(import.meta.dirname, '.'),
       },
     },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            // Pisahkan library besar agar bisa di-cache terpisah
+            if (id.includes('node_modules/three')) {
+              return 'three';
+            }
+            if (id.includes('node_modules/xlsx')) {
+              return 'xlsx';
+            }
+            if (id.includes('node_modules/@zxing')) {
+              return 'zxing';
+            }
+            if (id.includes('node_modules/lucide-react')) {
+              return 'lucide';
+            }
+          },
+        },
+      },
+    },
     server: {
       allowedHosts: process.env.TUNNEL_HOST ? [process.env.TUNNEL_HOST] : undefined,
       // HMR is disabled in AI Studio via DISABLE_HMR env var.

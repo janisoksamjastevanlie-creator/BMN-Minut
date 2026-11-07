@@ -15,7 +15,7 @@ import { QrScannerModal } from './components/common/QrScannerModal';
 import { AiAssistantModal } from './components/ai/AiAssistantModal';
 import { BackToTopButton } from './components/common/BackToTopButton';
 
-// Modals
+// Modals ringan yang selalu dimuat
 import { StockInModal } from './components/inventory/StockInModal';
 import { StockOutModal } from './components/inventory/StockOutModal';
 import { StockRequestModal } from './components/inventory/StockRequestModal';
