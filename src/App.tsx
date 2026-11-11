@@ -162,7 +162,7 @@ const MainLayout: React.FC = () => {
               {activeView === 'movements' && <AssetMovementsView />}
               {activeView === 'maintenance' && <AssetMaintenanceView />}
               {activeView === 'disposal' && <AssetDisposalView />}
-              {activeView === 'inventory' && <InventoryView />}
+              {(activeView === 'inventory' || activeView === 'stock-card') && <InventoryView />}
               
               {activeView === 'warehouse-3d' && (
                 <div className="space-y-4">

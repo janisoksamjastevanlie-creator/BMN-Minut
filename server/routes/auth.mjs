@@ -168,4 +168,59 @@ export function registerAuthRoutes(app, context) {
     await execute(db, 'DELETE FROM sessions WHERE user_id = ?', [user.id]);
     response.json({ success: true });
   }));
+
+  // Ubah kata sandi milik sendiri. Pengguna yang sudah login boleh mengubah sandinya tanpa
+  // izin manageUsers, asalkan memverifikasi kata sandi saat ini. Sesi di perangkat lain
+  // dicabut, sesi yang sedang dipakai dipertahankan agar pengguna tidak terlempar keluar.
+  const passwordChangeAttempts = new Map();
+  app.put('/api/auth/account/password', requireUser, asyncRoute(async (request, response) => {
+    const userId = request.user?.id;
+    if (!userId) return response.status(401).json({ error: 'Sesi tidak valid.' });
+    const currentPassword = String(request.body?.currentPassword || '');
+    const newPassword = String(request.body?.newPassword || '');
+    if (!currentPassword || currentPassword.length > 256 || !newPassword) {
+      return response.status(400).json({ error: 'Kata sandi saat ini dan kata sandi baru wajib diisi.' });
+    }
+    if (newPassword.length < 12 || newPassword.length > 256) {
+      return response.status(400).json({ error: 'Kata sandi baru harus antara 12 dan 256 karakter.' });
+    }
+    const windowMs = 15 * 60 * 1000;
+    const now = Date.now();
+    if (passwordChangeAttempts.size > 5000) {
+      for (const [key, value] of passwordChangeAttempts) {
+        if (now - value.startedAt >= windowMs) passwordChangeAttempts.delete(key);
+      }
+    }
+    const attemptKey = `pwd:${userId}`;
+    const throttled = passwordChangeAttempts.get(attemptKey);
+    if (throttled && throttled.count >= 10 && now - throttled.startedAt < windowMs) {
+      return response.status(429).json({ error: 'Terlalu banyak percobaan. Coba lagi dalam 15 menit.' });
+    }
+    const account = await queryOne(db, 'SELECT salt, password_hash FROM auth_users WHERE id = ?', [userId]);
+    if (!account) return response.status(404).json({ error: 'Akun tidak ditemukan.' });
+    const salt = Buffer.from(account.salt, 'hex');
+    const expected = Buffer.from(account.password_hash, 'hex');
+    const actual = await scryptAsync(currentPassword, salt, 64);
+    if (!crypto.timingSafeEqual(actual, expected)) {
+      const previous = throttled && now - throttled.startedAt < windowMs ? throttled : { count: 0, startedAt: now };
+      passwordChangeAttempts.set(attemptKey, { ...previous, count: previous.count + 1 });
+      return response.status(401).json({ error: 'Kata sandi saat ini salah.' });
+    }
+    if (currentPassword === newPassword) {
+      return response.status(400).json({ error: 'Kata sandi baru harus berbeda dari kata sandi saat ini.' });
+    }
+    const newSalt = crypto.randomBytes(16);
+    const newHash = await scryptAsync(newPassword, newSalt, 64);
+    await execute(db, 'UPDATE auth_users SET salt = ?, password_hash = ? WHERE id = ?', [
+      newSalt.toString('hex'), newHash.toString('hex'), userId
+    ]);
+    passwordChangeAttempts.delete(attemptKey);
+    const token = readCookie(request, 'siman_session');
+    if (token) {
+      await execute(db, 'DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?', [userId, hashToken(token)]);
+    } else {
+      await execute(db, 'DELETE FROM sessions WHERE user_id = ?', [userId]);
+    }
+    response.json({ success: true });
+  }));
 }

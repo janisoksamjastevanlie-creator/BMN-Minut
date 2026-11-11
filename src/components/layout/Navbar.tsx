@@ -17,8 +17,10 @@ import {
   QrCode,
   Menu,
   Moon,
-  Sun
+  Sun,
+  KeyRound
 } from 'lucide-react';
+import { ChangePasswordModal } from './ChangePasswordModal';
 
 export const Navbar: React.FC = () => {
   const { theme, toggleTheme } = useTheme();
@@ -42,6 +44,7 @@ export const Navbar: React.FC = () => {
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isPerfMenuOpen, setIsPerfMenuOpen] = useState(false);
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
@@ -269,6 +272,17 @@ export const Navbar: React.FC = () => {
                     <span className="text-[10px] text-slate-400">Beralih</span>
                   </button>
 
+                  <button
+                    onClick={() => {
+                      setIsProfileOpen(false);
+                      setIsChangePasswordOpen(true);
+                    }}
+                    className="w-full px-3 py-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-xl flex items-center gap-2 font-medium transition-colors"
+                  >
+                    <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Ganti Kata Sandi</span>
+                  </button>
+
                   {(hasPermission('manageUsers') || hasPermission('manageRoles')) && (
                     <button
                       onClick={() => {
@@ -299,6 +313,11 @@ export const Navbar: React.FC = () => {
           </div>
         </div>
       </div>
+
+      <ChangePasswordModal
+        isOpen={isChangePasswordOpen}
+        onClose={() => setIsChangePasswordOpen(false)}
+      />
     </header>
   );
 };
