@@ -442,9 +442,8 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
                         {item && <span className={`mt-1 block break-words font-normal leading-4 ${isOutOfStock || overStock ? 'text-rose-300' : 'text-slate-400'}`}>Stok tersedia: {availableStock} {item.satuan}{availableStock < item.stokSaatIni ? ' (setelah permohonan aktif)' : ''}</span>}
                       </label>
                       <label className="min-w-0 text-[10px] font-semibold text-slate-300">
-                        Spesifikasi / catatan barang
-                        <input type="text" maxLength={250} value={line.spesifikasi} onChange={event => updateLine(line.key, { spesifikasi: event.target.value })} placeholder="Spesifikasi (opsional)" className="mt-1 h-10 w-full min-w-0 rounded-lg border border-slate-700 bg-slate-950 px-2.5 text-xs text-white placeholder:text-slate-500 focus:border-indigo-500 focus:outline-none" />
-                        <input type="text" maxLength={250} value={line.catatan} onChange={event => updateLine(line.key, { catatan: event.target.value })} placeholder="Catatan khusus (opsional)" className="mt-1 h-10 w-full min-w-0 rounded-lg border border-slate-700 bg-slate-950 px-2.5 text-xs text-white placeholder:text-slate-500 focus:border-indigo-500 focus:outline-none" />
+                        Catatan khusus
+                        <input type="text" maxLength={250} value={line.catatan} onChange={event => updateLine(line.key, { catatan: event.target.value })} placeholder="(opsional)" className="mt-1 h-10 w-full min-w-0 rounded-lg border border-slate-700 bg-slate-950 px-2.5 text-xs text-white placeholder:text-slate-500 focus:border-indigo-500 focus:outline-none" />
                       </label>
                       <div className="flex items-center justify-end md:col-span-2 lg:col-span-1">
                         <button type="button" onClick={() => removeLine(line.key)} disabled={requestItems.length === 1} aria-label={`Hapus barang baris ${index + 1}`} className="rounded-lg p-2 text-rose-300 transition-colors hover:bg-rose-500/10 disabled:cursor-not-allowed disabled:opacity-30">
@@ -476,10 +475,10 @@ export const StockRequestModal: React.FC<StockRequestModalProps> = ({
                     onChange={e => setPrioritas(e.target.value as any)}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
                   >
-                    <option value="Normal">🟢 Normal (Rutin Kantor)</option>
-                    <option value="Tinggi">🟡 Tinggi (Mendekati Batas Pelaporan)</option>
-                    <option value="Mendesak">🔴 Mendesak (Survei Hari Ini)</option>
-                    <option value="Rendah">⚪ Rendah (Persiapan Cadangan)</option>
+                    <option value="Normal">🟢 Normal</option>
+                    <option value="Tinggi">🟡 Tinggi</option>
+                    <option value="Mendesak">🔴 Mendesak</option>
+                    <option value="Rendah">⚪ Rendah</option>
                   </select>
                 </div>
               </div>
