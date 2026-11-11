@@ -2,8 +2,7 @@
 import { useApp } from '../../context/AppContext';
 import { BmnAsset, AssetCondition } from '../../types';
 import { BMN_ASSET_CATEGORIES } from '../../data/bmnAssetCategories';
-import { getAssetPhotoUrl, ASSET_PHOTO_PRESETS } from '../../utils/assetImages';
-import { normalizePhotoUrl } from '../../utils/normalizeUrl';
+import { getAssetPhotoUrl, resolvePhotoUrl, ASSET_PHOTO_PRESETS } from '../../utils/assetImages';
 import { X, Box, PlusCircle, Check, Camera, Image as ImageIcon, Upload } from 'lucide-react';
 
 export const AssetFormModal: React.FC<{
@@ -33,7 +32,7 @@ export const AssetFormModal: React.FC<{
 
   if (!isOpen) return null;
 
-  const currentPreviewPhoto = normalizePhotoUrl(fotoUrl) || (namaBarang ? getAssetPhotoUrl(namaBarang, kategori) : '');
+  const currentPreviewPhoto = resolvePhotoUrl(fotoUrl);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -54,7 +53,7 @@ export const AssetFormModal: React.FC<{
     const val = Number(nilaiPerolehan) || 0;
     const nup = initialAsset ? initialAsset.nup : assets.length + 1;
     const kodeBarang = '3.10.01.02.001';
-    const finalPhoto = normalizePhotoUrl(fotoUrl.trim()) || getAssetPhotoUrl(namaBarang, kategori);
+    const finalPhoto = resolvePhotoUrl(fotoUrl);
 
     if (initialAsset) {
       updateAsset(initialAsset.id, {
@@ -267,7 +266,7 @@ export const AssetFormModal: React.FC<{
                     alt="Preview Aset"
                     className="w-full h-full object-cover"
                     onError={(e) => {
-                      (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1517694712202-14dd9538aa97?auto=format&fit=crop&w=600&q=80';
+                      (e.target as HTMLImageElement).src = getAssetPhotoUrl(namaBarang, kategori);
                     }}
                   />
                 ) : (

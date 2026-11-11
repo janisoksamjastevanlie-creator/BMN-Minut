@@ -1,5 +1,6 @@
 import { useCallback, type Dispatch, type SetStateAction } from 'react';
 import type { InventoryItem } from '../types';
+import { FOTO_PUTIH } from '../utils/assetImages';
 import type { LogAudit, PushNotification } from './types';
 
 interface UseInventoryParams {
@@ -18,7 +19,7 @@ export const useInventory = ({
     const newItem: InventoryItem = {
       ...itemData,
       id: newId,
-      fotoUrl: itemData.fotoUrl || undefined,
+      fotoUrl: itemData.fotoUrl || FOTO_PUTIH,
       totalNilai: itemData.stokSaatIni * itemData.hargaSatuan
     };
     setInventoryItems(prev => [newItem, ...prev]);
@@ -107,6 +108,7 @@ export const useInventory = ({
 
           const newItem: InventoryItem = {
             ...incoming,
+            fotoUrl: incoming.fotoUrl || FOTO_PUTIH,
             id: `inv-imp-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
             totalNilai: totalVal,
             status: itemStatus

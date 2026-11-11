@@ -9,8 +9,7 @@ import { DbrReconciliationModal } from '../components/bmn/DbrReconciliationModal
 import { AssetListPrintModal } from '../components/bmn/AssetListPrintModal';
 import { PrintableDocument } from '../components/common/PrintableDocument';
 import { ReportSignatureBlock } from '../components/common/ReportSignatureBlock';
-import { getAssetPhotoUrl } from '../utils/assetImages';
-import { normalizePhotoUrl } from '../utils/normalizeUrl';
+import { getAssetPhotoUrl, resolvePhotoUrl } from '../utils/assetImages';
 import { triggerPrint } from '../utils/printHelper';
 import { PageSizeSelect, DEFAULT_PAGE_SIZE, resolvePageSize } from '../components/common/ListPager';
 import { ListViewToolbar, type ListViewMode } from '../components/common/ListViewToolbar';
@@ -468,7 +467,7 @@ export const AssetsView: React.FC = () => {
                     className="w-14 h-14 rounded-xl bg-slate-950 border border-slate-800 overflow-hidden shrink-0 cursor-pointer relative"
                   >
                     <img
-                      src={normalizePhotoUrl(asset.fotoUrl) || getAssetPhotoUrl(asset.namaBarang, asset.kategori)}
+                      src={resolvePhotoUrl(asset.fotoUrl)}
                       alt={asset.namaBarang}
                       className="w-full h-full object-cover"
                       onError={(e) => {
@@ -628,7 +627,7 @@ export const AssetsView: React.FC = () => {
                           title="Klik untuk melihat foto & rincian aset"
                         >
                           <img
-                            src={normalizePhotoUrl(asset.fotoUrl) || getAssetPhotoUrl(asset.namaBarang, asset.kategori)}
+                            src={resolvePhotoUrl(asset.fotoUrl)}
                             alt={asset.namaBarang}
                             className="w-full h-full object-cover group-hover/img:scale-110 transition-transform duration-200"
                             onError={(e) => {

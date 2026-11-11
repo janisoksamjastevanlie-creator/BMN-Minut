@@ -2,7 +2,7 @@
 import { useApp } from '../../context/AppContext';
 import { InventoryItem, InventoryType } from '../../types';
 import { X, Boxes, Check, Camera, Upload, Image as ImageIcon } from 'lucide-react';
-import { normalizePhotoUrl } from '../../utils/normalizeUrl';
+import { resolvePhotoUrl } from '../../utils/assetImages';
 
 export const InventoryFormModal: React.FC<{
   isOpen: boolean;
@@ -33,7 +33,7 @@ export const InventoryFormModal: React.FC<{
 
   if (!isOpen) return null;
 
-  const currentPreviewPhoto = normalizePhotoUrl(fotoUrl);
+  const currentPreviewPhoto = resolvePhotoUrl(fotoUrl);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -55,7 +55,7 @@ export const InventoryFormModal: React.FC<{
     const [currentStockNum, minStockNum, maxStockNum, priceNum, averageNum] = numericValues;
     if (![currentStockNum, minStockNum, maxStockNum, averageNum].every(Number.isSafeInteger) ||
         minStockNum > maxStockNum) return;
-    const finalPhoto = normalizePhotoUrl(fotoUrl.trim()) || normalizePhotoUrl(initialItem?.fotoUrl) || undefined;
+    const finalPhoto = resolvePhotoUrl(fotoUrl.trim() || initialItem?.fotoUrl);
 
     let status: 'Aman' | 'Menipis' | 'Habis' = 'Aman';
     if (currentStockNum === 0) status = 'Habis';
@@ -390,7 +390,7 @@ export const InventoryFormModal: React.FC<{
                 <ImageIcon className="w-3.5 h-3.5 text-emerald-400" />
                 <span>Foto Produk / Barang Persediaan</span>
               </label>
-              {currentPreviewPhoto && (
+              {fotoUrl && (
                 <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-1">
                   <Check className="w-3 h-3" />
                   <span>Foto Terpasang</span>

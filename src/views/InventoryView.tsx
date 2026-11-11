@@ -6,8 +6,7 @@ import { StockOutModal } from '../components/inventory/StockOutModal';
 import { StockCardModal } from '../components/inventory/StockCardModal';
 import { ImportInventoryModal } from '../components/inventory/ImportInventoryModal';
 import { InventoryFormModal } from '../components/inventory/InventoryFormModal';
-import { getInventoryPhotoUrl } from '../utils/assetImages';
-import { normalizePhotoUrl } from '../utils/normalizeUrl';
+import { getInventoryPhotoUrl, resolvePhotoUrl } from '../utils/assetImages';
 import { PageSizeSelect, DEFAULT_PAGE_SIZE, resolvePageSize } from '../components/common/ListPager';
 import { ListViewToolbar, type ListViewMode } from '../components/common/ListViewToolbar';
 import {
@@ -1028,7 +1027,7 @@ export const InventoryView: React.FC = () => {
                     className="w-14 h-14 rounded-xl bg-slate-950 border border-slate-800 overflow-hidden shrink-0 cursor-pointer relative"
                   >
                     <img
-                      src={normalizePhotoUrl(item.fotoUrl) || getInventoryPhotoUrl(item.nama, item.subkategori, item.jenis)}
+                      src={resolvePhotoUrl(item.fotoUrl)}
                       alt={item.nama}
                       className="w-full h-full object-cover"
                       onError={(e) => {
@@ -1177,7 +1176,7 @@ export const InventoryView: React.FC = () => {
                         title="Klik untuk membuka kartu stok & foto"
                       >
                         <img
-                          src={normalizePhotoUrl(item.fotoUrl) || getInventoryPhotoUrl(item.nama, item.subkategori, item.jenis)}
+                          src={resolvePhotoUrl(item.fotoUrl)}
                           alt={item.nama}
                           className="w-full h-full object-cover group-hover/img:scale-110 transition-transform duration-200"
                           onError={(e) => {

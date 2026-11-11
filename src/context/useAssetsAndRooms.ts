@@ -1,6 +1,7 @@
 import { useCallback, type Dispatch, type SetStateAction } from 'react';
 import type { BmnAsset, OfficeRoom, WarehouseRack } from '../types';
 import { linkImportedAssetsToRooms } from '../utils/assetRoomImporter';
+import { FOTO_PUTIH } from '../utils/assetImages';
 import type { LogAudit, PushNotification } from './types';
 
 interface UseAssetsAndRoomsParams {
@@ -126,7 +127,7 @@ export const useAssetsAndRooms = ({
     const newId = `bmn-${Date.now()}`;
     const newAsset: BmnAsset = {
       ...assetData,
-      fotoUrl: assetData.fotoUrl || undefined,
+      fotoUrl: assetData.fotoUrl || FOTO_PUTIH,
       id: newId
     };
     setAssets(prev => [newAsset, ...prev]);
@@ -165,6 +166,7 @@ export const useAssetsAndRooms = ({
         } else {
           const newAsset: BmnAsset = {
             ...incoming,
+            fotoUrl: incoming.fotoUrl || FOTO_PUTIH,
             id: `bmn-imp-${Date.now()}-${Math.floor(Math.random() * 100000)}`
           };
           nextList = [newAsset, ...nextList];

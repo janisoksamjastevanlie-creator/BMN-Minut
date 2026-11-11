@@ -1,8 +1,7 @@
 ﻿import React, { useState, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { BmnAsset } from '../../types';
-import { getAssetPhotoUrl } from '../../utils/assetImages';
-import { normalizePhotoUrl } from '../../utils/normalizeUrl';
+import { getAssetPhotoUrl, resolvePhotoUrl } from '../../utils/assetImages';
 import { AssetLabelPrintModal } from './AssetLabelPrintModal';
 import {
   X,
@@ -37,7 +36,7 @@ export const AssetDetailModal: React.FC<{
 
   if (!asset) return null;
 
-  const currentPhoto = photoPreview || normalizePhotoUrl(asset.fotoUrl) || getAssetPhotoUrl(asset.namaBarang, asset.kategori);
+  const currentPhoto = photoPreview || resolvePhotoUrl(asset.fotoUrl);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
