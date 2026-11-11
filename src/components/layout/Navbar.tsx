@@ -66,17 +66,17 @@ export const Navbar: React.FC = () => {
           {/* Official Emblem Placeholder for BPS Kabupaten Minahasa Utara */}
           <div
             onClick={() => setActiveView(getHomeView(currentUser))}
-            className="cursor-pointer flex items-center gap-2.5 sm:gap-3 group"
+            className="cursor-pointer flex items-center gap-2.5 sm:gap-3 group min-w-0"
           >
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-blue-700 via-blue-600 to-indigo-800 p-0.5 shadow-md shadow-blue-900/30 group-hover:scale-105 transition-transform shrink-0">
+            <div className="bps-logo-tile w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-blue-700 via-blue-600 to-indigo-800 p-0.5 shadow-md shadow-blue-900/30 group-hover:scale-105 transition-transform shrink-0">
               <div className="w-full h-full rounded-[10px] bg-slate-950 flex items-center justify-center relative overflow-hidden">
                 <img src="/bps-minut-logo.png" alt="Logo BPS Minahasa Utara" className="w-full h-full object-contain" />
               </div>
             </div>
 
-            <div>
-              <div className="flex items-center gap-1.5 sm:gap-2">
-                <span className="font-extrabold text-white tracking-wider text-sm sm:text-base bg-gradient-to-r from-white via-blue-100 to-cyan-300 bg-clip-text text-transparent">
+            <div className="min-w-0 hidden sm:block">
+              <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+                <span className="truncate font-extrabold text-white tracking-wider text-sm sm:text-base bg-gradient-to-r from-white via-blue-100 to-cyan-300 bg-clip-text text-transparent">
                   BMN BPS MINUT
                 </span>
               </div>
@@ -133,7 +133,7 @@ export const Navbar: React.FC = () => {
           </button>
 
           {/* 3D Performance Selector Dropdown */}
-          <div className="relative">
+          <div className="relative hidden sm:block">
             <button
               onClick={() => setIsPerfMenuOpen(!isPerfMenuOpen)}
               title="Mode Performa 3D"

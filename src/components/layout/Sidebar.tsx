@@ -269,7 +269,7 @@ export const Sidebar: React.FC = () => {
             {/* Drawer Header */}
             <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/50">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-700 via-blue-600 to-indigo-800 p-0.5 shadow-md">
+                <div className="bps-logo-tile w-8 h-8 rounded-xl bg-gradient-to-br from-blue-700 via-blue-600 to-indigo-800 p-0.5 shadow-md">
                   <div className="w-full h-full rounded-[10px] bg-slate-950 flex items-center justify-center">
                     <img src="/bps-minut-logo.png" alt="Logo BPS Minahasa Utara" className="w-full h-full object-contain" />
                   </div>

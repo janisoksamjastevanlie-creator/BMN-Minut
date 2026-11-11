@@ -30,7 +30,7 @@ export const LoginView: React.FC = () => {
         {/* Brand Header */}
         <div className="text-center space-y-2">
           {/* Official Emblem Geometric Placeholder */}
-          <div className="mx-auto w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-700 via-blue-600 to-indigo-800 p-0.5 shadow-xl shadow-blue-900/40">
+          <div className="bps-logo-tile mx-auto w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-700 via-blue-600 to-indigo-800 p-0.5 shadow-xl shadow-blue-900/40">
             <div className="w-full h-full rounded-[14px] bg-slate-950 flex items-center justify-center">
               <img src="/bps-minut-logo.png" alt="Logo BPS Minahasa Utara" className="w-full h-full object-contain" />
             </div>
