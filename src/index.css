@@ -362,146 +362,317 @@ html[data-theme='dark'] .sidebar-nav-item.is-active svg {
     color: #1f2937;
   }
 
-  html[data-theme='light'] [class*='bg-slate-950'] {
+  /* Permukaan solid: token persis agar kelas varian (hover:) tidak
+     ikut menyala permanen. */
+  html[data-theme='light'] :is(
+    [class~='bg-slate-950'],
+    [class~='bg-slate-950/90'],
+    [class~='bg-slate-950/85'],
+    [class~='bg-slate-950/80'],
+    [class~='bg-slate-950/70'],
+    [class~='bg-slate-950/60'],
+    [class~='bg-slate-950/50'],
+    [class~='bg-slate-950/40']
+  ) {
     background-color: #f8fafc !important;
   }
 
-  html[data-theme='light'] [class*='bg-slate-900'] {
+  html[data-theme='light'] :is(
+    [class~='bg-slate-900'],
+    [class~='bg-slate-900/95'],
+    [class~='bg-slate-900/90'],
+    [class~='bg-slate-900/85'],
+    [class~='bg-slate-900/80'],
+    [class~='bg-slate-900/60'],
+    [class~='bg-slate-900/50'],
+    [class~='bg-slate-900/40']
+  ) {
     background-color: #ffffff !important;
   }
 
-  html[data-theme='light'] [class*='bg-slate-800'] {
+  html[data-theme='light'] :is(
+    [class~='bg-slate-800'],
+    [class~='bg-slate-800/95'],
+    [class~='bg-slate-800/80'],
+    [class~='bg-slate-800/70'],
+    [class~='bg-slate-800/60'],
+    [class~='bg-slate-800/50'],
+    [class~='bg-slate-800/40'],
+    [class~='bg-slate-800/30']
+  ) {
     background-color: #f1f5f9 !important;
   }
 
-  html[data-theme='light'] [class*='bg-slate-700'] {
+  html[data-theme='light'] :is(
+    [class~='bg-slate-700'],
+    [class~='bg-slate-700/80'],
+    [class~='bg-slate-700/50']
+  ) {
     background-color: #e2e8f0 !important;
   }
 
-  html[data-theme='light'] [class*='bg-slate-600'] {
+  html[data-theme='light'] [class~='bg-slate-600'] {
     background-color: #cbd5e1 !important;
   }
 
-  html[data-theme='light'] [class*='bg-amber-950'] {
-    background-color: #fffbeb;
+  /* Hover permukaan netral: satu nada abu-biru lembut */
+  html[data-theme='light'] [class*='hover:bg-slate-']:hover {
+    background-color: #e8edf3 !important;
   }
 
-  html[data-theme='light'] [class*='bg-blue-950'] {
-    background-color: #eff6ff;
+  html[data-theme='light'] :is(
+    [class~='bg-amber-950/20'],
+    [class~='bg-amber-950/30'],
+    [class~='bg-amber-950/40']
+  ) {
+    background-color: #fffbeb !important;
   }
 
-  html[data-theme='light'] [class*='bg-emerald-950'] {
-    background-color: #ecfdf5;
+  html[data-theme='light'] :is(
+    [class~='bg-blue-950/20'],
+    [class~='bg-blue-950/30']
+  ) {
+    background-color: #eff6ff !important;
   }
 
-  html[data-theme='light'] [class*='bg-purple-950'] {
-    background-color: #faf5ff;
+  html[data-theme='light'] :is(
+    [class~='bg-emerald-950/10'],
+    [class~='bg-emerald-950/20'],
+    [class~='bg-emerald-950/25'],
+    [class~='bg-emerald-950/30'],
+    [class~='bg-emerald-950/90']
+  ) {
+    background-color: #ecfdf5 !important;
   }
 
-  html[data-theme='light'] [class*='bg-rose-950'] {
-    background-color: #fff1f2;
+  html[data-theme='light'] [class~='bg-purple-950/20'] {
+    background-color: #eff6ff !important;
   }
 
-  html[data-theme='light'] [class*='bg-blue-800'] {
-    background-color: #dbeafe;
+  html[data-theme='light'] :is(
+    [class~='bg-rose-950'],
+    [class~='bg-rose-950/20'],
+    [class~='bg-rose-950/30'],
+    [class~='bg-rose-950/40'],
+    [class~='bg-rose-950/90']
+  ) {
+    background-color: #fff1f2 !important;
   }
 
-  html[data-theme='light'] [class*='bg-purple-800'] {
-    background-color: #ede9fe;
+  /* Hover bernuansa status: tetap terang agar teks aksen terbaca */
+  html[data-theme='light'] [class*='hover:bg-rose-950']:hover {
+    background-color: #fff1f2 !important;
   }
 
-  html[data-theme='light'] [class*='text-white'] {
+  html[data-theme='light'] [class*='hover:bg-emerald-950']:hover {
+    background-color: #ecfdf5 !important;
+  }
+
+  html[data-theme='light'] [class*='hover:bg-amber-950']:hover {
+    background-color: #fffbeb !important;
+  }
+
+  html[data-theme='light'] [class*='hover:bg-blue-950']:hover {
+    background-color: #eff6ff !important;
+  }
+
+  html[data-theme='light'] [class~='bg-blue-800'],
+  html[data-theme='light'] [class~='bg-purple-800'] {
+    background-color: #dbeafe !important;
+  }
+
+  /* Garis pindai QR tetap biru solid */
+  html[data-theme='light'] [class~='bg-cyan-400/80'] {
+    background-color: #2563eb !important;
+  }
+
+  /* Chip dekoratif cyan/ungu/indigo/violet disatukan menjadi tint biru */
+  html[data-theme='light'] :is(
+    [class~='bg-cyan-500/10'],
+    [class~='bg-cyan-500/20'],
+    [class~='bg-cyan-600/10'],
+    [class~='bg-cyan-600/15'],
+    [class~='bg-cyan-600/20'],
+    [class~='bg-purple-500/10'],
+    [class~='bg-purple-500/20'],
+    [class~='bg-purple-600/10'],
+    [class~='bg-purple-600/20'],
+    [class~='bg-purple-800/70'],
+    [class~='bg-indigo-500/10'],
+    [class~='bg-indigo-500/20'],
+    [class~='bg-indigo-600/20'],
+    [class~='bg-violet-500/10']
+  ) {
+    background-color: rgba(29, 78, 216, 0.08) !important;
+  }
+
+  html[data-theme='light'] [class*='text-white']:not([class*=':text-white']) {
     color: #1f2937;
   }
 
-  html[data-theme='light'] [class*='text-slate-100'],
-  html[data-theme='light'] [class*='text-slate-200'] {
+  html[data-theme='light'] [class*='text-slate-100']:not([class*=':text-slate-100']),
+  html[data-theme='light'] [class*='text-slate-200']:not([class*=':text-slate-200']) {
     color: #1f2937;
   }
 
-  html[data-theme='light'] [class*='text-slate-300'] {
+  html[data-theme='light'] [class*='text-slate-300']:not([class*=':text-slate-300']) {
     color: #374151;
   }
 
-  html[data-theme='light'] [class*='text-slate-400'],
-  html[data-theme='light'] [class*='text-slate-500'] {
+  html[data-theme='light'] [class*='text-slate-400']:not([class*=':text-slate-400']),
+  html[data-theme='light'] [class*='text-slate-500']:not([class*=':text-slate-500']) {
     color: #4b5563;
   }
 
-  html[data-theme='light'] [class*='text-blue-'],
-  html[data-theme='light'] [class*='text-indigo-'] {
+  /* Aksen dekoratif disatukan: biru BPS (cyan/ungu/indigo ikut biru) */
+  html[data-theme='light'] [class*='text-blue-']:not([class*=':text-blue-']),
+  html[data-theme='light'] [class*='text-indigo-']:not([class*=':text-indigo-']),
+  html[data-theme='light'] [class*='text-cyan-']:not([class*=':text-cyan-']),
+  html[data-theme='light'] [class*='text-purple-']:not([class*=':text-purple-']),
+  html[data-theme='light'] [class*='text-violet-']:not([class*=':text-violet-']) {
     color: #1d4ed8;
   }
 
-  html[data-theme='light'] [class*='text-cyan-'] {
-    color: #0e7490;
-  }
-
-  html[data-theme='light'] [class*='text-emerald-'] {
+  /* Warna status tetap dipertahankan */
+  html[data-theme='light'] [class*='text-emerald-']:not([class*=':text-emerald-']),
+  html[data-theme='light'] [class*='text-green-']:not([class*=':text-green-']) {
     color: #047857;
   }
 
-  html[data-theme='light'] [class*='text-purple-'] {
-    color: #7e22ce;
-  }
-
-  html[data-theme='light'] [class*='text-rose-'],
-  html[data-theme='light'] [class*='text-red-'] {
+  html[data-theme='light'] [class*='text-rose-']:not([class*=':text-rose-']),
+  html[data-theme='light'] [class*='text-red-']:not([class*=':text-red-']) {
     color: #be123c;
   }
 
-  html[data-theme='light'] [class*='text-amber-'] {
+  html[data-theme='light'] [class*='text-amber-']:not([class*=':text-amber-']) {
     color: #92400e;
   }
 
-  html[data-theme='light'] [class*='text-orange-'] {
-    color: #c2410c;
+  html[data-theme='light'] [class*='text-orange-']:not([class*=':text-orange-']) {
+    color: #b45309;
   }
 
-  html[data-theme='light'] [class*='border-slate-900'],
-  html[data-theme='light'] [class*='border-slate-800'] {
+  /* Teks saat hover: tetap gelap dan terbaca di atas permukaan terang */
+  html[data-theme='light'] [class*='hover:text-slate-']:hover,
+  html[data-theme='light'] [class~='hover:text-white']:hover {
+    color: #0f172a;
+  }
+
+  html[data-theme='light'] [class*='hover:text-blue-']:hover,
+  html[data-theme='light'] [class*='hover:text-indigo-']:hover,
+  html[data-theme='light'] [class*='hover:text-cyan-']:hover,
+  html[data-theme='light'] [class*='hover:text-purple-']:hover,
+  html[data-theme='light'] [class*='hover:text-violet-']:hover {
+    color: #1d4ed8;
+  }
+
+  html[data-theme='light'] [class*='hover:text-emerald-']:hover,
+  html[data-theme='light'] [class*='hover:text-green-']:hover {
+    color: #047857;
+  }
+
+  html[data-theme='light'] [class*='hover:text-rose-']:hover,
+  html[data-theme='light'] [class*='hover:text-red-']:hover {
+    color: #be123c;
+  }
+
+  html[data-theme='light'] [class*='hover:text-amber-']:hover,
+  html[data-theme='light'] [class*='hover:text-orange-']:hover {
+    color: #92400e;
+  }
+
+  html[data-theme='light'] .group:hover [class~='group-hover:text-blue-300'],
+  html[data-theme='light'] .group:hover [class~='group-hover:text-cyan-300'] {
+    color: #1d4ed8;
+  }
+
+  html[data-theme='light'] [class*='border-slate-900']:not([class*=':border-slate-900']),
+  html[data-theme='light'] [class*='border-slate-800']:not([class*=':border-slate-800']) {
     border-color: #e5e7eb;
   }
 
-  html[data-theme='light'] [class*='border-slate-700'] {
+  html[data-theme='light'] [class*='border-slate-700']:not([class*=':border-slate-700']) {
     border-color: #d1d5db;
   }
 
-  html[data-theme='light'] [class*='border-slate-600'],
-  html[data-theme='light'] [class*='border-slate-500'] {
+  html[data-theme='light'] [class*='border-slate-600']:not([class*=':border-slate-600']),
+  html[data-theme='light'] [class*='border-slate-500']:not([class*=':border-slate-500']) {
     border-color: #cbd5e1;
   }
 
-  html[data-theme='light'] [class*='border-blue-500/'] {
+  html[data-theme='light'] [class*='hover:border-slate-700']:hover,
+  html[data-theme='light'] [class*='hover:border-slate-600']:hover {
+    border-color: #cbd5e1;
+  }
+
+  html[data-theme='light'] [class*='hover:border-slate-500']:hover {
+    border-color: #94a3b8;
+  }
+
+  /* Garis aksen lembut; ungu/cyan/indigo menyatu ke biru */
+  html[data-theme='light'] :is(
+    [class~='border-blue-500'],
+    [class~='border-cyan-500'],
+    [class~='border-indigo-500'],
+    [class~='border-purple-500'],
+    [class~='border-violet-500']
+  ) {
+    border-color: #93c5fd;
+  }
+
+  html[data-theme='light'] [class*='border-blue-500/']:not([class*=':border-blue-500/']),
+  html[data-theme='light'] [class*='border-cyan-500/']:not([class*=':border-cyan-500/']),
+  html[data-theme='light'] [class*='border-indigo-500/']:not([class*=':border-indigo-500/']),
+  html[data-theme='light'] [class*='border-purple-500/']:not([class*=':border-purple-500/']),
+  html[data-theme='light'] [class*='border-violet-500/']:not([class*=':border-violet-500/']) {
     border-color: #bfdbfe;
   }
 
-  html[data-theme='light'] [class*='border-cyan-500/'] {
-    border-color: #a5f3fc;
+  html[data-theme='light'] :is(
+    [class~='border-emerald-500'],
+    [class~='border-green-500']
+  ) {
+    border-color: #6ee7b7;
   }
 
-  html[data-theme='light'] [class*='border-emerald-500/'] {
+  html[data-theme='light'] [class*='border-emerald-500/']:not([class*=':border-emerald-500/']),
+  html[data-theme='light'] [class*='border-green-500/']:not([class*=':border-green-500/']) {
     border-color: #a7f3d0;
   }
 
-  html[data-theme='light'] [class*='border-indigo-500/'] {
-    border-color: #c7d2fe;
+  html[data-theme='light'] :is(
+    [class~='border-amber-500'],
+    [class~='border-orange-500']
+  ) {
+    border-color: #fcd34d;
   }
 
-  html[data-theme='light'] [class*='border-purple-500/'] {
-    border-color: #ddd6fe;
-  }
-
-  html[data-theme='light'] [class*='border-rose-500/'] {
-    border-color: #fecdd3;
-  }
-
-  html[data-theme='light'] [class*='border-amber-500/'] {
+  html[data-theme='light'] [class*='border-amber-500/']:not([class*=':border-amber-500/']),
+  html[data-theme='light'] [class*='border-orange-500/']:not([class*=':border-orange-500/']) {
     border-color: #fde68a;
   }
 
-  html[data-theme='light'] [class*='border-orange-500/'] {
-    border-color: #fed7aa;
+  html[data-theme='light'] :is(
+    [class~='border-rose-500'],
+    [class~='border-red-500']
+  ) {
+    border-color: #fda4af;
+  }
+
+  html[data-theme='light'] [class*='border-rose-500/']:not([class*=':border-rose-500/']),
+  html[data-theme='light'] [class*='border-red-500/']:not([class*=':border-red-500/']) {
+    border-color: #fecdd3;
+  }
+
+  html[data-theme='light'] [class*='hover:border-blue-500']:hover,
+  html[data-theme='light'] [class*='hover:border-cyan-500']:hover,
+  html[data-theme='light'] [class*='hover:border-indigo-500']:hover,
+  html[data-theme='light'] [class*='hover:border-purple-500']:hover {
+    border-color: #93c5fd;
+  }
+
+  html[data-theme='light'] [class*='hover:border-emerald-500']:hover {
+    border-color: #6ee7b7;
   }
 
   html[data-theme='light'] [class*='divide-slate-'] {
@@ -510,7 +681,7 @@ html[data-theme='dark'] .sidebar-nav-item.is-active svg {
 
   html[data-theme='light'] [class*='placeholder-slate-']::placeholder,
   html[data-theme='light'] [class*='placeholder:text-slate-']::placeholder {
-    color: #4b5563 !important;
+    color: #6b7280 !important;
     opacity: 1;
   }
 
@@ -522,29 +693,24 @@ html[data-theme='dark'] .sidebar-nav-item.is-active svg {
     --tw-ring-offset-color: #ffffff;
   }
 
+  /* Permukaan aksen penuh: satu biru BPS + warna status */
   html[data-theme='light'] :is(
     [class~='bg-blue-400'],
     [class~='bg-blue-500'],
     [class~='bg-blue-600'],
     [class~='bg-blue-700'],
-    [class~='bg-blue-600/90']
-  ) {
-    background-color: #1d4ed8;
-  }
-
-  html[data-theme='light'] :is(
+    [class~='bg-blue-600/90'],
     [class~='bg-indigo-500'],
-    [class~='bg-indigo-600']
-  ) {
-    background-color: #4338ca;
-  }
-
-  html[data-theme='light'] :is(
+    [class~='bg-indigo-600'],
     [class~='bg-cyan-400'],
     [class~='bg-cyan-500'],
-    [class~='bg-cyan-600']
+    [class~='bg-cyan-600'],
+    [class~='bg-purple-500'],
+    [class~='bg-purple-600'],
+    [class~='bg-violet-500'],
+    [class~='bg-violet-600']
   ) {
-    background-color: #0e7490;
+    background-color: #1d4ed8;
   }
 
   html[data-theme='light'] :is(
@@ -553,22 +719,19 @@ html[data-theme='dark'] .sidebar-nav-item.is-active svg {
     [class~='bg-emerald-600'],
     [class~='bg-emerald-700'],
     [class~='bg-emerald-500/90'],
-    [class~='bg-emerald-600/90']
+    [class~='bg-emerald-600/90'],
+    [class~='bg-green-500'],
+    [class~='bg-green-600']
   ) {
     background-color: #047857;
   }
 
   html[data-theme='light'] :is(
-    [class~='bg-purple-500'],
-    [class~='bg-purple-600']
-  ) {
-    background-color: #7e22ce;
-  }
-
-  html[data-theme='light'] :is(
     [class~='bg-rose-500'],
     [class~='bg-rose-600'],
-    [class~='bg-rose-500/90']
+    [class~='bg-rose-500/90'],
+    [class~='bg-red-500'],
+    [class~='bg-red-600']
   ) {
     background-color: #be123c;
   }
@@ -577,37 +740,83 @@ html[data-theme='dark'] .sidebar-nav-item.is-active svg {
     [class~='bg-amber-400'],
     [class~='bg-amber-500'],
     [class~='bg-amber-600'],
-    [class~='bg-amber-600/90']
+    [class~='bg-amber-600/90'],
+    [class~='bg-orange-500'],
+    [class~='bg-orange-600']
   ) {
     background-color: #b45309;
   }
 
-  html[data-theme='light'] [class~='bg-orange-500'] {
-    background-color: #c2410c;
-  }
-
+  /* Hover tombol aksen: latar berwarna + teks putih */
   html[data-theme='light'] :is(
     [class~='hover:bg-blue-500'],
-    [class~='hover:bg-blue-600']
+    [class~='hover:bg-blue-600'],
+    [class~='hover:bg-indigo-500'],
+    [class~='hover:bg-indigo-600'],
+    [class~='hover:bg-cyan-500'],
+    [class~='hover:bg-cyan-600'],
+    [class~='hover:bg-purple-500'],
+    [class~='hover:bg-purple-600'],
+    [class~='hover:bg-violet-500'],
+    [class~='hover:bg-violet-600']
   ):hover {
-    background-color: #1d4ed8;
+    background-color: #1d4ed8 !important;
+    color: #ffffff !important;
   }
 
   html[data-theme='light'] :is(
-    [class~='hover:bg-indigo-500'],
-    [class~='hover:bg-indigo-600']
+    [class~='hover:bg-emerald-500'],
+    [class~='hover:bg-emerald-600'],
+    [class~='hover:bg-green-500'],
+    [class~='hover:bg-green-600']
   ):hover {
-    background-color: #4338ca;
+    background-color: #047857 !important;
+    color: #ffffff !important;
   }
 
-  html[data-theme='light'] [class*='from-blue-600'][class*='to-cyan-500'] {
-    background-image: linear-gradient(to right, #1d4ed8, #2563eb, #0e7490) !important;
+  html[data-theme='light'] :is(
+    [class~='hover:bg-rose-500'],
+    [class~='hover:bg-rose-600'],
+    [class~='hover:bg-red-500'],
+    [class~='hover:bg-red-600']
+  ):hover {
+    background-color: #be123c !important;
+    color: #ffffff !important;
   }
 
-  html[data-theme='light'] [class~='text-transparent'][class~='bg-clip-text'] {
-    background-image: linear-gradient(to right, #1d4ed8, #0e7490, #047857) !important;
+  html[data-theme='light'] :is(
+    [class~='hover:bg-amber-500'],
+    [class~='hover:bg-amber-600'],
+    [class~='hover:bg-orange-500'],
+    [class~='hover:bg-orange-600']
+  ):hover {
+    background-color: #b45309 !important;
+    color: #ffffff !important;
   }
 
+  /* Gradien aksen (logo, avatar, tombol) diseragamkan biru BPS.
+     Varian transparan seperti from-blue-600/30 sengaja dikecualikan. */
+  html[data-theme='light'] :is(
+    [class*='bg-gradient-to-'][class*='from-blue-700'],
+    [class*='bg-gradient-to-'][class*='from-blue-600'][class*='to-cyan-600']:not([class*='from-blue-600/']),
+    [class*='bg-gradient-to-'][class*='from-cyan-500'][class*='to-blue-600'],
+    [class*='bg-gradient-to-'][class*='from-blue-600'][class*='via-blue-500'][class*='to-cyan-400'],
+    [class*='bg-gradient-to-'][class*='from-purple-600'],
+    [class*='bg-gradient-to-'][class*='from-indigo-600'],
+    [class*='bg-gradient-to-'][class*='from-cyan-600'],
+    [class*='bg-gradient-to-'][class*='from-violet-600']
+  ) {
+    background-image: linear-gradient(135deg, #1d4ed8, #2563eb) !important;
+  }
+
+  /* Teks gradien (judul merek) satu nada biru */
+  html[data-theme='light'] [class~='text-transparent'][class~='bg-clip-text'],
+  html[data-theme='light'] .bg-clip-text.text-transparent {
+    background-image: linear-gradient(to right, #1d4ed8, #2563eb) !important;
+  }
+
+  /* Teks putih hanya di atas permukaan aksen penuh.
+     Gradien permukaan (from-*-950 dsb.) tidak termasuk di sini. */
   html[data-theme='light'] :is(
     [class~='bg-blue-400'],
     [class~='bg-blue-500'],
@@ -635,8 +844,19 @@ html[data-theme='dark'] .sidebar-nav-item.is-active svg {
     [class~='bg-amber-600'],
     [class~='bg-amber-600/90'],
     [class~='bg-orange-500'],
-    [class*='from-blue-600'][class*='to-cyan-500'],
-    [class*='bg-gradient-to-br']
+    [class~='bg-orange-600'],
+    [class*='bg-gradient-to-'][class*='from-blue-700'],
+    [class*='bg-gradient-to-'][class*='from-blue-600'][class*='to-cyan-600']:not([class*='from-blue-600/']),
+    [class*='bg-gradient-to-'][class*='from-cyan-500'][class*='to-blue-600'],
+    [class*='bg-gradient-to-'][class*='from-blue-600'][class*='via-blue-500'][class*='to-cyan-400'],
+    [class*='bg-gradient-to-'][class*='from-purple-600'],
+    [class*='bg-gradient-to-'][class*='from-indigo-600'],
+    [class*='bg-gradient-to-'][class*='from-cyan-600'],
+    [class*='bg-gradient-to-'][class*='from-violet-600'],
+    [class*='bg-gradient-to-'][class*='from-emerald-600'],
+    [class*='bg-gradient-to-'][class*='from-amber-600'],
+    [class*='bg-gradient-to-'][class*='from-orange-600'],
+    [class*='bg-gradient-to-'][class*='from-rose-600']
   )[class*='text-white'],
   html[data-theme='light'] :is(
     [class~='bg-blue-400'],
@@ -665,8 +885,19 @@ html[data-theme='dark'] .sidebar-nav-item.is-active svg {
     [class~='bg-amber-600'],
     [class~='bg-amber-600/90'],
     [class~='bg-orange-500'],
-    [class*='from-blue-600'][class*='to-cyan-500'],
-    [class*='bg-gradient-to-br']
+    [class~='bg-orange-600'],
+    [class*='bg-gradient-to-'][class*='from-blue-700'],
+    [class*='bg-gradient-to-'][class*='from-blue-600'][class*='to-cyan-600']:not([class*='from-blue-600/']),
+    [class*='bg-gradient-to-'][class*='from-cyan-500'][class*='to-blue-600'],
+    [class*='bg-gradient-to-'][class*='from-blue-600'][class*='via-blue-500'][class*='to-cyan-400'],
+    [class*='bg-gradient-to-'][class*='from-purple-600'],
+    [class*='bg-gradient-to-'][class*='from-indigo-600'],
+    [class*='bg-gradient-to-'][class*='from-cyan-600'],
+    [class*='bg-gradient-to-'][class*='from-violet-600'],
+    [class*='bg-gradient-to-'][class*='from-emerald-600'],
+    [class*='bg-gradient-to-'][class*='from-amber-600'],
+    [class*='bg-gradient-to-'][class*='from-orange-600'],
+    [class*='bg-gradient-to-'][class*='from-rose-600']
   ) [class*='text-white'] {
     color: #ffffff !important;
   }
@@ -674,12 +905,19 @@ html[data-theme='dark'] .sidebar-nav-item.is-active svg {
   html[data-theme='light'] [class*='to-slate-900'],
   html[data-theme='light'] [class*='via-slate-900'],
   html[data-theme='light'] [class*='from-blue-950'],
-  html[data-theme='light'] [class*='from-amber-950'] {
-    background-image: linear-gradient(135deg, #eff6ff, #ffffff) !important;
+  html[data-theme='light'] [class*='from-blue-900/'],
+  html[data-theme='light'] [class*='from-rose-950'],
+  html[data-theme='light'] [class*='from-emerald-950'] {
+    background-image: linear-gradient(135deg, #f8fafc, #ffffff) !important;
   }
 
-  html[data-theme='light'] .bg-clip-text.text-transparent {
-    background-image: linear-gradient(to right, #1d4ed8, #0e7490, #047857) !important;
+  html[data-theme='light'] [class*='from-amber-950'] {
+    background-image: linear-gradient(135deg, #fffbeb, #ffffff) !important;
+  }
+
+  /* Umpan balik hover lembut untuk tombol berbingkai */
+  html[data-theme='light'] button[class*='border-']:hover:not(:disabled) {
+    background-color: rgba(29, 78, 216, 0.04);
   }
 
   html[data-theme='light'] .glass-panel {
