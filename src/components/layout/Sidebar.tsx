@@ -76,18 +76,16 @@ export const Sidebar: React.FC = () => {
     return (
       <button
         onClick={() => handleSelectView(view)}
-        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition-all group min-h-[40px] ${
-          isActive
-            ? 'bg-blue-600 text-white font-semibold shadow-md shadow-blue-600/20'
-            : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+        className={`sidebar-nav-item w-full flex items-center justify-between px-3 py-2 text-xs font-medium transition-colors min-h-[36px] ${
+          isActive ? 'is-active font-semibold' : ''
         }`}
       >
         <div className="flex items-center gap-2.5 min-w-0">
-          <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-200'}`} />
+          <Icon className="w-4 h-4 shrink-0" />
           <span className="truncate">{label}</span>
         </div>
         {badge !== undefined && Number(badge) > 0 && (
-          <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded-full ${isActive ? 'bg-white/20 text-white' : badgeColor}`}>
+          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${badgeColor}`}>
             {badge}
           </span>
         )}

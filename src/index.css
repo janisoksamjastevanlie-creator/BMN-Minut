@@ -92,6 +92,76 @@ tr[class*='hover:bg-'] {
   transition: background-color 0.2s ease;
 }
 
+/* Menu sidebar: baris polos tanpa kartu.
+   Jangan memakai kelas hover:bg-slate-800 di sini karena pemetaan tema
+   terang memakai pencocokan substring sehingga latar hover ikut menyala
+   permanen dan tampak seperti kartu. */
+.sidebar-nav-item {
+  position: relative;
+  border-radius: 0.5rem;
+  background-color: transparent !important;
+  color: #4b5563;
+}
+
+.sidebar-nav-item svg {
+  color: #6b7280;
+}
+
+.sidebar-nav-item:hover {
+  background-color: rgba(15, 23, 42, 0.05) !important;
+  color: #1f2937;
+}
+
+.sidebar-nav-item:hover svg {
+  color: #374151;
+}
+
+.sidebar-nav-item.is-active {
+  background-color: rgba(37, 99, 235, 0.08) !important;
+  color: #1d4ed8;
+}
+
+.sidebar-nav-item.is-active svg {
+  color: #1d4ed8;
+}
+
+.sidebar-nav-item.is-active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 7px;
+  bottom: 7px;
+  width: 3px;
+  border-radius: 999px;
+  background-color: #2563eb;
+}
+
+html[data-theme='dark'] .sidebar-nav-item {
+  color: #98a1ad;
+}
+
+html[data-theme='dark'] .sidebar-nav-item svg {
+  color: #98a1ad;
+}
+
+html[data-theme='dark'] .sidebar-nav-item:hover {
+  background-color: rgba(148, 163, 184, 0.1) !important;
+  color: #e2e5ea;
+}
+
+html[data-theme='dark'] .sidebar-nav-item:hover svg {
+  color: #e2e5ea;
+}
+
+html[data-theme='dark'] .sidebar-nav-item.is-active {
+  background-color: rgba(37, 99, 235, 0.2) !important;
+  color: #93c5fd;
+}
+
+html[data-theme='dark'] .sidebar-nav-item.is-active svg {
+  color: #93c5fd;
+}
+
 @media screen {
   /* ==========================================================================
      TEMA MALAM — "Graphite"
