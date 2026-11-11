@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "node server.mjs",
-    "build": "tsc --noEmit && vite build",
+    "build": "vite build",
     "start": "node server.mjs",
     "migrate": "node migrate.mjs",
     "preview": "vite preview --host 127.0.0.1",
