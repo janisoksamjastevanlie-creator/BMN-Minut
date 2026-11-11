@@ -49,6 +49,7 @@ export const Navbar: React.FC = () => {
   const unreadCount = notifications.filter(n => !n.read).length;
 
   return (
+    <>
     <header className="sticky top-0 z-40 w-full bg-slate-900/90 backdrop-blur-md border-b border-slate-800 transition-all shadow-[0_1px_0_rgba(15,23,42,0.8)]">
       <div className="w-full h-16 flex items-center justify-between gap-4 px-4 sm:px-6 lg:px-8 md:pl-64 md:pr-6">
         {/* Left: Branding & Mobile Menu Toggle */}
@@ -313,11 +314,12 @@ export const Navbar: React.FC = () => {
           </div>
         </div>
       </div>
-
-      <ChangePasswordModal
-        isOpen={isChangePasswordOpen}
-        onClose={() => setIsChangePasswordOpen(false)}
-      />
     </header>
+
+    <ChangePasswordModal
+      isOpen={isChangePasswordOpen}
+      onClose={() => setIsChangePasswordOpen(false)}
+    />
+    </>
   );
 };
