@@ -351,15 +351,29 @@ html[data-theme='dark'] .sidebar-nav-item.is-active svg {
     color: #ffffff;
   }
 
+  /* ==========================================================================
+     TEMA SIANG — "Instansi BPS"
+     Putih bersih, biru BPS (#0f5aa5), garis jingga 3px di bawah header,
+     pita judul biru muda, sudut hampir tegak, dan tipografi Arial.
+     Status tetap berwarna sesuai alur kerja.
+     ========================================================================== */
   html[data-theme='light'] {
     color-scheme: light;
-    color: #1f2937;
+    color: #33475b;
     background-color: #ffffff;
   }
 
   html[data-theme='light'] body {
-    background-color: #f8fafc;
-    color: #1f2937;
+    background-color: #f4f6f8;
+    color: #33475b;
+    font-family: Arial, 'Helvetica Neue', Helvetica, sans-serif;
+  }
+
+  html[data-theme='light'] button,
+  html[data-theme='light'] input,
+  html[data-theme='light'] select,
+  html[data-theme='light'] textarea {
+    font-family: Arial, 'Helvetica Neue', Helvetica, sans-serif;
   }
 
   /* Permukaan solid: token persis agar kelas varian (hover:) tidak
@@ -374,7 +388,7 @@ html[data-theme='dark'] .sidebar-nav-item.is-active svg {
     [class~='bg-slate-950/50'],
     [class~='bg-slate-950/40']
   ) {
-    background-color: #f8fafc !important;
+    background-color: #f4f6f8 !important;
   }
 
   html[data-theme='light'] :is(
@@ -417,7 +431,7 @@ html[data-theme='dark'] .sidebar-nav-item.is-active svg {
 
   /* Hover permukaan netral: satu nada abu-biru lembut */
   html[data-theme='light'] [class*='hover:bg-slate-']:hover {
-    background-color: #e8edf3 !important;
+    background-color: #eef3f9 !important;
   }
 
   html[data-theme='light'] :is(
@@ -432,7 +446,7 @@ html[data-theme='dark'] .sidebar-nav-item.is-active svg {
     [class~='bg-blue-950/20'],
     [class~='bg-blue-950/30']
   ) {
-    background-color: #eff6ff !important;
+    background-color: #eef5fb !important;
   }
 
   html[data-theme='light'] :is(
@@ -473,17 +487,17 @@ html[data-theme='dark'] .sidebar-nav-item.is-active svg {
   }
 
   html[data-theme='light'] [class*='hover:bg-blue-950']:hover {
-    background-color: #eff6ff !important;
+    background-color: #eef5fb !important;
   }
 
   html[data-theme='light'] [class~='bg-blue-800'],
   html[data-theme='light'] [class~='bg-purple-800'] {
-    background-color: #dbeafe !important;
+    background-color: #e8f1fa !important;
   }
 
   /* Garis pindai QR tetap biru solid */
   html[data-theme='light'] [class~='bg-cyan-400/80'] {
-    background-color: #2563eb !important;
+    background-color: #0f5aa5 !important;
   }
 
   /* Chip dekoratif cyan/ungu/indigo/violet disatukan menjadi tint biru */
@@ -503,25 +517,41 @@ html[data-theme='dark'] .sidebar-nav-item.is-active svg {
     [class~='bg-indigo-600/20'],
     [class~='bg-violet-500/10']
   ) {
-    background-color: rgba(29, 78, 216, 0.08) !important;
+    background-color: rgba(15, 90, 165, 0.07) !important;
+  }
+
+  html[data-theme='light'] :is(
+    [class~='bg-blue-500/5'],
+    [class~='bg-blue-500/10'],
+    [class~='bg-blue-500/15'],
+    [class~='bg-blue-500/20'],
+    [class~='bg-blue-600/10'],
+    [class~='bg-blue-600/20'],
+    [class~='bg-blue-800/70']
+  ) {
+    background-color: rgba(15, 90, 165, 0.07) !important;
   }
 
   html[data-theme='light'] [class*='text-white']:not([class*=':text-white']) {
-    color: #1f2937;
+    color: #14283c;
   }
 
   html[data-theme='light'] [class*='text-slate-100']:not([class*=':text-slate-100']),
   html[data-theme='light'] [class*='text-slate-200']:not([class*=':text-slate-200']) {
-    color: #1f2937;
+    color: #14283c;
   }
 
   html[data-theme='light'] [class*='text-slate-300']:not([class*=':text-slate-300']) {
-    color: #374151;
+    color: #33475b;
   }
 
   html[data-theme='light'] [class*='text-slate-400']:not([class*=':text-slate-400']),
   html[data-theme='light'] [class*='text-slate-500']:not([class*=':text-slate-500']) {
-    color: #4b5563;
+    color: #5b6b7c;
+  }
+
+  html[data-theme='light'] [class*='text-slate-600']:not([class*=':text-slate-600']) {
+    color: #6b7a89;
   }
 
   /* Aksen dekoratif disatukan: biru BPS (cyan/ungu/indigo ikut biru) */
@@ -530,32 +560,32 @@ html[data-theme='dark'] .sidebar-nav-item.is-active svg {
   html[data-theme='light'] [class*='text-cyan-']:not([class*=':text-cyan-']),
   html[data-theme='light'] [class*='text-purple-']:not([class*=':text-purple-']),
   html[data-theme='light'] [class*='text-violet-']:not([class*=':text-violet-']) {
-    color: #1d4ed8;
+    color: #0f5aa5;
   }
 
   /* Warna status tetap dipertahankan */
   html[data-theme='light'] [class*='text-emerald-']:not([class*=':text-emerald-']),
   html[data-theme='light'] [class*='text-green-']:not([class*=':text-green-']) {
-    color: #047857;
+    color: #14684a;
   }
 
   html[data-theme='light'] [class*='text-rose-']:not([class*=':text-rose-']),
   html[data-theme='light'] [class*='text-red-']:not([class*=':text-red-']) {
-    color: #be123c;
+    color: #a3182f;
   }
 
   html[data-theme='light'] [class*='text-amber-']:not([class*=':text-amber-']) {
-    color: #92400e;
+    color: #8a5a06;
   }
 
   html[data-theme='light'] [class*='text-orange-']:not([class*=':text-orange-']) {
-    color: #b45309;
+    color: #8a5a06;
   }
 
   /* Teks saat hover: tetap gelap dan terbaca di atas permukaan terang */
   html[data-theme='light'] [class*='hover:text-slate-']:hover,
   html[data-theme='light'] [class~='hover:text-white']:hover {
-    color: #0f172a;
+    color: #123a5e;
   }
 
   html[data-theme='light'] [class*='hover:text-blue-']:hover,
@@ -563,50 +593,50 @@ html[data-theme='dark'] .sidebar-nav-item.is-active svg {
   html[data-theme='light'] [class*='hover:text-cyan-']:hover,
   html[data-theme='light'] [class*='hover:text-purple-']:hover,
   html[data-theme='light'] [class*='hover:text-violet-']:hover {
-    color: #1d4ed8;
+    color: #0f5aa5;
   }
 
   html[data-theme='light'] [class*='hover:text-emerald-']:hover,
   html[data-theme='light'] [class*='hover:text-green-']:hover {
-    color: #047857;
+    color: #14684a;
   }
 
   html[data-theme='light'] [class*='hover:text-rose-']:hover,
   html[data-theme='light'] [class*='hover:text-red-']:hover {
-    color: #be123c;
+    color: #a3182f;
   }
 
   html[data-theme='light'] [class*='hover:text-amber-']:hover,
   html[data-theme='light'] [class*='hover:text-orange-']:hover {
-    color: #92400e;
+    color: #8a5a06;
   }
 
   html[data-theme='light'] .group:hover [class~='group-hover:text-blue-300'],
   html[data-theme='light'] .group:hover [class~='group-hover:text-cyan-300'] {
-    color: #1d4ed8;
+    color: #0f5aa5;
   }
 
   html[data-theme='light'] [class*='border-slate-900']:not([class*=':border-slate-900']),
   html[data-theme='light'] [class*='border-slate-800']:not([class*=':border-slate-800']) {
-    border-color: #e5e7eb;
+    border-color: #d9e2ea;
   }
 
   html[data-theme='light'] [class*='border-slate-700']:not([class*=':border-slate-700']) {
-    border-color: #d1d5db;
+    border-color: #cfd9e3;
   }
 
   html[data-theme='light'] [class*='border-slate-600']:not([class*=':border-slate-600']),
   html[data-theme='light'] [class*='border-slate-500']:not([class*=':border-slate-500']) {
-    border-color: #cbd5e1;
+    border-color: #c6d2de;
   }
 
   html[data-theme='light'] [class*='hover:border-slate-700']:hover,
   html[data-theme='light'] [class*='hover:border-slate-600']:hover {
-    border-color: #cbd5e1;
+    border-color: #c6d2de;
   }
 
   html[data-theme='light'] [class*='hover:border-slate-500']:hover {
-    border-color: #94a3b8;
+    border-color: #a9b7c5;
   }
 
   /* Garis aksen lembut; ungu/cyan/indigo menyatu ke biru */
@@ -617,7 +647,7 @@ html[data-theme='dark'] .sidebar-nav-item.is-active svg {
     [class~='border-purple-500'],
     [class~='border-violet-500']
   ) {
-    border-color: #93c5fd;
+    border-color: #9db9d4;
   }
 
   html[data-theme='light'] [class*='border-blue-500/']:not([class*=':border-blue-500/']),
@@ -625,63 +655,63 @@ html[data-theme='dark'] .sidebar-nav-item.is-active svg {
   html[data-theme='light'] [class*='border-indigo-500/']:not([class*=':border-indigo-500/']),
   html[data-theme='light'] [class*='border-purple-500/']:not([class*=':border-purple-500/']),
   html[data-theme='light'] [class*='border-violet-500/']:not([class*=':border-violet-500/']) {
-    border-color: #bfdbfe;
+    border-color: #c6dbea;
   }
 
   html[data-theme='light'] :is(
     [class~='border-emerald-500'],
     [class~='border-green-500']
   ) {
-    border-color: #6ee7b7;
+    border-color: #9fcdbb;
   }
 
   html[data-theme='light'] [class*='border-emerald-500/']:not([class*=':border-emerald-500/']),
   html[data-theme='light'] [class*='border-green-500/']:not([class*=':border-green-500/']) {
-    border-color: #a7f3d0;
+    border-color: #c4e3d5;
   }
 
   html[data-theme='light'] :is(
     [class~='border-amber-500'],
     [class~='border-orange-500']
   ) {
-    border-color: #fcd34d;
+    border-color: #dcc38a;
   }
 
   html[data-theme='light'] [class*='border-amber-500/']:not([class*=':border-amber-500/']),
   html[data-theme='light'] [class*='border-orange-500/']:not([class*=':border-orange-500/']) {
-    border-color: #fde68a;
+    border-color: #ecdcb8;
   }
 
   html[data-theme='light'] :is(
     [class~='border-rose-500'],
     [class~='border-red-500']
   ) {
-    border-color: #fda4af;
+    border-color: #d8aab3;
   }
 
   html[data-theme='light'] [class*='border-rose-500/']:not([class*=':border-rose-500/']),
   html[data-theme='light'] [class*='border-red-500/']:not([class*=':border-red-500/']) {
-    border-color: #fecdd3;
+    border-color: #ecd2d7;
   }
 
   html[data-theme='light'] [class*='hover:border-blue-500']:hover,
   html[data-theme='light'] [class*='hover:border-cyan-500']:hover,
   html[data-theme='light'] [class*='hover:border-indigo-500']:hover,
   html[data-theme='light'] [class*='hover:border-purple-500']:hover {
-    border-color: #93c5fd;
+    border-color: #9db9d4;
   }
 
   html[data-theme='light'] [class*='hover:border-emerald-500']:hover {
-    border-color: #6ee7b7;
+    border-color: #9fcdbb;
   }
 
   html[data-theme='light'] [class*='divide-slate-'] {
-    --tw-divide-color: #e5e7eb;
+    --tw-divide-color: #e1e7ee;
   }
 
   html[data-theme='light'] [class*='placeholder-slate-']::placeholder,
   html[data-theme='light'] [class*='placeholder:text-slate-']::placeholder {
-    color: #6b7280 !important;
+    color: #7b8794 !important;
     opacity: 1;
   }
 
@@ -710,7 +740,7 @@ html[data-theme='dark'] .sidebar-nav-item.is-active svg {
     [class~='bg-violet-500'],
     [class~='bg-violet-600']
   ) {
-    background-color: #1d4ed8;
+    background-color: #0f5aa5;
   }
 
   html[data-theme='light'] :is(
@@ -723,7 +753,7 @@ html[data-theme='dark'] .sidebar-nav-item.is-active svg {
     [class~='bg-green-500'],
     [class~='bg-green-600']
   ) {
-    background-color: #047857;
+    background-color: #14684a;
   }
 
   html[data-theme='light'] :is(
@@ -733,7 +763,7 @@ html[data-theme='dark'] .sidebar-nav-item.is-active svg {
     [class~='bg-red-500'],
     [class~='bg-red-600']
   ) {
-    background-color: #be123c;
+    background-color: #a3182f;
   }
 
   html[data-theme='light'] :is(
@@ -744,7 +774,7 @@ html[data-theme='dark'] .sidebar-nav-item.is-active svg {
     [class~='bg-orange-500'],
     [class~='bg-orange-600']
   ) {
-    background-color: #b45309;
+    background-color: #8a5a06;
   }
 
   /* Hover tombol aksen: latar berwarna + teks putih */
@@ -760,7 +790,7 @@ html[data-theme='dark'] .sidebar-nav-item.is-active svg {
     [class~='hover:bg-violet-500'],
     [class~='hover:bg-violet-600']
   ):hover {
-    background-color: #1d4ed8 !important;
+    background-color: #0c4d8d !important;
     color: #ffffff !important;
   }
 
@@ -770,7 +800,7 @@ html[data-theme='dark'] .sidebar-nav-item.is-active svg {
     [class~='hover:bg-green-500'],
     [class~='hover:bg-green-600']
   ):hover {
-    background-color: #047857 !important;
+    background-color: #0f5740 !important;
     color: #ffffff !important;
   }
 
@@ -780,7 +810,7 @@ html[data-theme='dark'] .sidebar-nav-item.is-active svg {
     [class~='hover:bg-red-500'],
     [class~='hover:bg-red-600']
   ):hover {
-    background-color: #be123c !important;
+    background-color: #8a1428 !important;
     color: #ffffff !important;
   }
 
@@ -790,7 +820,7 @@ html[data-theme='dark'] .sidebar-nav-item.is-active svg {
     [class~='hover:bg-orange-500'],
     [class~='hover:bg-orange-600']
   ):hover {
-    background-color: #b45309 !important;
+    background-color: #734b05 !important;
     color: #ffffff !important;
   }
 
@@ -806,13 +836,15 @@ html[data-theme='dark'] .sidebar-nav-item.is-active svg {
     [class*='bg-gradient-to-'][class*='from-cyan-600'],
     [class*='bg-gradient-to-'][class*='from-violet-600']
   ) {
-    background-image: linear-gradient(135deg, #1d4ed8, #2563eb) !important;
+    background-image: linear-gradient(135deg, #0f5aa5, #0f5aa5) !important;
   }
 
-  /* Teks gradien (judul merek) satu nada biru */
+  /* Teks gradien (judul merek) satu nada biru tua instansi */
   html[data-theme='light'] [class~='text-transparent'][class~='bg-clip-text'],
   html[data-theme='light'] .bg-clip-text.text-transparent {
-    background-image: linear-gradient(to right, #1d4ed8, #2563eb) !important;
+    background-image: none !important;
+    color: #123a5e !important;
+    -webkit-text-fill-color: #123a5e !important;
   }
 
   /* Teks putih hanya di atas permukaan aksen penuh.
@@ -857,7 +889,7 @@ html[data-theme='dark'] .sidebar-nav-item.is-active svg {
     [class*='bg-gradient-to-'][class*='from-amber-600'],
     [class*='bg-gradient-to-'][class*='from-orange-600'],
     [class*='bg-gradient-to-'][class*='from-rose-600']
-  )[class*='text-white'],
+  )[class*='text-white']:not([disabled]),
   html[data-theme='light'] :is(
     [class~='bg-blue-400'],
     [class~='bg-blue-500'],
@@ -898,7 +930,7 @@ html[data-theme='dark'] .sidebar-nav-item.is-active svg {
     [class*='bg-gradient-to-'][class*='from-amber-600'],
     [class*='bg-gradient-to-'][class*='from-orange-600'],
     [class*='bg-gradient-to-'][class*='from-rose-600']
-  ) [class*='text-white'] {
+  ):not([disabled]) [class*='text-white'] {
     color: #ffffff !important;
   }
 
@@ -917,7 +949,27 @@ html[data-theme='dark'] .sidebar-nav-item.is-active svg {
 
   /* Umpan balik hover lembut untuk tombol berbingkai */
   html[data-theme='light'] button[class*='border-']:hover:not(:disabled) {
-    background-color: rgba(29, 78, 216, 0.04);
+    background-color: rgba(15, 90, 165, 0.05);
+  }
+
+  /* Tombol nonaktif: abu-abu terang dengan teks abu yang tetap terbaca,
+     termasuk saat kursor kebetulan melintas di atasnya. */
+  html[data-theme='light'] button:disabled {
+    background-color: #eef1f4 !important;
+    color: #7b8492 !important;
+    border-color: #d9e2ea !important;
+    box-shadow: none !important;
+    opacity: 1 !important;
+  }
+
+  html[data-theme='light'] button:disabled:hover {
+    background-color: #eef1f4 !important;
+    color: #7b8492 !important;
+    border-color: #d9e2ea !important;
+  }
+
+  html[data-theme='light'] button:disabled[class*='text-white'][class*='bg-'] {
+    color: #7b8492 !important;
   }
 
   html[data-theme='light'] .glass-panel {
@@ -926,7 +978,7 @@ html[data-theme='dark'] .sidebar-nav-item.is-active svg {
   }
 
   html[data-theme='light'] .glass-panel-hover:hover {
-    box-shadow: 0 8px 30px rgba(15, 23, 42, 0.12);
+    box-shadow: 0 2px 10px rgba(16, 42, 67, 0.08);
   }
 
   html[data-theme='light'] ::-webkit-scrollbar-track {
@@ -939,6 +991,186 @@ html[data-theme='dark'] .sidebar-nav-item.is-active svg {
 
   html[data-theme='light'] ::-webkit-scrollbar-thumb:hover {
     background: rgba(71, 85, 105, 0.75);
+  }
+
+  /* --------------------------------------------------------------------------
+     Bentuk instansi: sudut hampir tegak, garis jingga, sidebar putih.
+     -------------------------------------------------------------------------- */
+  html[data-theme='light'] :is(
+    [class~='rounded-3xl'],
+    [class~='rounded-2xl'],
+    [class~='rounded-xl'],
+    [class~='rounded-lg'],
+    [class~='rounded-md'],
+    [class~='rounded-[10px]'],
+    [class~='rounded-[14px]'],
+    [class~='rounded-[1.25rem]'],
+    [class~='rounded-[1.5rem]']
+  ) {
+    border-radius: 3px !important;
+  }
+
+  html[data-theme='light'] :is(
+    [class~='rounded-sm'],
+    [class~='rounded-[2px]']
+  ) {
+    border-radius: 2px !important;
+  }
+
+  /* Lencana status dan foto profil mengikuti sudut instansi */
+  html[data-theme='light'] span[class~='rounded-full'][class*='border-'],
+  html[data-theme='light'] img[class~='rounded-full'] {
+    border-radius: 2px !important;
+  }
+
+  /* Garis jingga 3px di bawah header, tanpa mengubah tinggi header
+     (sidebar mulai tepat di top-16). */
+  html[data-theme='light'] header.sticky {
+    box-shadow: inset 0 -3px 0 #e8820c !important;
+    background-color: #ffffff !important;
+  }
+
+  /* Sidebar instansi: putih, baris aktif biru muda dengan bilah kiri biru */
+  html[data-theme='light'] .sidebar-nav-item {
+    border-radius: 3px !important;
+    color: #3c4d5f;
+  }
+
+  html[data-theme='light'] .sidebar-nav-item svg {
+    color: #5b7086;
+  }
+
+  html[data-theme='light'] .sidebar-nav-item:hover {
+    background-color: #eef3f9 !important;
+    color: #123a5e;
+  }
+
+  html[data-theme='light'] .sidebar-nav-item:hover svg {
+    color: #0f5aa5;
+  }
+
+  html[data-theme='light'] .sidebar-nav-item.is-active {
+    background-color: #eef5fb !important;
+    color: #0f5aa5;
+  }
+
+  html[data-theme='light'] .sidebar-nav-item.is-active svg {
+    color: #0f5aa5;
+  }
+
+  html[data-theme='light'] .sidebar-nav-item.is-active::before {
+    background-color: #0f5aa5;
+    border-radius: 0;
+    top: 6px;
+    bottom: 6px;
+    width: 4px;
+  }
+
+  /* Bayangan data: kedalaman tipis, bukan efek melayang */
+  html[data-theme='light'] :is([class*='shadow-xl'], [class*='shadow-2xl']) {
+    box-shadow: 0 1px 3px rgba(16, 42, 67, 0.07) !important;
+  }
+
+  html[data-theme='light'] [class*='shadow-lg'] {
+    box-shadow: 0 1px 2px rgba(16, 42, 67, 0.06) !important;
+  }
+
+  /* --------------------------------------------------------------------------
+     Kepala halaman instansi: remah roti + pita judul biru muda.
+     Dipakai lewat kelas .gov-page-header / .gov-page-band.
+     -------------------------------------------------------------------------- */
+  .gov-breadcrumb {
+    display: none;
+  }
+
+  /* Margin keluar pita mengikuti gutter isi <main>: p-3 di ponsel,
+     p-6 di tablet, lalu --app-content-pad (clamp) mulai 768px.
+     Sisi kanan ditambah 6px untuk menutup alur scrollbar baku. */
+  html[data-theme='light'] .gov-page-header {
+    margin-left: -0.75rem;
+    margin-right: -0.75rem;
+  }
+
+  @media (min-width: 640px) {
+    html[data-theme='light'] .gov-page-header {
+      margin-left: -1.5rem;
+      margin-right: -1.5rem;
+    }
+  }
+
+  @media (min-width: 768px) {
+    html[data-theme='light'] .gov-page-header {
+      margin-left: calc(-1 * var(--app-content-pad, 1.25rem));
+      margin-right: calc(-1 * var(--app-content-pad, 1.25rem) - 6px);
+    }
+  }
+
+  html[data-theme='light'] .gov-breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 0.75rem 9px;
+    font-size: 10.5px;
+    color: #5b7086;
+    line-height: 1.4;
+  }
+
+  html[data-theme='light'] .gov-breadcrumb .gov-crumb-sep {
+    color: #a3afba;
+  }
+
+  html[data-theme='light'] .gov-breadcrumb .gov-crumb-link {
+    color: #0f5aa5;
+    font-weight: 600;
+  }
+
+  html[data-theme='light'] .gov-breadcrumb .gov-crumb-link:hover {
+    color: #0c4d8d;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  html[data-theme='light'] .gov-breadcrumb .gov-crumb-current {
+    color: #33475b;
+  }
+
+  html[data-theme='light'] .gov-page-band {
+    background-color: #eef5fb;
+    border-top: 1px solid #dbe7f2;
+    border-bottom: 1px solid #dbe7f2;
+    padding: 13px 0.75rem 14px;
+  }
+
+  @media (min-width: 640px) {
+    html[data-theme='light'] .gov-breadcrumb {
+      padding-left: 1.5rem;
+      padding-right: 1.5rem;
+    }
+
+    html[data-theme='light'] .gov-page-band {
+      padding-left: 1.5rem;
+      padding-right: 1.5rem;
+    }
+  }
+
+  @media (min-width: 768px) {
+    html[data-theme='light'] .gov-breadcrumb {
+      padding-left: var(--app-content-pad, 1.25rem);
+      padding-right: calc(var(--app-content-pad, 1.25rem) + 6px);
+    }
+
+    html[data-theme='light'] .gov-page-band {
+      padding-left: var(--app-content-pad, 1.25rem);
+      padding-right: calc(var(--app-content-pad, 1.25rem) + 6px);
+    }
+  }
+
+  html[data-theme='light'] .gov-page-band [class*='bg-blue-500/10'] {
+    background-color: #ffffff !important;
+  }
+
+  html[data-theme='light'] .gov-page-band [class*='shadow-lg'] {
+    box-shadow: none !important;
   }
 }
 
@@ -1448,9 +1680,12 @@ html[data-theme='dark'] .sidebar-nav-item.is-active svg {
   }
 
   #root main.flex-1 {
+    /* Gutter baku ini juga dipakai pita judul instansi (lihat .gov-page-header)
+       supaya latar pita dan tepi kiri-kanan isi tetap rata di semua lebar. */
+    --app-content-pad: clamp(1.25rem, 1.8vw, 1.75rem);
     min-width: 0;
     min-height: 0;
-    padding: clamp(1.25rem, 1.8vw, 1.75rem);
+    padding: var(--app-content-pad);
     padding-bottom: 5rem;
     overflow-x: hidden;
     overscroll-behavior: contain;

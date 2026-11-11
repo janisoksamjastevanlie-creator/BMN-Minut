@@ -7,7 +7,7 @@ import { StockRequestModal } from '../components/inventory/StockRequestModal';
 import { PrintableDocument } from '../components/common/PrintableDocument';
 import { ReportSignatureBlock } from '../components/common/ReportSignatureBlock';
 import { triggerPrint } from '../utils/printHelper';
-import { isPimpinanUser } from '../utils/rbac';
+import { getHomeView, isPimpinanUser } from '../utils/rbac';
 import { getRequestItemQuantities } from '../../requestStockValidation.mjs';
 import { canDeleteInventoryRequests } from '../../requestAccess.mjs';
 import {
@@ -174,7 +174,8 @@ export const StockRequestsView: React.FC = () => {
   const {
     requests, inventoryItems, auditLogs, updateRequestStatus, cancelInventoryRequest,
     confirmInventoryRequestReceipt, reportInventoryReceiptDiscrepancy,
-    reopenInventoryRequestHandover, deleteInventoryRequests, currentUser, hasPermission
+    reopenInventoryRequestHandover, deleteInventoryRequests, currentUser, hasPermission,
+    setActiveView
   } = useApp();
   // Pimpinan hanya memantau; Pemohon tidak memiliki kewenangan keputusan.
   const canApproveRequests = hasPermission('approveRequests') && !isPimpinanUser(currentUser);
@@ -552,29 +553,47 @@ export const StockRequestsView: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl font-extrabold text-white">Permohonan & Permintaan Barang Persediaan</h1>
-            <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 font-bold font-mono">
-              {requests.length} Pengajuan
-            </span>
-          </div>
-          <p className="text-xs text-slate-400 mt-1">
-            Pengelolaan alur permohonan ATK/ARK BPS Kabupaten Minahasa Utara TA 2026
-          </p>
-        </div>
-
-        {hasPermission('requestSupplies') && (
+      {/* Header instansi: remah roti + pita judul biru muda (tema siang) */}
+      <div className="gov-page-header">
+        <nav aria-label="Breadcrumb" className="gov-breadcrumb">
           <button
-            onClick={() => setIsNewRequestOpen(true)}
-            className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-2 transition-colors shadow-lg shadow-indigo-600/20 w-fit"
+            type="button"
+            onClick={() => setActiveView(getHomeView(currentUser))}
+            className="gov-crumb-link"
           >
-            <Plus className="w-4 h-4" />
-            <span>Buat Permohonan ATK/ARK</span>
+            Beranda
           </button>
-        )}
+          <span className="gov-crumb-sep" aria-hidden="true">/</span>
+          <span>Persediaan</span>
+          <span className="gov-crumb-sep" aria-hidden="true">/</span>
+          <span className="gov-crumb-current" aria-current="page">Permohonan Barang</span>
+        </nav>
+
+        <div className="gov-page-band">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl font-extrabold text-white">Permohonan & Permintaan Barang Persediaan</h1>
+                <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 font-bold font-mono">
+                  {requests.length} Pengajuan
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-1">
+                Pengelolaan alur permohonan ATK/ARK BPS Kabupaten Minahasa Utara TA 2026
+              </p>
+            </div>
+
+            {hasPermission('requestSupplies') && (
+              <button
+                onClick={() => setIsNewRequestOpen(true)}
+                className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-2 transition-colors shadow-lg shadow-indigo-600/20 w-fit"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Buat Permohonan ATK/ARK</span>
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* KPI Stat Cards */}
